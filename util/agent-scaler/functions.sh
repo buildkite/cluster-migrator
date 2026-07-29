@@ -79,13 +79,13 @@ die_with_pool_help() {
 }
 
 metrics() {
-  local token=$1
+  local auth_header_file=$1
 
   curl \
     --fail \
     --silent \
     --show-error \
-    --header "Authorization: Token $token" \
+    --header "@$auth_header_file" \
     "${AGENT_ENDPOINT%/}/metrics"
 }
 
@@ -191,10 +191,10 @@ show_status() {
   local unclustered_queue_metrics clustered_queue_metrics
   local unclustered_local unclustered_stale clustered_local clustered_stale
 
-  if ! unclustered_metrics=$(metrics "$UNCLUSTERED_TOKEN"); then
+  if ! unclustered_metrics=$(metrics "$UNCLUSTERED_AUTH_HEADER_FILE"); then
     die "could not read unclustered agent metrics"
   fi
-  if ! clustered_metrics=$(metrics "$CLUSTER_TOKEN"); then
+  if ! clustered_metrics=$(metrics "$CLUSTER_AUTH_HEADER_FILE"); then
     die "could not read clustered agent metrics"
   fi
   printf '%s\n' "$unclustered_metrics" | jq -e '.agents.queues | type == "object"' >/dev/null ||
@@ -231,7 +231,7 @@ read_unclustered_baseline() {
     [[ -n "$UNCLUSTERED_TOKEN" ]] ||
       die "set BUILDKITE_UNCLUSTERED_AGENT_TOKEN or pass --unclustered-token to establish the percentage baseline"
     temporary_file="$BASELINE_FILE.$$"
-    if ! metrics "$UNCLUSTERED_TOKEN" |
+    if ! metrics "$UNCLUSTERED_AUTH_HEADER_FILE" |
         jq -er --arg queue "$QUEUE" '
           .agents.queues[$queue].total
           | select(type == "number" and . >= 0 and floor == .)
@@ -259,7 +259,7 @@ write_unclustered_baseline() {
 }
 
 pool_total() {
-  metrics "$AGENT_TOKEN" |
+  metrics "$AGENT_AUTH_HEADER_FILE" |
     jq -er --arg queue "$QUEUE" '
       (.agents.queues[$queue].total // 0)
       | select(type == "number" and . >= 0 and floor == .)

@@ -187,9 +187,17 @@ Before each traffic increase, set destination capacity to the approved target us
 # Scale your destination infrastructure here using your normal fleet tooling.
 
 # Then check that Buildkite reports fresh destination capacity for the queue.
-curl --fail --silent --show-error \
-  --header "Authorization: Bearer $BUILDKITE_API_TOKEN" \
-  "https://api.buildkite.com/v2/organizations/$BUILDKITE_ORGANIZATION_SLUG/cluster-migrations/$MIGRATION_UUID/queues"
+(
+  set -e
+  API_AUTH_HEADER_FILE=$(mktemp)
+  trap 'rm -f "$API_AUTH_HEADER_FILE"' EXIT
+  chmod 600 "$API_AUTH_HEADER_FILE"
+  printf 'Authorization: Bearer %s\n' "$BUILDKITE_API_TOKEN" > "$API_AUTH_HEADER_FILE"
+
+  curl --fail --silent --show-error \
+    --header "@$API_AUTH_HEADER_FILE" \
+    "https://api.buildkite.com/v2/organizations/$BUILDKITE_ORGANIZATION_SLUG/cluster-migrations/$MIGRATION_UUID/queues"
+)
 ```
 
 Do not continue until the queue resource reports sufficient destination `connected_agents` and a fresh `activity.observed_at` for the requested traffic.

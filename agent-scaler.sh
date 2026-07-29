@@ -144,6 +144,25 @@ else
   [[ -n "$AGENT_TOKEN" ]] || die "set BUILDKITE_UNCLUSTERED_AGENT_TOKEN or pass --unclustered-token"
 fi
 
+UNCLUSTERED_AUTH_HEADER_FILE=""
+CLUSTER_AUTH_HEADER_FILE=""
+trap 'rm -f "$UNCLUSTERED_AUTH_HEADER_FILE" "$CLUSTER_AUTH_HEADER_FILE"' EXIT
+
+if [[ -n "$UNCLUSTERED_TOKEN" ]]; then
+  UNCLUSTERED_AUTH_HEADER_FILE=$(create_curl_auth_header_file Token "$UNCLUSTERED_TOKEN") ||
+    die "could not create a protected unclustered-agent authentication file"
+fi
+if [[ -n "$CLUSTER_TOKEN" ]]; then
+  CLUSTER_AUTH_HEADER_FILE=$(create_curl_auth_header_file Token "$CLUSTER_TOKEN") ||
+    die "could not create a protected clustered-agent authentication file"
+fi
+
+if [[ "$POOL" == "cluster" ]]; then
+  AGENT_AUTH_HEADER_FILE=$CLUSTER_AUTH_HEADER_FILE
+else
+  AGENT_AUTH_HEADER_FILE=$UNCLUSTERED_AUTH_HEADER_FILE
+fi
+
 for command in curl jq ps; do
   command -v "$command" >/dev/null || die "$command is required"
 done

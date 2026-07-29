@@ -39,12 +39,15 @@ esac
 : "${BUILDKITE_API_TOKEN:?Set BUILDKITE_API_TOKEN in .env or the environment}"
 BUILDKITE_API_URL=${BUILDKITE_API_URL:-https://api.buildkite.com/v2}
 BUILDKITE_GRAPHQL_URL=${BUILDKITE_GRAPHQL_URL:-https://graphql.buildkite.com/v1}
+API_AUTH_HEADER_FILE=$(create_curl_auth_header_file Bearer "$BUILDKITE_API_TOKEN") ||
+  die "could not create a protected API authentication file"
+trap 'rm -f "$API_AUTH_HEADER_FILE"' EXIT
 
 COMMON_CURL_ARGS=(
   --fail
   --silent
   --show-error
-  --header "Authorization: Bearer $BUILDKITE_API_TOKEN"
+  --header "@$API_AUTH_HEADER_FILE"
 )
 if [[ -z ${BUILDKITE_ORGANIZATION_SLUG:-} ]]; then
   BUILDKITE_ORGANIZATION_SLUG=$(curl "${COMMON_CURL_ARGS[@]}" "$BUILDKITE_API_URL/organizations" | jq -er '.[0].slug')

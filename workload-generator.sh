@@ -29,6 +29,12 @@ case "${1:-}" in
     usage
     exit 0
     ;;
+  "")
+    die "command is required (expected: run)"
+    ;;
+  *)
+    die "unknown command: $1"
+    ;;
 esac
 
 BUILDS_PER_MINUTE=4
@@ -62,15 +68,18 @@ BUILD_INTERVAL_SECONDS=$(awk -v rate="$BUILDS_PER_MINUTE" 'BEGIN { print 60 / ra
 
 : "${BUILDKITE_API_TOKEN:?Set BUILDKITE_API_TOKEN in .env or the environment}"
 BUILDKITE_API_URL=${BUILDKITE_API_URL:-http://api.buildkite.localhost/v2}
+API_AUTH_HEADER_FILE=$(create_curl_auth_header_file Bearer "$BUILDKITE_API_TOKEN") ||
+  die "could not create a protected API authentication file"
+trap 'rm -f "$API_AUTH_HEADER_FILE"' EXIT
 
 COMMON_CURL_ARGS=(
   --fail
   --silent
   --show-error
-  --header "Authorization: Bearer $BUILDKITE_API_TOKEN"
+  --header "@$API_AUTH_HEADER_FILE"
 )
 if [[ -z ${BUILDKITE_ORGANIZATION_SLUG:-} ]]; then
-  BUILDKITE_ORGANIZATION_SLUG=$(curl "${COMMON_CURL_ARGS[@]}" "$BUILDKITE_API_URL/organizations" | jq -r '.[0].slug')
+  BUILDKITE_ORGANIZATION_SLUG=$(curl "${COMMON_CURL_ARGS[@]}" "$BUILDKITE_API_URL/organizations" | jq -er '.[0].slug')
 fi
 export BUILDKITE_ORGANIZATION_SLUG
 
@@ -86,7 +95,11 @@ for index in "${!WORKLOAD_PIPELINE_SLUGS[@]}"; do
     die "pipeline '$pipeline_slug' does not exist; run ./setup-organization.sh first"
   fi
 
-  DEFAULT_BRANCHES+=("$(jq -r '.default_branch' <<< "$PIPELINE")")
+  if ! default_branch=$(jq -er \
+      '.default_branch | select(type == "string" and length > 0)' <<< "$PIPELINE"); then
+    die "pipeline '$pipeline_slug' does not have a default branch"
+  fi
+  DEFAULT_BRANCHES+=("$default_branch")
 done
 
 SEQUENCE=1
