@@ -1,0 +1,44 @@
+agents:
+  queue: "general"
+
+steps:
+  - group: ":runner: Ordinary jobs"
+    key: "ordinary-jobs"
+    steps:
+      - label: ":zap: Quick job %n"
+        key: "quick-jobs"
+        command: "sleep 5"
+        parallelism: 4
+
+      - label: ":hourglass_flowing_sand: Medium job %n"
+        key: "medium-jobs"
+        command: "sleep 30"
+        parallelism: 2
+
+      - label: ":snail: Long job"
+        key: "long-job"
+        command: "sleep 180"
+
+  - group: ":vertical_traffic_light: Concurrency groups"
+    key: "concurrency-groups"
+    steps:
+      - label: "Serial group %n"
+        key: "serial-group"
+        command: "sleep 15"
+        parallelism: 2
+        concurrency: 1
+        concurrency_group: "cluster-migrator/${BUILDKITE_PIPELINE_SLUG}/serial"
+
+      - label: "Narrow group %n"
+        key: "narrow-group"
+        command: "sleep 30"
+        parallelism: 3
+        concurrency: 2
+        concurrency_group: "cluster-migrator/${BUILDKITE_PIPELINE_SLUG}/narrow"
+
+      - label: "Wide group %n"
+        key: "wide-group"
+        command: "sleep 60"
+        parallelism: 5
+        concurrency: 4
+        concurrency_group: "cluster-migrator/${BUILDKITE_PIPELINE_SLUG}/wide"
