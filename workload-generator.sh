@@ -4,8 +4,8 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
-# shellcheck source=util/load-env.sh
-source "$SCRIPT_DIR/util/load-env.sh"
+# shellcheck source=util/common.sh
+source "$SCRIPT_DIR/util/common.sh"
 
 die() {
   echo "workload-generator: $*" >&2

@@ -6,8 +6,8 @@ umask 077
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ENV_FILE="$SCRIPT_DIR/.env"
 
-# shellcheck source=util/load-env.sh
-source "$SCRIPT_DIR/util/load-env.sh"
+# shellcheck source=util/common.sh
+source "$SCRIPT_DIR/util/common.sh"
 
 die() {
   echo "setup-organization: $*" >&2
