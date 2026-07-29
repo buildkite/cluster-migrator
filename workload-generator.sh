@@ -16,8 +16,8 @@ usage() {
   cat <<'EOF'
 Usage: ./workload-generator.sh run [--builds-per-minute=<1..60>]
 
-Creates the cluster migration target, shared-queue consumer, and unrelated
-control pipelines, then generates builds across all three at the total rate.
+Generates builds across the cluster migration pipelines created by
+setup-organization.sh at the total requested rate.
 EOF
 }
 
@@ -78,24 +78,12 @@ export BUILDKITE_ORGANIZATION_SLUG
 source "$SCRIPT_DIR/util/workload-generator/functions.sh"
 
 DEFAULT_BRANCHES=()
-EVERYONE_TEAM_ID=""
 
 for index in "${!WORKLOAD_PIPELINE_SLUGS[@]}"; do
   pipeline_slug=${WORKLOAD_PIPELINE_SLUGS[$index]}
 
   if ! PIPELINE=$(demo_pipeline "$pipeline_slug"); then
-    if [[ -z "$EVERYONE_TEAM_ID" ]]; then
-      EVERYONE_TEAM_ID=$(everyone_team_id)
-      [[ -n "$EVERYONE_TEAM_ID" && "$EVERYONE_TEAM_ID" != "null" ]] ||
-        die "the organization does not have an Everyone team"
-    fi
-
-    PIPELINE=$(create_demo_pipeline \
-      "$pipeline_slug" \
-      "${WORKLOAD_PIPELINE_NAMES[$index]}" \
-      "${WORKLOAD_PIPELINE_DEFAULT_QUEUES[$index]}" \
-      "${WORKLOAD_PIPELINE_FILES[$index]}" \
-      "$EVERYONE_TEAM_ID")
+    die "pipeline '$pipeline_slug' does not exist; run ./setup-organization.sh first"
   fi
 
   DEFAULT_BRANCHES+=("$(jq -r '.default_branch' <<< "$PIPELINE")")

@@ -22,12 +22,13 @@ The workload generator supplies controlled test traffic; it does not prove readi
 
 Customers use only `cluster-migrator`. It controls temporary queue routing, reads capacity and readiness from Buildkite, cuts over concurrency groups, and permanently moves ready pipelines. Customers continue to manage agents through their existing fleet tooling.
 
-This repository has two additional local test-harness binaries:
+This repository has three additional local test-harness binaries:
 
+- `setup-organization` creates or reuses the demo cluster, queues, pipelines, and agent tokens.
 - `agent-scaler` starts and stops local Buildkite agent processes to simulate customer fleet tooling or a production autoscaler such as the Buildkite Elastic CI Stack for AWS.
 - `workload-generator` creates probe builds through Buildkite's REST API.
 
-Neither local binary is installed or used by production operators. Neither changes migration state.
+These local binaries are not installed or used by production operators. None changes migration state.
 
 The rule is simple: **scale first, cut over second**.
 
@@ -80,11 +81,15 @@ That is the customer workflow. `cluster-migrator` never scales agents or generat
 `cluster-migrator` requires the proposed migration APIs described below, including a migration-owned pipeline move that revalidates readiness atomically. The local harnesses use these existing Buildkite API operations:
 
 ```text
-agent-scaler:        GET   https://agent.buildkite.com/v3/metrics
-workload-generator:  GET   https://api.buildkite.com/v2/organizations/{org}/teams
-workload-generator:  GET   https://api.buildkite.com/v2/organizations/{org}/pipelines/{pipeline}
-workload-generator:  POST  https://api.buildkite.com/v2/organizations/{org}/pipelines
-workload-generator:  POST  https://api.buildkite.com/v2/organizations/{org}/pipelines/{pipeline}/builds
+setup-organization:  GET/POST https://api.buildkite.com/v2/organizations/{org}/clusters
+setup-organization:  GET/POST https://api.buildkite.com/v2/organizations/{org}/clusters/{cluster}/queues
+setup-organization:  POST     https://api.buildkite.com/v2/organizations/{org}/clusters/{cluster}/tokens
+setup-organization:  POST     https://graphql.buildkite.com/v1 (unclustered agent token)
+setup-organization:  GET      https://api.buildkite.com/v2/organizations/{org}/teams
+setup-organization:  GET/POST https://api.buildkite.com/v2/organizations/{org}/pipelines
+agent-scaler:        GET      https://agent.buildkite.com/v3/metrics
+workload-generator:  GET      https://api.buildkite.com/v2/organizations/{org}/pipelines/{pipeline}
+workload-generator:  POST     https://api.buildkite.com/v2/organizations/{org}/pipelines/{pipeline}/builds
 ```
 
 The `/cluster-migrations` endpoints below are **proposed API**, not current Buildkite endpoints. `{api}` means `https://api.buildkite.com/v2`. Every `{api}` request sends `Authorization: Bearer $BUILDKITE_API_TOKEN`; repeated examples omit that header for brevity.
@@ -270,6 +275,16 @@ The request has no body. The completion endpoint must recheck the organization-w
 
 Customers do not need these tools. Buildkite can use them in a disposable organization to exercise `cluster-migrator` before the production migration. They are deliberately separate from the customer-facing CLI because production fleet management and workload selection are customer-owned concerns.
 
+### `./setup-organization.sh`
+
+```shell
+./setup-organization.sh
+```
+
+Setup creates or reuses the `Cluster Migrator Demo` cluster, the `target-only`, `shared`, and `control-only` queues, and the three demo pipelines. It creates clustered and unclustered agent tokens only when their corresponding `.env` values are empty. Because Buildkite reveals each token value only once, setup writes these values and `DESTINATION_CLUSTER_UUID` to the gitignored `.env` file with mode `0600` immediately after creation.
+
+The API token needs `read_clusters`, `write_clusters`, `read_teams`, `read_pipelines`, and `write_pipelines`, plus GraphQL API access. Unclustered token creation uses the deprecated GraphQL `agentTokenCreate` mutation and works only when the organization has legacy Unclustered mode. Rerunning setup reuses resources by exact cluster name, queue key, and pipeline slug; existing `.env` token values prevent duplicate token creation.
+
 ### `./agent-scaler.sh cluster`, `unclustered`, and `status`
 
 ```shell
@@ -327,7 +342,7 @@ When reducing either pool, the scaler sends one `SIGTERM` to only its recorded c
 ./workload-generator.sh run --builds-per-minute=4
 ```
 
-This tool does not know about migrations. It ensures three pipelines exist, initially creating them as unclustered, then reads each pipeline's default branch using the current Pipelines REST API:
+This tool does not know about migrations or create resources. It requires the three pipelines created by `setup-organization.sh`, then reads each pipeline's default branch using the current Pipelines REST API:
 
 | Pipeline | Definition | Queue routing | Purpose |
 | --- | --- | --- | --- |
@@ -354,7 +369,7 @@ Content-Type: application/json
 }
 ```
 
-The generator creates each pipeline with a dynamic upload step that loads the representative queue-specific job mix from this repository. It prints each response's `web_url`, stops creating builds on `Ctrl-C`, and does not cancel builds already created.
+Setup creates each pipeline with a dynamic upload step that loads the representative queue-specific job mix from this repository. The generator prints each build response's `web_url`, stops creating builds on `Ctrl-C`, and does not cancel builds already created.
 
 ## Authentication
 
@@ -375,14 +390,15 @@ export BUILDKITE_API_TOKEN=<token>
 
 The API token must have the least-privilege migration and pipeline-read scopes defined by the final API contract. Exact scopes remain a production-blocking decision. `cluster-migrator` never accepts or reads an agent token.
 
-The local harnesses need additional credentials:
+Organization setup generates and stores these additional local harness values in `.env`:
 
 ```shell
 export BUILDKITE_UNCLUSTERED_AGENT_TOKEN=<token>
 export BUILDKITE_CLUSTER_AGENT_TOKEN=<token>
+export DESTINATION_CLUSTER_UUID=<uuid>
 ```
 
-`workload-generator` uses the organization slug and API token, with `read_teams`, `read_pipelines`, `write_pipelines`, and `write_builds`. `agent-scaler` uses the token for the selected pool. A percentage target also needs the unclustered token when the queue baseline has not been recorded yet.
+`setup-organization` uses the organization slug and API token with cluster, team, pipeline, and GraphQL access. `workload-generator` needs `read_pipelines` and `write_builds`. `agent-scaler` uses the token for the selected pool. A percentage target also needs the unclustered token when the queue baseline has not been recorded yet.
 
 `agent-scaler` resolves its tokens in this order:
 

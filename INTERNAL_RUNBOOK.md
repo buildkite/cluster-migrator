@@ -4,25 +4,66 @@ This runbook exercises the migration flow in a disposable Buildkite organization
 
 Use the preconditions, phase gates, emergency actions, and evidence requirements from the customer runbook. The commands below replace only the customer-owned workload and fleet-management steps.
 
-## Prepare the demo
+## Configure the environment
 
-Set the migration and local harness credentials:
+Copy the checked-in example and populate the setup inputs:
 
 ```shell
-export BUILDKITE_ORGANIZATION_SLUG=<organization>
-export BUILDKITE_API_TOKEN=<token>
-export BUILDKITE_UNCLUSTERED_AGENT_TOKEN=<token>
-export BUILDKITE_CLUSTER_AGENT_TOKEN=<token>
-export DESTINATION_CLUSTER_UUID=<uuid>
+cp .env.example .env
 ```
+
+| Variable | Value |
+| --- | --- |
+| `BUILDKITE_ORGANIZATION_SLUG` | Disposable organization slug |
+| `BUILDKITE_API_TOKEN` | API token created above |
+| `BUILDKITE_API_URL` | API base URL for the environment under test |
+| `BUILDKITE_GRAPHQL_URL` | GraphQL API URL for the environment under test |
+| `BUILDKITE_AGENT_ENDPOINT` | Agent API endpoint for the environment under test |
+
+The organization must be disposable, have legacy **Unclustered mode** enabled, and have an `Everyone` team. Keep it in Unclustered mode until every demo pipeline has moved and finalization has passed. The API token needs `read_clusters`, `write_clusters`, `read_teams`, `read_pipelines`, `write_pipelines`, and `write_builds`, the migration scopes required by the API under test, and GraphQL API access.
+
+The top-level scripts load `.env` automatically. Keep `.env` out of commits; it is already ignored by Git.
+
+## Prepare the test organization
+
+Run:
+
+```shell
+export BUILDKITE_API_URL="https://api.buildkite.localhost/v2"
+export BUILDKITE_GRAPHQL_URL="https://graphql.buildkite.localhost/v1"
+export BUILDKITE_AGENT_ENDPOINT="https://agent.buildkite.localhost/v3"
+export BUILDKITE_API_TOKEN=<token>
+./setup-organization.sh
+```
+
+## Create the migration
 
 Create the migration once and capture its UUID:
 
 ```shell
+source .env
 MIGRATION_UUID=$(cluster-migrator create migration \
   --cluster-uuid="$DESTINATION_CLUSTER_UUID")
 export MIGRATION_UUID
 ```
+
+## Create source capacity
+
+Before generating builds, start 10 unclustered agents on every demo queue:
+
+```shell
+./agent-scaler.sh unclustered --queue=target-only --count=10 --wait
+./agent-scaler.sh unclustered --queue=shared --count=10 --wait
+./agent-scaler.sh unclustered --queue=control-only --count=10 --wait
+```
+
+The `--wait` flag blocks until Buildkite observes the requested agents. Confirm all three queues report 10 unclustered agents:
+
+```shell
+./agent-scaler.sh status
+```
+
+Do not start the workload if any queue is missing source capacity. Keep all 30 unclustered agents running until the migration is complete.
 
 ## Start representative workloads
 
@@ -41,18 +82,6 @@ The generator creates continuous traffic for:
 | `cluster-migrator-control` | `control-only` | Confirms unrelated traffic is unaffected |
 
 Move the target pipeline only after both `target-only` and `shared` are ready. Confirm the shared consumer observes the `shared` rollout and the control pipeline remains unaffected.
-
-## Create source capacity
-
-Start representative unclustered agents for every demo queue:
-
-```shell
-./agent-scaler.sh unclustered --queue=target-only --count=<agents> --wait
-./agent-scaler.sh unclustered --queue=shared --count=<agents> --wait
-./agent-scaler.sh unclustered --queue=control-only --count=<agents> --wait
-```
-
-Keep this source capacity unchanged until the migration is complete.
 
 ## Roll out each queue
 

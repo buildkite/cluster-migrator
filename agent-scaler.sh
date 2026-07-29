@@ -148,7 +148,9 @@ for command in curl jq ps; do
   command -v "$command" >/dev/null || die "$command is required"
 done
 if [[ "$COMMAND" == "status" ]]; then
-  command -v sort >/dev/null || die "sort is required"
+  for command in column sort; do
+    command -v "$command" >/dev/null || die "$command is required"
+  done
 else
   command -v buildkite-agent >/dev/null || die "buildkite-agent is required"
 fi

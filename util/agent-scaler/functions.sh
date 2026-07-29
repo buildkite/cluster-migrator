@@ -202,24 +202,26 @@ show_status() {
   printf '%s\n' "$clustered_metrics" | jq -e '.agents.queues | type == "object"' >/dev/null ||
     die "clustered metrics did not include agent queues"
 
-  printf 'QUEUE\tBASELINE\tUNCLUSTERED (TOTAL/IDLE/BUSY)\tCLUSTERED (TOTAL/IDLE/BUSY)\tLOCAL (U/C)\tSTALE (U/C)\n'
-  while IFS= read -r queue; do
-    [[ -n "$queue" ]] || continue
-    baseline=$(status_baseline "$queue")
-    unclustered_queue_metrics=$(status_queue_metrics "$unclustered_metrics" "$queue")
-    clustered_queue_metrics=$(status_queue_metrics "$clustered_metrics" "$queue")
-    read -r unclustered_local unclustered_stale < <(status_local_counts "$queue" unclustered)
-    read -r clustered_local clustered_stale < <(status_local_counts "$queue" cluster)
-    printf '%s\t%s\t%s\t%s\t%s/%s\t%s/%s\n' \
-      "$queue" \
-      "$baseline" \
-      "$unclustered_queue_metrics" \
-      "$clustered_queue_metrics" \
-      "$unclustered_local" \
-      "$clustered_local" \
-      "$unclustered_stale" \
-      "$clustered_stale"
-  done < <(status_queue_names "$unclustered_metrics" "$clustered_metrics")
+  {
+    printf 'QUEUE\tBASELINE\tUNCLUSTERED (TOTAL/IDLE/BUSY)\tCLUSTERED (TOTAL/IDLE/BUSY)\tLOCAL (U/C)\tSTALE (U/C)\n'
+    while IFS= read -r queue; do
+      [[ -n "$queue" ]] || continue
+      baseline=$(status_baseline "$queue")
+      unclustered_queue_metrics=$(status_queue_metrics "$unclustered_metrics" "$queue")
+      clustered_queue_metrics=$(status_queue_metrics "$clustered_metrics" "$queue")
+      read -r unclustered_local unclustered_stale < <(status_local_counts "$queue" unclustered)
+      read -r clustered_local clustered_stale < <(status_local_counts "$queue" cluster)
+      printf '%s\t%s\t%s\t%s\t%s/%s\t%s/%s\n' \
+        "$queue" \
+        "$baseline" \
+        "$unclustered_queue_metrics" \
+        "$clustered_queue_metrics" \
+        "$unclustered_local" \
+        "$clustered_local" \
+        "$unclustered_stale" \
+        "$clustered_stale"
+    done < <(status_queue_names "$unclustered_metrics" "$clustered_metrics")
+  } | column -t -s $'\t'
 }
 
 read_unclustered_baseline() {
