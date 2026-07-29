@@ -1,0 +1,41 @@
+agents:
+  queue: "target-only"
+
+steps:
+  - group: ":runner: Ordinary jobs"
+    key: "ordinary-jobs"
+    steps:
+      - label: ":zap: Target-only quick job %n"
+        key: "target-only-quick-jobs"
+        command: "sleep 5"
+        parallelism: 4
+
+      - label: ":hourglass_flowing_sand: Shared medium job %n"
+        key: "shared-medium-jobs"
+        command: "sleep 30"
+        parallelism: 2
+        agents:
+          queue: "shared"
+
+      - label: ":snail: Target-only long job"
+        key: "target-only-long-job"
+        command: "sleep 180"
+
+  - group: ":vertical_traffic_light: Cross-queue concurrency group"
+    key: "cross-queue-concurrency-group"
+    steps:
+      - label: "Target-only serial group %n"
+        key: "target-only-serial-group"
+        command: "sleep 15"
+        parallelism: 2
+        concurrency: 1
+        concurrency_group: "cluster-migrator/target/cross-queue"
+
+      - label: "Shared serial group %n"
+        key: "shared-serial-group"
+        command: "sleep 30"
+        parallelism: 2
+        concurrency: 1
+        concurrency_group: "cluster-migrator/target/cross-queue"
+        agents:
+          queue: "shared"

@@ -18,7 +18,7 @@ The approver must confirm all items before scheduling production work:
 - [ ] Minimum soak time, minimum job count, traffic tolerance, latency limits, and queue-pressure limits are filled in below.
 - [ ] Exact API token scopes and actor-attributed audit events are documented and verified.
 - [ ] The supported response to a bad pipeline move is documented under **Emergency pipeline response**.
-- [ ] Every failure-injection rehearsal listed below has passed.
+- [ ] Buildkite has supplied evidence that every required failure-injection rehearsal passed in a disposable organization.
 
 Approval record:
 
@@ -164,15 +164,35 @@ Do not continue unless:
 
 Save the output in the change record.
 
+## Start representative workloads
+
+Start customer-selected builds that exercise every affected queue and the functional checks listed under **Baseline health**:
+
+```shell
+# Start your representative workloads here using your normal build-triggering process.
+# Keep them running throughout the queue rollout and pipeline verification.
+```
+
+Record the pipeline and build links used as migration evidence.
+
 ## Roll out ordinary queue traffic
 
 Process one queue at a time through 30%, 60%, and 100%. Percentages are absolute targets. Keep source capacity unchanged.
 
 ### Increase destination capacity
 
-Before each traffic increase, ask the fleet owner to set destination capacity to the approved target using the customer's existing fleet tooling. Wait until `status` reports fresh destination capacity sufficient for the requested traffic.
+Before each traffic increase, set destination capacity to the approved target using your existing fleet tooling:
 
-Do not use `agent-scaler` in production.
+```shell
+# Scale your destination infrastructure here using your normal fleet tooling.
+
+# Then check that Buildkite reports fresh destination capacity for the queue.
+curl --fail --silent --show-error \
+  --header "Authorization: Bearer $BUILDKITE_API_TOKEN" \
+  "https://api.buildkite.com/v2/organizations/$BUILDKITE_ORGANIZATION_SLUG/cluster-migrations/$MIGRATION_UUID/queues"
+```
+
+Do not continue until the queue resource reports sufficient destination `connected_agents` and a fresh `activity.observed_at` for the requested traffic.
 
 ### Set the traffic target
 
@@ -336,59 +356,3 @@ Wait for a terminal migration state. Save the final status and audit events. Fin
 - [ ] Audit events identify every mutation and actor.
 - [ ] The change record contains versions, commands, timestamps, status output, approvals, metrics, and build links.
 - [ ] Follow-up fleet normalization is tracked separately.
-
-## Disposable-organization rehearsal
-
-Buildkite uses the local harnesses only in a disposable organization. Production operators do not use `agent-scaler` or `workload-generator`.
-
-Set the additional test credentials:
-
-```shell
-export BUILDKITE_UNCLUSTERED_AGENT_TOKEN=<token>
-export BUILDKITE_CLUSTER_AGENT_TOKEN=<token>
-```
-
-Start representative traffic in another terminal:
-
-```shell
-workload-generator run \
-  --pipeline=<pipeline-slug> \
-  --builds-per-minute=4
-```
-
-Initialize each source queue with representative unclustered capacity:
-
-```shell
-agent-scaler unclustered --queue=<queue> --count=<agents> --wait
-```
-
-For each queue, scale capacity before each traffic target:
-
-```shell
-agent-scaler cluster --queue=<queue> --percentage=30 --wait
-cluster-migrator cutover --migration-uuid="$MIGRATION_UUID" --queue=<queue> --percentage=30 --wait
-
-agent-scaler cluster --queue=<queue> --percentage=60 --wait
-cluster-migrator cutover --migration-uuid="$MIGRATION_UUID" --queue=<queue> --percentage=60 --wait
-
-agent-scaler cluster --queue=<queue> --percentage=100 --wait
-cluster-migrator cutover --migration-uuid="$MIGRATION_UUID" --queue=<queue> --percentage=100 --wait
-```
-
-Exercise the same gates, concurrency-group moves, pipeline moves, finalization, and evidence capture required in production.
-
-Before production approval, deliberately verify:
-
-- Stale and missing capacity block increases.
-- A missing destination queue appears as a blocker.
-- Repeating absolute targets does not duplicate work.
-- A resource-version conflict fails closed.
-- Interrupting `--wait` leaves an observable operation another operator can reattach to.
-- Concurrency-group timeout or cancellation releases held jobs into the documented scope.
-- Returning reversible ordinary traffic to 0% prevents new destination dispatch before capacity is reduced.
-- Traffic decreases are blocked after a moved dependency makes them unsafe.
-- A pipeline readiness change racing with a move is rejected atomically.
-- A second migration for the same source pool is rejected with the active migration ID.
-- Finalization is rejected while any organization pipeline remains unclustered.
-
-Stop `workload-generator` with `Ctrl-C`; this stops creating builds but does not cancel existing builds. Clean up agents only after traffic and dependency checks prove removal is safe, or after the disposable organization and its workloads have been disabled.

@@ -3,7 +3,7 @@
 Cluster Migrator answers one question: **is it safe to permanently move each pipeline from unclustered queues into a cluster?**
 
 > [!IMPORTANT]
-> This README defines the mechanism and API contract before implementation. These commands do not exist yet. The operator procedure lives in [RUNBOOK.md](RUNBOOK.md) and is not production-approved while its blocking decisions remain unresolved.
+> This README defines the mechanism and API contract before implementation. These commands do not exist yet. The [customer runbook](CUSTOMER_RUNBOOK.md) is not production-approved while its blocking decisions remain unresolved.
 
 Migration mode does not move a pipeline immediately. The pipeline remains officially unclustered while Buildkite routes a deterministic percentage of its newly created, non-concurrency jobs into matching cluster queues. An operator can ramp that traffic, observe it, and return new traffic to 0% without restarting the whole fleet.
 
@@ -71,15 +71,19 @@ That is the customer workflow. `cluster-migrator` never scales agents or generat
 
 ## Operational procedure
 
-[RUNBOOK.md](RUNBOOK.md) owns preconditions, phase gates, emergency actions, rollback boundaries, failure recovery, audit evidence, and the disposable-organization rehearsal. This README deliberately does not duplicate those instructions.
+[CUSTOMER_RUNBOOK.md](CUSTOMER_RUNBOOK.md) owns the production preconditions, phase gates, emergency actions, rollback boundaries, failure recovery, and audit evidence. It uses placeholders for customer-owned workload and fleet tooling.
+
+[INTERNAL_RUNBOOK.md](INTERNAL_RUNBOOK.md) owns the disposable-organization rehearsal. It uses this repository's `workload-generator` and `agent-scaler` test harnesses.
 
 ## What each `cluster-migrator` command does
 
-`cluster-migrator` requires the proposed migration APIs described below, including a migration-owned pipeline move that revalidates readiness atomically. The local harnesses use three existing Buildkite API operations:
+`cluster-migrator` requires the proposed migration APIs described below, including a migration-owned pipeline move that revalidates readiness atomically. The local harnesses use these existing Buildkite API operations:
 
 ```text
 agent-scaler:        GET   https://agent.buildkite.com/v3/metrics
+workload-generator:  GET   https://api.buildkite.com/v2/organizations/{org}/teams
 workload-generator:  GET   https://api.buildkite.com/v2/organizations/{org}/pipelines/{pipeline}
+workload-generator:  POST  https://api.buildkite.com/v2/organizations/{org}/pipelines
 workload-generator:  POST  https://api.buildkite.com/v2/organizations/{org}/pipelines/{pipeline}/builds
 ```
 
@@ -320,17 +324,23 @@ When reducing either pool, the scaler sends one `SIGTERM` to only its recorded c
 ### `./workload-generator.sh run`
 
 ```shell
-./workload-generator.sh run --pipeline=<pipeline-slug> --builds-per-minute=4
+./workload-generator.sh run --builds-per-minute=4
 ```
 
-This tool does not know about migrations. It first reads the pipeline's default branch using the current Pipelines REST API:
+This tool does not know about migrations. It ensures three pipelines exist, initially creating them as unclustered, then reads each pipeline's default branch using the current Pipelines REST API:
+
+| Pipeline | Definition | Queue routing | Purpose |
+| --- | --- | --- | --- |
+| `cluster-migrator-target` | `util/workload-generator/.buildkite/target/pipeline.yml` | `target-only` default; selected steps override to `shared` | Pipeline to migrate; includes a concurrency group spanning both queues |
+| `cluster-migrator-shared-consumer` | `util/workload-generator/.buildkite/shared-consumer/pipeline.yml` | `shared` default | Proves a queue rollout affects every pipeline using that queue |
+| `cluster-migrator-control` | `util/workload-generator/.buildkite/control/pipeline.yml` | `control-only` default | Proves unrelated pipelines and queues remain unaffected |
 
 ```http
 GET {api}/organizations/{org}/pipelines/{pipeline}
 Authorization: Bearer $BUILDKITE_API_TOKEN
 ```
 
-At `--builds-per-minute=4`, it then sends one current Create Build request every 15 seconds:
+At `--builds-per-minute=4`, it sends one current Create Build request every 15 seconds, rotating across the three pipelines. The configured rate is total, not per pipeline:
 
 ```http
 POST {api}/organizations/{org}/pipelines/{pipeline}/builds
@@ -344,7 +354,7 @@ Content-Type: application/json
 }
 ```
 
-The target pipeline must already define the representative job mix. The tool cannot inject steps through the Create Build endpoint. It prints each response's `web_url`, stops creating builds on `Ctrl-C`, and does not cancel builds already created.
+The generator creates each pipeline with a dynamic upload step that loads the representative queue-specific job mix from this repository. It prints each response's `web_url`, stops creating builds on `Ctrl-C`, and does not cancel builds already created.
 
 ## Authentication
 
@@ -372,7 +382,7 @@ export BUILDKITE_UNCLUSTERED_AGENT_TOKEN=<token>
 export BUILDKITE_CLUSTER_AGENT_TOKEN=<token>
 ```
 
-`workload-generator` uses the organization slug and API token, with `read_pipelines` and `write_builds`. `agent-scaler` uses the token for the selected pool. A percentage target also needs the unclustered token when the queue baseline has not been recorded yet.
+`workload-generator` uses the organization slug and API token, with `read_teams`, `read_pipelines`, `write_pipelines`, and `write_builds`. `agent-scaler` uses the token for the selected pool. A percentage target also needs the unclustered token when the queue baseline has not been recorded yet.
 
 `agent-scaler` resolves its tokens in this order:
 
@@ -421,7 +431,7 @@ These endpoints do not exist yet. The tools must not replace missing Buildkite s
 
 ## Definition of done
 
-An operator can follow [RUNBOOK.md](RUNBOOK.md) against a disposable organization and:
+An operator can follow [INTERNAL_RUNBOOK.md](INTERNAL_RUNBOOK.md) against a disposable organization and:
 
 - Create one migration.
 - Add 30%, 60%, and 100% clustered capacity without shifting traffic.

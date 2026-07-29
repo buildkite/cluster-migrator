@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -euo pipefail
+
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # shellcheck source=util/load-env.sh
@@ -9,6 +11,25 @@ die() {
   echo "workload-generator: $*" >&2
   exit 1
 }
+
+usage() {
+  cat <<'EOF'
+Usage: ./workload-generator.sh run [--builds-per-minute=<1..60>]
+
+Creates the cluster migration target, shared-queue consumer, and unrelated
+control pipelines, then generates builds across all three at the total rate.
+EOF
+}
+
+case "${1:-}" in
+  run)
+    shift
+    ;;
+  --help|-h)
+    usage
+    exit 0
+    ;;
+esac
 
 BUILDS_PER_MINUTE=4
 while (($#)); do
@@ -20,6 +41,13 @@ while (($#)); do
       [[ $# -ge 2 ]] || die "--builds-per-minute requires a value"
       BUILDS_PER_MINUTE=$2
       shift
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      die "unknown argument: $1"
       ;;
   esac
   shift
@@ -46,23 +74,35 @@ if [[ -z ${BUILDKITE_ORGANIZATION_SLUG:-} ]]; then
 fi
 export BUILDKITE_ORGANIZATION_SLUG
 
-# NOTE: Kebab-cased pipeline name
-DESIRED_PIPELINE_SLUG="cluster-migrator-demo"
-
 # shellcheck source=util/workload-generator/functions.sh
 source "$SCRIPT_DIR/util/workload-generator/functions.sh"
 
-# Create a pipeline if it doesn't exist:
-if ! demo_pipeline_exists; then
-  create_demo_pipeline
-fi
+DEFAULT_BRANCHES=()
+EVERYONE_TEAM_ID=""
 
-# Kick off builds at the configured rate
-DEFAULT_BRANCH=$(jq -r '.default_branch' <<< "$PIPELINE")
+for index in "${!WORKLOAD_PIPELINE_SLUGS[@]}"; do
+  pipeline_slug=${WORKLOAD_PIPELINE_SLUGS[$index]}
+
+  if ! PIPELINE=$(demo_pipeline "$pipeline_slug"); then
+    if [[ -z "$EVERYONE_TEAM_ID" ]]; then
+      EVERYONE_TEAM_ID=$(everyone_team_id)
+      [[ -n "$EVERYONE_TEAM_ID" && "$EVERYONE_TEAM_ID" != "null" ]] ||
+        die "the organization does not have an Everyone team"
+    fi
+
+    PIPELINE=$(create_demo_pipeline \
+      "$pipeline_slug" \
+      "${WORKLOAD_PIPELINE_NAMES[$index]}" \
+      "${WORKLOAD_PIPELINE_DEFAULT_QUEUES[$index]}" \
+      "${WORKLOAD_PIPELINE_FILES[$index]}" \
+      "$EVERYONE_TEAM_ID")
+  fi
+
+  DEFAULT_BRANCHES+=("$(jq -r '.default_branch' <<< "$PIPELINE")")
+done
+
 SEQUENCE=1
 
 while true; do
-  create_demo_build
-  SEQUENCE=$((SEQUENCE + 1))
-  sleep "$BUILD_INTERVAL_SECONDS"
+  create_workload_cycle
 done

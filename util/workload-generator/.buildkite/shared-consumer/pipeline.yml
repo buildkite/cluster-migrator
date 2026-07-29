@@ -1,0 +1,15 @@
+agents:
+  queue: "shared"
+
+steps:
+  - group: ":link: Shared-queue consumer"
+    key: "shared-consumer-jobs"
+    steps:
+      - label: ":zap: Shared consumer job %n"
+        key: "shared-consumer-quick-jobs"
+        command: "sleep 10"
+        parallelism: 3
+
+      - label: ":snail: Shared consumer long job"
+        key: "shared-consumer-long-job"
+        command: "sleep 120"

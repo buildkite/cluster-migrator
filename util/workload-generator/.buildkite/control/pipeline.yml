@@ -1,0 +1,15 @@
+agents:
+  queue: "control-only"
+
+steps:
+  - group: ":shield: Unrelated control"
+    key: "control-jobs"
+    steps:
+      - label: ":test_tube: Control job %n"
+        key: "control-quick-jobs"
+        command: "sleep 10"
+        parallelism: 3
+
+      - label: ":snail: Control long job"
+        key: "control-long-job"
+        command: "sleep 120"

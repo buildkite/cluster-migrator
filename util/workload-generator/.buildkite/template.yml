@@ -1,6 +1,0 @@
-agents:
-  queue: "step-uploads"
-
-steps:
-  - label: "Pipeline upload"
-    command: "buildkite-agent pipeline upload util/workload-generator/.buildkite/pipeline.yml"
