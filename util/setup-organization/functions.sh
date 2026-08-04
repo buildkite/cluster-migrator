@@ -170,6 +170,11 @@ ensure_demo_pipeline() {
 
   pipeline=$(pipeline_by_slug "$pipeline_slug")
   if [[ "$pipeline" != "null" ]]; then
+    if ! jq -e 'has("cluster_id") and .cluster_id == null' <<< "$pipeline" >/dev/null; then
+      printf 'pipeline %s is assigned to a cluster; expected an unclustered pipeline\n' \
+        "$pipeline_slug" >&2
+      return 1
+    fi
     if ! existing_default_branch=$(jq -er \
         '.default_branch | select(type == "string" and length > 0)' <<< "$pipeline"); then
       printf 'pipeline %s does not have a default branch\n' "$pipeline_slug" >&2
