@@ -36,6 +36,10 @@ export BUILDKITE_API_TOKEN=<token>
 ./setup-organization.sh
 ```
 
+Setup configures the demo pipelines to build `main`. To rehearse an unmerged
+change, pass its branch explicitly with `./setup-organization.sh --branch=<branch>`.
+Setup fails rather than silently reusing a pipeline configured for another branch.
+
 ## Create the migration
 
 Create the migration once and capture its UUID:

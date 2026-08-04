@@ -16,26 +16,41 @@ die() {
 
 usage() {
   cat <<'EOF'
-Usage: ./setup-organization.sh
+Usage: ./setup-organization.sh [--branch=<branch>]
 
 Creates or reuses the demo cluster, queues, and pipelines, then creates any
 missing clustered and unclustered agent credentials. Generated values are
 written to the repository's gitignored .env file with mode 0600.
+
+New and existing demo pipelines must use the requested default branch. The
+branch defaults to main.
 EOF
 }
 
-case "${1:-}" in
-  "")
-    ;;
-  --help|-h)
-    usage
-    exit 0
-    ;;
-  *)
-    die "unknown argument: $1"
-    ;;
-esac
+PIPELINE_BRANCH=main
+while (($#)); do
+  case "$1" in
+    --branch=*)
+      PIPELINE_BRANCH=${1#*=}
+      ;;
+    --branch)
+      [[ $# -ge 2 ]] || die "--branch requires a value"
+      PIPELINE_BRANCH=$2
+      shift
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      die "unknown argument: $1"
+      ;;
+  esac
+  shift
+done
+[[ -n "$PIPELINE_BRANCH" ]] || die "--branch requires a non-empty value"
 
+: "${BUILDKITE_ORGANIZATION_SLUG:?Set BUILDKITE_ORGANIZATION_SLUG in .env or the environment}"
 : "${BUILDKITE_API_TOKEN:?Set BUILDKITE_API_TOKEN in .env or the environment}"
 BUILDKITE_API_URL=${BUILDKITE_API_URL:-https://api.buildkite.com/v2}
 BUILDKITE_GRAPHQL_URL=${BUILDKITE_GRAPHQL_URL:-https://graphql.buildkite.com/v1}
@@ -49,9 +64,6 @@ COMMON_CURL_ARGS=(
   --show-error
   --header "@$API_AUTH_HEADER_FILE"
 )
-if [[ -z ${BUILDKITE_ORGANIZATION_SLUG:-} ]]; then
-  BUILDKITE_ORGANIZATION_SLUG=$(curl "${COMMON_CURL_ARGS[@]}" "$BUILDKITE_API_URL/organizations" | jq -er '.[0].slug')
-fi
 export BUILDKITE_ORGANIZATION_SLUG
 
 # shellcheck source=util/workload-generator/functions.sh
@@ -77,7 +89,8 @@ for index in "${!WORKLOAD_PIPELINE_SLUGS[@]}"; do
     "${WORKLOAD_PIPELINE_NAMES[$index]}" \
     "${WORKLOAD_PIPELINE_DEFAULT_QUEUES[$index]}" \
     "${WORKLOAD_PIPELINE_FILES[$index]}" \
-    "$EVERYONE_TEAM_ID" >/dev/null
+    "$EVERYONE_TEAM_ID" \
+    "$PIPELINE_BRANCH" >/dev/null
 done
 
 if [[ -z ${BUILDKITE_CLUSTER_AGENT_TOKEN:-} ]]; then

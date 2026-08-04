@@ -278,12 +278,12 @@ Customers do not need these tools. Buildkite can use them in a disposable organi
 ### `./setup-organization.sh`
 
 ```shell
-./setup-organization.sh
+./setup-organization.sh [--branch=<branch>]
 ```
 
 Setup creates or reuses the `Cluster Migrator Demo` cluster, the `target-only`, `shared`, and `control-only` queues, and the three demo pipelines. It creates clustered and unclustered agent tokens only when their corresponding `.env` values are empty. Because Buildkite reveals each token value only once, setup writes these values and `DESTINATION_CLUSTER_UUID` to the gitignored `.env` file with mode `0600` immediately after creation.
 
-The API token needs `read_clusters`, `write_clusters`, `read_teams`, `read_pipelines`, and `write_pipelines`, plus GraphQL API access. Unclustered token creation uses the deprecated GraphQL `agentTokenCreate` mutation and works only when the organization has legacy Unclustered mode. Rerunning setup reuses resources by exact cluster name, queue key, and pipeline slug; existing `.env` token values prevent duplicate token creation.
+The API token needs `read_clusters`, `write_clusters`, `read_teams`, `read_pipelines`, and `write_pipelines`, plus GraphQL API access. Unclustered token creation uses the deprecated GraphQL `agentTokenCreate` mutation and works only when the organization has legacy Unclustered mode. New pipelines default to the `main` branch; `--branch` overrides that default when rehearsing an unmerged change. Rerunning setup reuses resources by exact cluster name, queue key, and pipeline slug, but fails if an existing pipeline uses another default branch. Existing `.env` token values prevent duplicate token creation.
 
 ### `./agent-scaler.sh cluster`, `unclustered`, and `status`
 

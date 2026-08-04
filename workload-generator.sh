@@ -66,6 +66,7 @@ fi
 BUILDS_PER_MINUTE=$((10#$BUILDS_PER_MINUTE))
 BUILD_INTERVAL_SECONDS=$(awk -v rate="$BUILDS_PER_MINUTE" 'BEGIN { print 60 / rate }')
 
+: "${BUILDKITE_ORGANIZATION_SLUG:?Set BUILDKITE_ORGANIZATION_SLUG in .env or the environment}"
 : "${BUILDKITE_API_TOKEN:?Set BUILDKITE_API_TOKEN in .env or the environment}"
 BUILDKITE_API_URL=${BUILDKITE_API_URL:-http://api.buildkite.localhost/v2}
 API_AUTH_HEADER_FILE=$(create_curl_auth_header_file Bearer "$BUILDKITE_API_TOKEN") ||
@@ -78,9 +79,6 @@ COMMON_CURL_ARGS=(
   --show-error
   --header "@$API_AUTH_HEADER_FILE"
 )
-if [[ -z ${BUILDKITE_ORGANIZATION_SLUG:-} ]]; then
-  BUILDKITE_ORGANIZATION_SLUG=$(curl "${COMMON_CURL_ARGS[@]}" "$BUILDKITE_API_URL/organizations" | jq -er '.[0].slug')
-fi
 export BUILDKITE_ORGANIZATION_SLUG
 
 # shellcheck source=util/workload-generator/functions.sh

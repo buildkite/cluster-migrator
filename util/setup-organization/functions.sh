@@ -108,6 +108,7 @@ create_demo_pipeline() {
   local default_queue=$3
   local pipeline_file=$4
   local team_id=$5
+  local default_branch=$6
 
   jq -n \
     --arg slug "$pipeline_slug" \
@@ -115,11 +116,12 @@ create_demo_pipeline() {
     --arg default_queue "$default_queue" \
     --arg pipeline_file "$pipeline_file" \
     --arg team_id "$team_id" \
+    --arg default_branch "$default_branch" \
     '{
       name: $name,
       slug: $slug,
       repository: "https://github.com/buildkite/cluster-migrator",
-      default_branch: "initial-cluster-migrator-tooling",
+      default_branch: $default_branch,
       cluster_id: null,
       teams: {($team_id): "manage_build_and_read"},
       configuration: ("agents:\n  queue: \"" + $default_queue + "\"\n\nsteps:\n  - label: \"Pipeline upload\"\n    command: \"buildkite-agent pipeline upload " + $pipeline_file + "\"")
@@ -163,10 +165,21 @@ ensure_demo_pipeline() {
   local default_queue=$3
   local pipeline_file=$4
   local team_id=$5
-  local pipeline
+  local expected_default_branch=$6
+  local pipeline existing_default_branch
 
   pipeline=$(pipeline_by_slug "$pipeline_slug")
   if [[ "$pipeline" != "null" ]]; then
+    if ! existing_default_branch=$(jq -er \
+        '.default_branch | select(type == "string" and length > 0)' <<< "$pipeline"); then
+      printf 'pipeline %s does not have a default branch\n' "$pipeline_slug" >&2
+      return 1
+    fi
+    if [[ "$existing_default_branch" != "$expected_default_branch" ]]; then
+      printf 'pipeline %s uses default branch %s; expected %s\n' \
+        "$pipeline_slug" "$existing_default_branch" "$expected_default_branch" >&2
+      return 1
+    fi
     printf '%s\n' "$pipeline"
   else
     create_demo_pipeline \
@@ -174,7 +187,8 @@ ensure_demo_pipeline() {
       "$pipeline_name" \
       "$default_queue" \
       "$pipeline_file" \
-      "$team_id"
+      "$team_id" \
+      "$expected_default_branch"
   fi
 }
 
