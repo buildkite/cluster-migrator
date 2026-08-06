@@ -1,0 +1,40 @@
+steps:
+  - label: ":electric_plug: Dynamic execution queue"
+    key: "dynamic-execution"
+    command: |
+      echo "pipeline=dynamic-topology queue=${MIGRATION_DYNAMIC_QUEUE} sequence=${MIGRATION_WORKLOAD_SEQUENCE}"
+      sleep "${MIGRATION_MEDIUM_SECONDS}"
+    agents:
+      queue: "${MIGRATION_WORKLOAD_PREFIX}-${MIGRATION_DYNAMIC_QUEUE}"
+    concurrency: 1
+    concurrency_group: "${MIGRATION_WORKLOAD_PREFIX}/dynamic/build/${BUILDKITE_BUILD_ID}"
+
+  - label: ":git: Branch-scoped concurrency"
+    command: |
+      echo "pipeline=dynamic-topology branch=${BUILDKITE_BRANCH} sequence=${MIGRATION_WORKLOAD_SEQUENCE}"
+      sleep "${MIGRATION_QUICK_SECONDS}"
+    agents:
+      queue: "${MIGRATION_WORKLOAD_PREFIX}-${MIGRATION_DYNAMIC_QUEUE}"
+    concurrency: 2
+    concurrency_group: "${MIGRATION_WORKLOAD_PREFIX}/dynamic/branch/${BUILDKITE_BRANCH}"
+
+  - label: ":pipeline: Delayed pipeline upload"
+    key: "delayed-upload"
+    depends_on: "dynamic-execution"
+    command: |
+      set -eu
+      echo "Uploading delayed work to ${MIGRATION_DELAYED_QUEUE} in build ${BUILDKITE_BUILD_ID}"
+      sleep "${MIGRATION_QUICK_SECONDS}"
+      cat <<'YAML' | buildkite-agent pipeline upload
+      steps:
+        - label: ":hourglass_flowing_sand: Delayed dynamic peer"
+          command: |
+            echo "delayed queue=${MIGRATION_DELAYED_QUEUE} sequence=${MIGRATION_WORKLOAD_SEQUENCE}"
+            sleep "${MIGRATION_MEDIUM_SECONDS}"
+          agents:
+            queue: "${MIGRATION_WORKLOAD_PREFIX}-${MIGRATION_DELAYED_QUEUE}"
+          concurrency: 1
+          concurrency_group: "${MIGRATION_WORKLOAD_PREFIX}/dynamic/build/${BUILDKITE_BUILD_ID}"
+      YAML
+    agents:
+      queue: "${MIGRATION_WORKLOAD_PREFIX}-dynamic-bootstrap"

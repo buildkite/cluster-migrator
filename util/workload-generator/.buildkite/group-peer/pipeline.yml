@@ -1,0 +1,16 @@
+steps:
+  - label: ":link: Peer queue"
+    command: |
+      echo "pipeline=group-peer queue=peer-only sequence=${MIGRATION_WORKLOAD_SEQUENCE}"
+      sleep "${MIGRATION_QUICK_SECONDS}"
+    agents:
+      queue: "${MIGRATION_WORKLOAD_PREFIX}-peer-only"
+
+  - label: ":people_holding_hands: Shared concurrency peer"
+    command: |
+      echo "pipeline=group-peer group=shared sequence=${MIGRATION_WORKLOAD_SEQUENCE}"
+      sleep "${MIGRATION_LONG_SECONDS}"
+    agents:
+      queue: "${MIGRATION_WORKLOAD_PREFIX}-shared"
+    concurrency: 2
+    concurrency_group: "${MIGRATION_WORKLOAD_PREFIX}/shared/cross-pipeline"

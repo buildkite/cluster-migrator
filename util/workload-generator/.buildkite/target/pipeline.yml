@@ -1,41 +1,43 @@
-agents:
-  queue: "target-only"
-
 steps:
-  - group: ":runner: Ordinary jobs"
-    key: "ordinary-jobs"
-    steps:
-      - label: ":zap: Target-only quick job %n"
-        key: "target-only-quick-jobs"
-        command: "sleep 5"
-        parallelism: 4
+  - label: ":package: Produce portable workload data"
+    key: "target-produce"
+    command: |
+      set -eu
+      echo "run=${MIGRATION_WORKLOAD_RUN_ID} sequence=${MIGRATION_WORKLOAD_SEQUENCE} load=${MIGRATION_WORKLOAD_LOAD} queue=target-only"
+      buildkite-agent meta-data set "migration-workload-sequence" "${MIGRATION_WORKLOAD_SEQUENCE}"
+      mkdir -p migration-workload
+      printf '%s\n' "${MIGRATION_WORKLOAD_RUN_ID}:${MIGRATION_WORKLOAD_SEQUENCE}" > migration-workload/payload.txt
+      buildkite-agent artifact upload "migration-workload/payload.txt"
+      sleep "${MIGRATION_QUICK_SECONDS}"
+    agents:
+      queue: "${MIGRATION_WORKLOAD_PREFIX}-target-only"
+    concurrency: 1
+    concurrency_group: "${MIGRATION_WORKLOAD_PREFIX}/local/target"
 
-      - label: ":hourglass_flowing_sand: Shared medium job %n"
-        key: "shared-medium-jobs"
-        command: "sleep 30"
-        parallelism: 2
-        agents:
-          queue: "shared"
+  - label: ":mag: Verify data on the shared queue"
+    key: "target-verify"
+    depends_on: "target-produce"
+    command: |
+      set -eu
+      echo "run=${MIGRATION_WORKLOAD_RUN_ID} sequence=${MIGRATION_WORKLOAD_SEQUENCE} queue=shared"
+      test "$(buildkite-agent meta-data get migration-workload-sequence)" = "${MIGRATION_WORKLOAD_SEQUENCE}"
+      rm -rf migration-workload-download
+      mkdir migration-workload-download
+      buildkite-agent artifact download "migration-workload/payload.txt" migration-workload-download --step target-produce
+      grep -F "${MIGRATION_WORKLOAD_RUN_ID}:${MIGRATION_WORKLOAD_SEQUENCE}" migration-workload-download/migration-workload/payload.txt
+      buildkite-agent annotate --style info --context "migration-workload-${MIGRATION_WORKLOAD_SEQUENCE}" "Portable workload checks passed for sequence ${MIGRATION_WORKLOAD_SEQUENCE}"
+      sleep "${MIGRATION_MEDIUM_SECONDS}"
+    agents:
+      queue: "${MIGRATION_WORKLOAD_PREFIX}-shared"
+    concurrency: 1
+    concurrency_group: "${MIGRATION_WORKLOAD_PREFIX}/local/target"
 
-      - label: ":snail: Target-only long job"
-        key: "target-only-long-job"
-        command: "sleep 180"
-
-  - group: ":vertical_traffic_light: Cross-queue concurrency group"
-    key: "cross-queue-concurrency-group"
-    steps:
-      - label: "Target-only serial group %n"
-        key: "target-only-serial-group"
-        command: "sleep 15"
-        parallelism: 2
-        concurrency: 1
-        concurrency_group: "cluster-migrator/target/cross-queue"
-
-      - label: "Shared serial group %n"
-        key: "shared-serial-group"
-        command: "sleep 30"
-        parallelism: 2
-        concurrency: 1
-        concurrency_group: "cluster-migrator/target/cross-queue"
-        agents:
-          queue: "shared"
+  - label: ":people_holding_hands: Shared concurrency"
+    depends_on: "target-produce"
+    command: |
+      echo "pipeline=target group=shared sequence=${MIGRATION_WORKLOAD_SEQUENCE}"
+      sleep "${MIGRATION_LONG_SECONDS}"
+    agents:
+      queue: "${MIGRATION_WORKLOAD_PREFIX}-shared"
+    concurrency: 2
+    concurrency_group: "${MIGRATION_WORKLOAD_PREFIX}/shared/cross-pipeline"

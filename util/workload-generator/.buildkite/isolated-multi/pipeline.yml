@@ -1,0 +1,20 @@
+steps:
+  - label: ":one: Private queue A"
+    command: |
+      echo "pipeline=isolated-multi queue=private-a sequence=${MIGRATION_WORKLOAD_SEQUENCE}"
+      sleep "${MIGRATION_MEDIUM_SECONDS}"
+    agents:
+      queue: "${MIGRATION_WORKLOAD_PREFIX}-private-a"
+    parallelism: 2
+    concurrency: 1
+    concurrency_group: "${MIGRATION_WORKLOAD_PREFIX}/local/isolated-multi"
+
+  - label: ":two: Private queue B"
+    command: |
+      echo "pipeline=isolated-multi queue=private-b sequence=${MIGRATION_WORKLOAD_SEQUENCE}"
+      sleep "${MIGRATION_MEDIUM_SECONDS}"
+    agents:
+      queue: "${MIGRATION_WORKLOAD_PREFIX}-private-b"
+    parallelism: 2
+    concurrency: 1
+    concurrency_group: "${MIGRATION_WORKLOAD_PREFIX}/local/isolated-multi"

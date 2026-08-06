@@ -1,15 +1,16 @@
-agents:
-  queue: "shared"
-
 steps:
-  - group: ":link: Shared-queue consumer"
-    key: "shared-consumer-jobs"
-    steps:
-      - label: ":zap: Shared consumer job %n"
-        key: "shared-consumer-quick-jobs"
-        command: "sleep 10"
-        parallelism: 3
+  - label: ":people_holding_hands: Shared queue consumer"
+    command: |
+      echo "pipeline=shared-consumer group=shared sequence=${MIGRATION_WORKLOAD_SEQUENCE}"
+      sleep "${MIGRATION_MEDIUM_SECONDS}"
+    agents:
+      queue: "${MIGRATION_WORKLOAD_PREFIX}-shared"
+    concurrency: 2
+    concurrency_group: "${MIGRATION_WORKLOAD_PREFIX}/shared/cross-pipeline"
 
-      - label: ":snail: Shared consumer long job"
-        key: "shared-consumer-long-job"
-        command: "sleep 120"
+  - label: ":link: Overlapping peer queue"
+    command: |
+      echo "pipeline=shared-consumer queue=peer-only sequence=${MIGRATION_WORKLOAD_SEQUENCE}"
+      sleep "${MIGRATION_QUICK_SECONDS}"
+    agents:
+      queue: "${MIGRATION_WORKLOAD_PREFIX}-peer-only"

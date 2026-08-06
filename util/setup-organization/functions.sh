@@ -3,27 +3,12 @@
 SETUP_CLUSTER_NAME="Cluster Migrator Demo"
 SETUP_CLUSTER_TOKEN_DESCRIPTION="Cluster Migrator Demo clustered agents"
 SETUP_UNCLUSTERED_TOKEN_DESCRIPTION="Cluster Migrator Demo unclustered agents"
-WORKLOAD_PIPELINE_NAMES=(
-  "Cluster Migrator Target"
-  "Cluster Migrator Shared Queue Consumer"
-  "Cluster Migrator Unrelated Control"
-)
-WORKLOAD_PIPELINE_DEFAULT_QUEUES=(
-  "target-only"
-  "shared"
-  "control-only"
-)
-WORKLOAD_PIPELINE_FILES=(
-  "util/workload-generator/.buildkite/target/pipeline.yml"
-  "util/workload-generator/.buildkite/shared-consumer/pipeline.yml"
-  "util/workload-generator/.buildkite/control/pipeline.yml"
-)
 
 cluster_by_name() {
   local cluster_name=$1
 
   curl "${COMMON_CURL_ARGS[@]}" \
-    "$BUILDKITE_API_URL/organizations/$BUILDKITE_ORGANIZATION_SLUG/clusters" |
+    "$BUILDKITE_API_URL/organizations/$BUILDKITE_ORGANIZATION_SLUG/clusters?per_page=100" |
     jq -c --arg name "$cluster_name" '
       [.[] | select(.name == $name)] |
       if length == 0 then null
@@ -61,7 +46,7 @@ cluster_queue_by_key() {
   local queue_key=$2
 
   curl "${COMMON_CURL_ARGS[@]}" \
-    "$BUILDKITE_API_URL/organizations/$BUILDKITE_ORGANIZATION_SLUG/clusters/$cluster_id/queues" |
+    "$BUILDKITE_API_URL/organizations/$BUILDKITE_ORGANIZATION_SLUG/clusters/$cluster_id/queues?per_page=100" |
     jq -c --arg key "$queue_key" '
       [.[] | select(.key == $key)] |
       if length == 0 then null
@@ -96,10 +81,39 @@ ensure_cluster_queue() {
   fi
 }
 
+setup_workload_queues() {
+  local cluster_id=$1
+  local resource_prefix=$2
+  local queue_suffix queue_key
+
+  for queue_suffix in "${WORKLOAD_QUEUE_KEYS[@]}"; do
+    queue_key=$(workload_queue_key "$resource_prefix" "$queue_suffix")
+    ensure_cluster_queue "$cluster_id" "$queue_key" >/dev/null
+  done
+}
+
 everyone_team_id() {
   curl "${COMMON_CURL_ARGS[@]}" \
-    "$BUILDKITE_API_URL/organizations/$BUILDKITE_ORGANIZATION_SLUG/teams" |
+    "$BUILDKITE_API_URL/organizations/$BUILDKITE_ORGANIZATION_SLUG/teams?per_page=100" |
     jq -r '.[] | select(.name == "Everyone") | .id'
+}
+
+workload_bootstrap_configuration() {
+  local default_queue=$1
+  local pipeline_file=$2
+  local resource_prefix=$3
+
+  cat <<EOF
+env:
+  MIGRATION_WORKLOAD_PREFIX: "$resource_prefix"
+
+agents:
+  queue: "$default_queue"
+
+steps:
+  - label: "Pipeline upload"
+    command: "buildkite-agent pipeline upload $pipeline_file"
+EOF
 }
 
 create_demo_pipeline() {
@@ -109,22 +123,28 @@ create_demo_pipeline() {
   local pipeline_file=$4
   local team_id=$5
   local default_branch=$6
+  local resource_prefix=$7
+  local repository=$8
+  local configuration
+
+  configuration=$(workload_bootstrap_configuration \
+    "$default_queue" "$pipeline_file" "$resource_prefix")
 
   jq -n \
     --arg slug "$pipeline_slug" \
     --arg name "$pipeline_name" \
-    --arg default_queue "$default_queue" \
-    --arg pipeline_file "$pipeline_file" \
     --arg team_id "$team_id" \
     --arg default_branch "$default_branch" \
+    --arg repository "$repository" \
+    --arg configuration "$configuration" \
     '{
       name: $name,
       slug: $slug,
-      repository: "https://github.com/buildkite/cluster-migrator",
+      repository: $repository,
       default_branch: $default_branch,
       cluster_id: null,
       teams: {($team_id): "manage_build_and_read"},
-      configuration: ("agents:\n  queue: \"" + $default_queue + "\"\n\nsteps:\n  - label: \"Pipeline upload\"\n    command: \"buildkite-agent pipeline upload " + $pipeline_file + "\"")
+      configuration: $configuration
     }' |
     curl "${COMMON_CURL_ARGS[@]}" \
       --request POST \
@@ -159,6 +179,39 @@ pipeline_by_slug() {
   esac
 }
 
+assert_demo_pipeline_configuration() {
+  local pipeline=$1
+  local pipeline_slug=$2
+  local expected_queue=$3
+  local expected_pipeline_file=$4
+  local expected_prefix=$5
+  local expected_repository=$6
+  local existing_repository existing_cluster configuration
+
+  existing_repository=$(jq -r '.repository // .provider.settings.repository // empty' <<< "$pipeline")
+  if [[ -n "$existing_repository" && "$existing_repository" != "$expected_repository" ]]; then
+    printf 'pipeline %s uses repository %s; expected %s\n' \
+      "$pipeline_slug" "$existing_repository" "$expected_repository" >&2
+    return 1
+  fi
+
+  existing_cluster=$(jq -r '.cluster.id // .cluster_id // empty' <<< "$pipeline")
+  if [[ -n "$existing_cluster" ]]; then
+    printf 'pipeline %s is already assigned to cluster %s; expected unclustered\n' \
+      "$pipeline_slug" "$existing_cluster" >&2
+    return 1
+  fi
+
+  configuration=$(jq -r '.configuration // empty' <<< "$pipeline")
+  if [[ "$configuration" != *"queue: \"$expected_queue\""* ||
+        "$configuration" != *"pipeline upload $expected_pipeline_file"* ||
+        "$configuration" != *"MIGRATION_WORKLOAD_PREFIX: \"$expected_prefix\""* ]]; then
+    printf 'pipeline %s has incompatible workload bootstrap configuration\n' \
+      "$pipeline_slug" >&2
+    return 1
+  fi
+}
+
 ensure_demo_pipeline() {
   local pipeline_slug=$1
   local pipeline_name=$2
@@ -166,15 +219,12 @@ ensure_demo_pipeline() {
   local pipeline_file=$4
   local team_id=$5
   local expected_default_branch=$6
+  local resource_prefix=$7
+  local repository=$8
   local pipeline existing_default_branch
 
   pipeline=$(pipeline_by_slug "$pipeline_slug")
   if [[ "$pipeline" != "null" ]]; then
-    if ! jq -e 'has("cluster_id") and .cluster_id == null' <<< "$pipeline" >/dev/null; then
-      printf 'pipeline %s is assigned to a cluster; expected an unclustered pipeline\n' \
-        "$pipeline_slug" >&2
-      return 1
-    fi
     if ! existing_default_branch=$(jq -er \
         '.default_branch | select(type == "string" and length > 0)' <<< "$pipeline"); then
       printf 'pipeline %s does not have a default branch\n' "$pipeline_slug" >&2
@@ -185,6 +235,13 @@ ensure_demo_pipeline() {
         "$pipeline_slug" "$existing_default_branch" "$expected_default_branch" >&2
       return 1
     fi
+    assert_demo_pipeline_configuration \
+      "$pipeline" \
+      "$pipeline_slug" \
+      "$default_queue" \
+      "$pipeline_file" \
+      "$resource_prefix" \
+      "$repository" || return 1
     printf '%s\n' "$pipeline"
   else
     create_demo_pipeline \
@@ -193,8 +250,35 @@ ensure_demo_pipeline() {
       "$default_queue" \
       "$pipeline_file" \
       "$team_id" \
-      "$expected_default_branch"
+      "$expected_default_branch" \
+      "$resource_prefix" \
+      "$repository"
   fi
+}
+
+setup_workload_pipelines() {
+  local team_id=$1
+  local default_branch=$2
+  local resource_prefix=$3
+  local repository=$4
+  local record suffix name default_queue_suffix pipeline_file
+  local pipeline_slug pipeline_name default_queue
+
+  for record in "${WORKLOAD_PIPELINES[@]}"; do
+    IFS='|' read -r suffix name default_queue_suffix pipeline_file <<< "$record"
+    pipeline_slug=$(workload_pipeline_slug "$resource_prefix" "$suffix")
+    pipeline_name=$(workload_pipeline_name "$resource_prefix" "$name")
+    default_queue=$(workload_queue_key "$resource_prefix" "$default_queue_suffix")
+    ensure_demo_pipeline \
+      "$pipeline_slug" \
+      "$pipeline_name" \
+      "$default_queue" \
+      "$pipeline_file" \
+      "$team_id" \
+      "$default_branch" \
+      "$resource_prefix" \
+      "$repository" >/dev/null
+  done
 }
 
 create_cluster_agent_token() {

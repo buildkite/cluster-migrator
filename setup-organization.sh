@@ -16,18 +16,20 @@ die() {
 
 usage() {
   cat <<'EOF'
-Usage: ./setup-organization.sh [--branch=<branch>]
+Usage: ./setup-organization.sh [--branch=<branch>] [--prefix=<resource-prefix>]
 
 Creates or reuses the demo cluster, queues, and pipelines, then creates any
 missing clustered and unclustered agent credentials. Generated values are
 written to the repository's gitignored .env file with mode 0600.
 
 New and existing demo pipelines must use the requested default branch. The
-branch defaults to main.
+branch defaults to main. Queue keys and pipeline slugs use the resource prefix,
+which defaults to cluster-migrator.
 EOF
 }
 
 PIPELINE_BRANCH=main
+RESOURCE_PREFIX=${MIGRATION_WORKLOAD_PREFIX:-cluster-migrator}
 while (($#)); do
   case "$1" in
     --branch=*)
@@ -36,6 +38,14 @@ while (($#)); do
     --branch)
       [[ $# -ge 2 ]] || die "--branch requires a value"
       PIPELINE_BRANCH=$2
+      shift
+      ;;
+    --prefix=*)
+      RESOURCE_PREFIX=${1#*=}
+      ;;
+    --prefix)
+      [[ $# -ge 2 ]] || die "--prefix requires a value"
+      RESOURCE_PREFIX=$2
       shift
       ;;
     --help|-h)
@@ -49,6 +59,8 @@ while (($#)); do
   shift
 done
 [[ -n "$PIPELINE_BRANCH" ]] || die "--branch requires a non-empty value"
+[[ "$RESOURCE_PREFIX" =~ ^[a-z0-9][a-z0-9-]*$ ]] ||
+  die "--prefix must contain only lowercase letters, numbers, and hyphens"
 
 : "${BUILDKITE_ORGANIZATION_SLUG:?Set BUILDKITE_ORGANIZATION_SLUG in .env or the environment}"
 : "${BUILDKITE_API_TOKEN:?Set BUILDKITE_API_TOKEN in .env or the environment}"
@@ -74,24 +86,19 @@ source "$SCRIPT_DIR/util/setup-organization/functions.sh"
 CLUSTER=$(ensure_cluster "$SETUP_CLUSTER_NAME")
 DESTINATION_CLUSTER_UUID=$(jq -er '.id' <<< "$CLUSTER")
 save_env_value "$ENV_FILE" DESTINATION_CLUSTER_UUID "$DESTINATION_CLUSTER_UUID"
+save_env_value "$ENV_FILE" MIGRATION_WORKLOAD_PREFIX "$RESOURCE_PREFIX"
 
-while IFS= read -r queue_key; do
-  ensure_cluster_queue "$DESTINATION_CLUSTER_UUID" "$queue_key" >/dev/null
-done < <(printf '%s\n' "${WORKLOAD_PIPELINE_DEFAULT_QUEUES[@]}" | sort -u)
+setup_workload_queues "$DESTINATION_CLUSTER_UUID" "$RESOURCE_PREFIX"
 
 EVERYONE_TEAM_ID=$(everyone_team_id)
 [[ -n "$EVERYONE_TEAM_ID" && "$EVERYONE_TEAM_ID" != "null" ]] ||
   die "the organization does not have an Everyone team"
 
-for index in "${!WORKLOAD_PIPELINE_SLUGS[@]}"; do
-  ensure_demo_pipeline \
-    "${WORKLOAD_PIPELINE_SLUGS[$index]}" \
-    "${WORKLOAD_PIPELINE_NAMES[$index]}" \
-    "${WORKLOAD_PIPELINE_DEFAULT_QUEUES[$index]}" \
-    "${WORKLOAD_PIPELINE_FILES[$index]}" \
-    "$EVERYONE_TEAM_ID" \
-    "$PIPELINE_BRANCH" >/dev/null
-done
+setup_workload_pipelines \
+  "$EVERYONE_TEAM_ID" \
+  "$PIPELINE_BRANCH" \
+  "$RESOURCE_PREFIX" \
+  "${MIGRATION_WORKLOAD_REPOSITORY:-https://github.com/buildkite/cluster-migrator}"
 
 if [[ -z ${BUILDKITE_CLUSTER_AGENT_TOKEN:-} ]]; then
   CLUSTER_TOKEN_RESPONSE=$(create_cluster_agent_token \

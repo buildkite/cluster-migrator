@@ -278,12 +278,12 @@ Customers do not need these tools. Buildkite can use them in a disposable organi
 ### `./setup-organization.sh`
 
 ```shell
-./setup-organization.sh [--branch=<branch>]
+./setup-organization.sh [--branch=<branch>] [--prefix=<resource-prefix>]
 ```
 
-Setup creates or reuses the `Cluster Migrator Demo` cluster, the `target-only`, `shared`, and `control-only` queues, and the three demo pipelines. It creates clustered and unclustered agent tokens only when their corresponding `.env` values are empty. Because Buildkite reveals each token value only once, setup writes these values and `DESTINATION_CLUSTER_UUID` to the gitignored `.env` file with mode `0600` immediately after creation.
+Setup is the only harness component that creates resources. It creates or reuses the `Cluster Migrator Demo` cluster, six pipelines, and the complete ten-queue inventory used by the fixtures. Pipeline slugs and queue keys share a prefix (`cluster-migrator` by default), so `target-only` resolves to `cluster-migrator-target-only`. Setup writes the resolved prefix, `DESTINATION_CLUSTER_UUID`, and newly created agent tokens to the gitignored `.env` file with mode `0600`.
 
-The API token needs `read_clusters`, `write_clusters`, `read_teams`, `read_pipelines`, and `write_pipelines`, plus GraphQL API access. Unclustered token creation uses the deprecated GraphQL `agentTokenCreate` mutation and works only when the organization has legacy Unclustered mode. New pipelines default to the `main` branch; `--branch` overrides that default when rehearsing an unmerged change. Rerunning setup reuses resources by exact cluster name, queue key, and pipeline slug, but fails if an existing pipeline uses another default branch. Existing `.env` token values prevent duplicate token creation.
+The API token needs `read_clusters`, `write_clusters`, `read_teams`, `read_pipelines`, and `write_pipelines`, plus GraphQL API access. Unclustered token creation uses the deprecated GraphQL `agentTokenCreate` mutation and works only when the organization has legacy Unclustered mode. New pipelines default to `main`; `--branch` selects an unmerged revision. Rerunning setup reuses resources only when the pipeline branch, repository, unclustered assignment, bootstrap queue, and upload command remain compatible. It fails instead of silently repairing or reusing incompatible resources. Existing `.env` token values prevent duplicate token creation.
 
 ### `./agent-scaler.sh cluster`, `unclustered`, and `status`
 
@@ -332,30 +332,37 @@ When reducing either pool, the scaler sends one `SIGTERM` to only its recorded c
 - `--unclustered-token` and `--cluster-token` override their environment-variable defaults.
 - No traffic changes.
 
-`status` reads each pool's Agent Metrics API once and reports `total`, `idle`, and `busy` agents per queue. It also shows the recorded baseline, live local processes managed by the scaler, and stale PID records without changing local state; local and stale counts use unclustered/clustered order. Omitting `--queue` shows the union of queues observed in both pools and recorded locally.
+`status` reads each pool's Agent Metrics API once and reports `total`, `idle`, and `busy` agents plus `scheduled` and `running` jobs per queue. Job, local-process, and stale-record counts use unclustered/clustered order. A scheduled job is ready and waiting for an agent; it is distinct from a job blocked by dependencies in Buildkite's `waiting` state. The command also shows the recorded baseline, live local processes managed by the scaler, and stale PID records without changing local state. Omitting `--queue` shows the union of queues observed in either pool's agent or job metrics and queues recorded locally.
 
 `agent-scaler` is only a local mock of production fleet tooling such as the Buildkite Elastic CI Stack for AWS. Its operational scope is agent-pool capacity; migration-scoped readiness belongs to `cluster-migrator status`.
 
-### `./workload-generator.sh run`
+### `./workload-generator.sh run` and `trigger`
 
 ```shell
-./workload-generator.sh run --builds-per-minute=4
+./workload-generator.sh run \
+  --load=<smoke|steady|pressure|sparse> \
+  [--cycles=<count> | --continuous]
+
+./workload-generator.sh trigger --workload=late-queue
 ```
 
-This tool does not know about migrations or create resources. It requires the three pipelines created by `setup-organization.sh`, then reads each pipeline's default branch using the current Pipelines REST API:
+The generator creates only deterministic, bounded build traffic. It does not create queues, change agent capacity, inspect migration state, inject failures, or sequence a cutover. Every load profile traverses the same canonical topology; profiles change only build rate and job duration. A run defaults to one cycle. `--continuous` is the only unbounded mode.
 
-| Pipeline | Definition | Queue routing | Purpose |
-| --- | --- | --- | --- |
-| `cluster-migrator-target` | `util/workload-generator/.buildkite/target/pipeline.yml` | `target-only` default; selected steps override to `shared` | Pipeline to migrate; includes a concurrency group spanning both queues |
-| `cluster-migrator-shared-consumer` | `util/workload-generator/.buildkite/shared-consumer/pipeline.yml` | `shared` default | Proves a queue rollout affects every pipeline using that queue |
-| `cluster-migrator-control` | `util/workload-generator/.buildkite/control/pipeline.yml` | `control-only` default | Proves unrelated pipelines and queues remain unaffected |
+| Pipeline | Queue relationships | Behavior represented |
+| --- | --- | --- |
+| `<prefix>-target` | `target-only`, `shared` | Portable metadata/artifact/annotation chain; pipeline-local and cross-pipeline concurrency |
+| `<prefix>-shared-consumer` | `shared`, `peer-only` | Shared-queue blast radius and an overlapping queue relationship |
+| `<prefix>-group-peer` | `peer-only`, `shared` | Third participant in the static cross-pipeline concurrency group |
+| `<prefix>-isolated-multi` | `private-a`, `private-b` | One pipeline with multiple private queues and local concurrency across queues |
+| `<prefix>-dynamic-topology` | `dynamic-bootstrap`, `dynamic-blue`, `dynamic-green`, dormant `dynamic-rare` | Per-build and branch-scoped groups plus a delayed pipeline upload into the existing build |
+| `<prefix>-control` | `control-only` | Matched unrelated control and deterministic fail-once automatic retry |
 
 ```http
 GET {api}/organizations/{org}/pipelines/{pipeline}
 Authorization: Bearer $BUILDKITE_API_TOKEN
 ```
 
-At `--builds-per-minute=4`, it sends one current Create Build request every 15 seconds, rotating across the three pipelines. The configured rate is total, not per pipeline:
+The schedule order, dynamic blue/green selection, and build sequence are deterministic. Each Create Build request pins a complete Git object ID and carries the run ID, profile, sequence, queue variant, resource prefix, and fixture durations as build environment values:
 
 ```http
 POST {api}/organizations/{org}/pipelines/{pipeline}/builds
@@ -363,13 +370,18 @@ Authorization: Bearer $BUILDKITE_API_TOKEN
 Content-Type: application/json
 
 {
-  "commit": "HEAD",
+  "commit": "<immutable-git-sha>",
   "branch": "<pipeline.default_branch>",
-  "message": "Cluster migration workload <sequence>"
+  "message": "Cluster migration workload <run-id>/<sequence> (<load>)",
+  "env": {
+    "MIGRATION_WORKLOAD_PREFIX": "<prefix>",
+    "MIGRATION_WORKLOAD_SEQUENCE": "<sequence>",
+    "MIGRATION_QUEUE_VARIANT": "<dynamic-blue|dynamic-green|dynamic-rare>"
+  }
 }
 ```
 
-Setup creates each pipeline with a dynamic upload step that loads the representative queue-specific job mix from this repository. The generator prints each build response's `web_url`, stops creating builds on `Ctrl-C`, and does not cancel builds already created.
+The regular schedule alternates dynamic work between blue and green. `dynamic-rare` stays dormant until the playbook deliberately runs the focused trigger, allowing a newly observed queue to invalidate an otherwise-ready migration. Setup gives every pipeline a stable bootstrap queue and an upload step that loads the fixture from this repository. The generator prints the pipeline, sequence, queue variant, and build URL; it never cancels builds already created.
 
 ## Authentication
 
