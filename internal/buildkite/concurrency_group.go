@@ -11,7 +11,7 @@ type ConcurrencyGroup struct {
 }
 
 func (c *Client) concurrencyGroupPath(group string, parts ...string) string {
-	segments := []string{"cluster-migration", "concurrency-groups", group}
+	segments := []string{"cluster-queue-migrations", "concurrency-groups", group}
 	segments = append(segments, parts...)
 	return c.path(segments...)
 }

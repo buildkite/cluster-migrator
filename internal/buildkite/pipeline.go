@@ -1,9 +1,9 @@
 package buildkite
 
 type Pipeline struct {
-	Slug    string   `json:"slug"`
-	Name    string   `json:"name"`
-	Cluster *Cluster `json:"cluster"`
+	Slug      string `json:"slug"`
+	Name      string `json:"name"`
+	ClusterID string `json:"cluster_id"`
 }
 
 type PipelineReadiness struct {

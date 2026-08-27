@@ -14,7 +14,7 @@ func TestGetPipelineReadiness(t *testing.T) {
 		if r.Method != http.MethodGet {
 			t.Fatalf("method = %q, want GET", r.Method)
 		}
-		if r.URL.Path != "/v2/organizations/acme/cluster-migration/pipelines/monorepo/readiness" {
+		if r.URL.Path != "/v2/organizations/acme/cluster-queue-migrations/pipelines/monorepo/readiness" {
 			t.Fatalf("path = %q", r.URL.Path)
 		}
 		if got := r.URL.Query().Get("destination_cluster_id"); got != "cluster-id" {

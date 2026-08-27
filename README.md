@@ -76,6 +76,13 @@ POST   /v2/organizations/{org}/cluster-queue-migrations
 GET    /v2/organizations/{org}/cluster-queue-migrations/{queue_key}
 PATCH  /v2/organizations/{org}/cluster-queue-migrations/{queue_key}
 DELETE /v2/organizations/{org}/cluster-queue-migrations/{queue_key}
+POST   /v2/organizations/{org}/cluster-queue-migrations/{queue_key}/route
+
+GET    /v2/organizations/{org}/cluster-queue-migrations/concurrency-groups/{group}
+POST   /v2/organizations/{org}/cluster-queue-migrations/concurrency-groups/{group}/cutover
+
+GET    /v2/organizations/{org}/cluster-queue-migrations/pipelines/{pipeline}/readiness
+POST   /v2/organizations/{org}/cluster-queue-migrations/pipelines/{pipeline}/move
 ```
 
-The intended concurrency-group and pipeline endpoints remain in the `cluster-queue-migrations` namespace. Their provisional contracts are isolated in `internal/buildkite` so they can change without affecting command parsing.
+The `route` endpoint must atomically enforce capacity and dependency gates. The `move` endpoint must atomically revalidate pipeline readiness before changing its cluster. These guarded endpoints, along with the concurrency-group and pipeline contracts, are provisional until their server implementations ship. They are isolated in `internal/buildkite` so they can change without affecting command parsing.

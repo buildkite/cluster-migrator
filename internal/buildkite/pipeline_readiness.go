@@ -7,7 +7,7 @@ import (
 )
 
 func (c *Client) GetPipelineReadiness(ctx context.Context, pipeline, clusterID string) (*PipelineReadiness, error) {
-	path := c.path("cluster-migration", "pipelines", pipeline, "readiness")
+	path := c.path("cluster-queue-migrations", "pipelines", pipeline, "readiness")
 	query := url.Values{"destination_cluster_id": []string{clusterID}}
 
 	var result PipelineReadiness

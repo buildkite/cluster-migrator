@@ -14,18 +14,6 @@ func (cmd *PipelineMoveCmd) Run(app *Context) error {
 		return fmt.Errorf("resolve destination cluster: %w", err)
 	}
 
-	readiness, err := app.Client.GetPipelineReadiness(app.Context, cmd.Pipeline, cluster.ID)
-	if err != nil {
-		return fmt.Errorf("check pipeline readiness: %w", err)
-	}
-	if !readiness.Ready {
-		return fmt.Errorf(
-			"pipeline is not ready: blocking queues=%v blocking concurrency groups=%v",
-			readiness.BlockingQueues,
-			readiness.BlockingConcurrencyGroups,
-		)
-	}
-
 	change := Change{
 		Action:             "move",
 		Resource:           "pipeline " + cmd.Pipeline,
@@ -33,6 +21,17 @@ func (cmd *PipelineMoveCmd) Run(app *Context) error {
 		DryRun:             app.DryRun,
 	}
 	if app.DryRun {
+		readiness, err := app.Client.GetPipelineReadiness(app.Context, cmd.Pipeline, cluster.ID)
+		if err != nil {
+			return fmt.Errorf("check pipeline readiness: %w", err)
+		}
+		if !readiness.Ready {
+			return fmt.Errorf(
+				"pipeline is not ready: blocking queues=%v blocking concurrency groups=%v",
+				readiness.BlockingQueues,
+				readiness.BlockingConcurrencyGroups,
+			)
+		}
 		return app.Print(change)
 	}
 	if err := app.Confirm(change); err != nil {
@@ -52,7 +51,7 @@ func (cmd *PipelineMoveCmd) Run(app *Context) error {
 		if err != nil {
 			return false, err
 		}
-		return pipeline.Cluster != nil && pipeline.Cluster.ID == cluster.ID, nil
+		return pipeline.ClusterID == cluster.ID, nil
 	})
 	if err != nil {
 		return err

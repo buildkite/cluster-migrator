@@ -12,10 +12,10 @@ func TestSetQueueMigrationPercent(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPatch {
-			t.Fatalf("method = %q, want PATCH", r.Method)
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %q, want POST", r.Method)
 		}
-		if r.URL.Path != "/v2/organizations/acme/cluster-queue-migrations/linux" {
+		if r.URL.Path != "/v2/organizations/acme/cluster-queue-migrations/linux/route" {
 			t.Fatalf("path = %q", r.URL.Path)
 		}
 		var body struct {

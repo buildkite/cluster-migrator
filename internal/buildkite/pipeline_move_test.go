@@ -11,14 +11,14 @@ func TestMovePipeline(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPatch {
-			t.Fatalf("method = %q, want PATCH", r.Method)
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %q, want POST", r.Method)
 		}
-		if r.URL.Path != "/v2/organizations/acme/pipelines/monorepo" {
+		if r.URL.Path != "/v2/organizations/acme/cluster-queue-migrations/pipelines/monorepo/move" {
 			t.Fatalf("path = %q", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"slug":"monorepo","cluster":{"id":"cluster-id","name":"Production"}}`))
+		_, _ = w.Write([]byte(`{"slug":"monorepo","cluster_id":"cluster-id"}`))
 	}))
 	defer server.Close()
 
@@ -31,7 +31,7 @@ func TestMovePipeline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pipeline.Cluster == nil || pipeline.Cluster.ID != "cluster-id" {
+	if pipeline.ClusterID != "cluster-id" {
 		t.Fatalf("pipeline = %#v", pipeline)
 	}
 }

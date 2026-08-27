@@ -6,11 +6,20 @@ import (
 )
 
 func (c *Client) ListQueueMigrations(ctx context.Context) ([]QueueMigration, error) {
-	var response struct {
-		Items []QueueMigration `json:"items"`
+	path := c.path("cluster-queue-migrations")
+	var migrations []QueueMigration
+	for path != "" {
+		var response struct {
+			Items []QueueMigration `json:"items"`
+			Links struct {
+				Next string `json:"next"`
+			} `json:"links"`
+		}
+		if err := c.do(ctx, http.MethodGet, path, nil, &response); err != nil {
+			return nil, err
+		}
+		migrations = append(migrations, response.Items...)
+		path = response.Links.Next
 	}
-	if err := c.do(ctx, http.MethodGet, c.path("cluster-queue-migrations"), nil, &response); err != nil {
-		return nil, err
-	}
-	return response.Items, nil
+	return migrations, nil
 }

@@ -57,13 +57,14 @@ func Run(
 	defer cancel()
 
 	app := &Context{
-		Context: commandContext,
-		Client:  client,
-		Input:   stdin,
-		Output:  stdout,
-		JSON:    root.JSON,
-		DryRun:  root.DryRun,
-		Yes:     root.Yes,
+		Context:     commandContext,
+		Client:      client,
+		Input:       stdin,
+		Output:      stdout,
+		ErrorOutput: stderr,
+		JSON:        root.JSON,
+		DryRun:      root.DryRun,
+		Yes:         root.Yes,
 	}
 	return parsed.Run(app)
 }

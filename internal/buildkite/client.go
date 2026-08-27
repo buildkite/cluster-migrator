@@ -88,7 +88,23 @@ func (c *Client) do(ctx context.Context, method, path string, requestBody, respo
 		body = bytes.NewReader(encoded)
 	}
 
-	request, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
+	requestURL := c.baseURL + path
+	parsedPath, err := url.Parse(path)
+	if err != nil {
+		return fmt.Errorf("parse request URL: %w", err)
+	}
+	if parsedPath.IsAbs() {
+		base, err := url.Parse(c.baseURL)
+		if err != nil {
+			return fmt.Errorf("parse API URL: %w", err)
+		}
+		if parsedPath.Scheme != base.Scheme || parsedPath.Host != base.Host {
+			return fmt.Errorf("refusing to send credentials to pagination URL %q", path)
+		}
+		requestURL = parsedPath.String()
+	}
+
+	request, err := http.NewRequestWithContext(ctx, method, requestURL, body)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}

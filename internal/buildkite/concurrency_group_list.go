@@ -9,7 +9,7 @@ func (c *Client) ListConcurrencyGroups(ctx context.Context) ([]ConcurrencyGroup,
 	var response struct {
 		Items []ConcurrencyGroup `json:"items"`
 	}
-	if err := c.do(ctx, http.MethodGet, c.path("cluster-migration", "concurrency-groups"), nil, &response); err != nil {
+	if err := c.do(ctx, http.MethodGet, c.path("cluster-queue-migrations", "concurrency-groups"), nil, &response); err != nil {
 		return nil, err
 	}
 	return response.Items, nil

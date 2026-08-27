@@ -13,13 +13,14 @@ import (
 )
 
 type Context struct {
-	Context context.Context
-	Client  *buildkite.Client
-	Input   io.Reader
-	Output  io.Writer
-	JSON    bool
-	DryRun  bool
-	Yes     bool
+	Context     context.Context
+	Client      *buildkite.Client
+	Input       io.Reader
+	Output      io.Writer
+	ErrorOutput io.Writer
+	JSON        bool
+	DryRun      bool
+	Yes         bool
 }
 
 type Change struct {
@@ -76,7 +77,7 @@ func (c *Context) Confirm(change Change) error {
 	if c.Yes {
 		return nil
 	}
-	if _, err := fmt.Fprintf(c.Output, "%s %s? [y/N] ", change.Action, change.Resource); err != nil {
+	if _, err := fmt.Fprintf(c.ErrorOutput, "%s %s? [y/N] ", change.Action, change.Resource); err != nil {
 		return err
 	}
 	answer, err := bufio.NewReader(c.Input).ReadString('\n')
