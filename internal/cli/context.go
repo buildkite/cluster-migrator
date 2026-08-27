@@ -80,7 +80,24 @@ func (c *Context) Confirm(change Change) error {
 	if _, err := fmt.Fprintf(c.ErrorOutput, "%s %s? [y/N] ", change.Action, change.Resource); err != nil {
 		return err
 	}
-	answer, err := bufio.NewReader(c.Input).ReadString('\n')
+	type result struct {
+		answer string
+		err    error
+	}
+	resultChannel := make(chan result, 1)
+	go func() {
+		answer, err := bufio.NewReader(c.Input).ReadString('\n')
+		resultChannel <- result{answer: answer, err: err}
+	}()
+
+	var answer string
+	var err error
+	select {
+	case <-c.Context.Done():
+		return c.Context.Err()
+	case result := <-resultChannel:
+		answer, err = result.answer, result.err
+	}
 	if err != nil && err != io.EOF {
 		return err
 	}
