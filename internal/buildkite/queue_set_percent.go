@@ -11,7 +11,7 @@ func (c *Client) SetQueueMigrationPercent(ctx context.Context, queue string, per
 	}{RoutedPercent: percent}
 
 	var migration QueueMigration
-	if err := c.do(ctx, http.MethodPost, c.queuePath(queue)+"/route", request, &migration); err != nil {
+	if err := c.do(ctx, http.MethodPatch, c.queuePath(queue), request, &migration); err != nil {
 		return nil, err
 	}
 	return &migration, nil
