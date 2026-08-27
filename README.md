@@ -18,8 +18,6 @@ export BUILDKITE_ORGANIZATION_SLUG=<organization>
 export BUILDKITE_API_TOKEN=<token>
 ```
 
-The CLI uses `https://api.buildkite.com/` by default. Override the REST API endpoint with `--endpoint`, for example `--endpoint http://api.buildkite.localhost`, or set `BUILDKITE_API_ENDPOINT`.
-
 ## Migration sequence
 
 Scale destination capacity before increasing queue traffic.
