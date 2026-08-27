@@ -48,20 +48,24 @@ func NewClient(baseURL, organization, token string, httpClient *http.Client) (*C
 }
 
 func (c *Client) ResolveCluster(ctx context.Context, identifier string) (*Cluster, error) {
-	var clusters []Cluster
-	if err := c.do(ctx, http.MethodGet, c.path("clusters")+"?per_page=100", nil, &clusters); err != nil {
-		return nil, err
-	}
-
 	var match *Cluster
-	for i := range clusters {
-		if clusters[i].ID != identifier && clusters[i].Name != identifier {
-			continue
+	path := c.path("clusters") + "?per_page=100"
+	for path != "" {
+		var clusters []Cluster
+		header, err := c.doWithHeaders(ctx, http.MethodGet, path, nil, &clusters)
+		if err != nil {
+			return nil, err
 		}
-		if match != nil {
-			return nil, fmt.Errorf("multiple clusters match %q", identifier)
+		for i := range clusters {
+			if clusters[i].ID != identifier && clusters[i].Name != identifier {
+				continue
+			}
+			if match != nil {
+				return nil, fmt.Errorf("multiple clusters match %q", identifier)
+			}
+			match = &clusters[i]
 		}
-		match = &clusters[i]
+		path = nextLink(header.Get("Link"))
 	}
 	if match == nil {
 		return nil, fmt.Errorf("no cluster found matching %q", identifier)
@@ -79,11 +83,16 @@ func (c *Client) path(parts ...string) string {
 }
 
 func (c *Client) do(ctx context.Context, method, path string, requestBody, responseBody any) error {
+	_, err := c.doWithHeaders(ctx, method, path, requestBody, responseBody)
+	return err
+}
+
+func (c *Client) doWithHeaders(ctx context.Context, method, path string, requestBody, responseBody any) (http.Header, error) {
 	var body io.Reader
 	if requestBody != nil {
 		encoded, err := json.Marshal(requestBody)
 		if err != nil {
-			return fmt.Errorf("encode request: %w", err)
+			return nil, fmt.Errorf("encode request: %w", err)
 		}
 		body = bytes.NewReader(encoded)
 	}
@@ -91,22 +100,22 @@ func (c *Client) do(ctx context.Context, method, path string, requestBody, respo
 	requestURL := c.baseURL + path
 	parsedPath, err := url.Parse(path)
 	if err != nil {
-		return fmt.Errorf("parse request URL: %w", err)
+		return nil, fmt.Errorf("parse request URL: %w", err)
 	}
 	if parsedPath.IsAbs() {
 		base, err := url.Parse(c.baseURL)
 		if err != nil {
-			return fmt.Errorf("parse API URL: %w", err)
+			return nil, fmt.Errorf("parse API URL: %w", err)
 		}
 		if parsedPath.Scheme != base.Scheme || parsedPath.Host != base.Host {
-			return fmt.Errorf("refusing to send credentials to pagination URL %q", path)
+			return nil, fmt.Errorf("refusing to send credentials to pagination URL %q", path)
 		}
 		requestURL = parsedPath.String()
 	}
 
 	request, err := http.NewRequestWithContext(ctx, method, requestURL, body)
 	if err != nil {
-		return fmt.Errorf("create request: %w", err)
+		return nil, fmt.Errorf("create request: %w", err)
 	}
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("Authorization", "Bearer "+c.token)
@@ -116,18 +125,30 @@ func (c *Client) do(ctx context.Context, method, path string, requestBody, respo
 
 	response, err := c.httpClient.Do(request)
 	if err != nil {
-		return fmt.Errorf("send request: %w", err)
+		return nil, fmt.Errorf("send request: %w", err)
 	}
 	defer response.Body.Close()
 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return decodeAPIError(response)
+		return nil, decodeAPIError(response)
 	}
 	if responseBody == nil || response.StatusCode == http.StatusNoContent {
-		return nil
+		return response.Header.Clone(), nil
 	}
 	if err := json.NewDecoder(response.Body).Decode(responseBody); err != nil {
-		return fmt.Errorf("decode response: %w", err)
+		return nil, fmt.Errorf("decode response: %w", err)
 	}
-	return nil
+	return response.Header.Clone(), nil
+}
+
+func nextLink(header string) string {
+	for _, link := range strings.Split(header, ",") {
+		parts := strings.Split(link, ";")
+		for _, parameter := range parts[1:] {
+			if strings.TrimSpace(parameter) == `rel="next"` {
+				return strings.Trim(strings.TrimSpace(parts[0]), "<>")
+			}
+		}
+	}
+	return ""
 }
