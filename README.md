@@ -1,9 +1,9 @@
 # Cluster Migrator
 
-`cluster-migrator` safely moves Buildkite workloads from unclustered queues to a cluster. It configures queue routing, cuts over concurrency groups, checks pipeline readiness, and permanently moves ready pipelines.
+`cluster-migrator` safely moves Buildkite workloads from unclustered queues to a cluster. It configures queue routing, checks pipeline readiness, and permanently moves ready pipelines.
 
 > [!IMPORTANT]
-> Queue migration APIs are implemented behind a Buildkite feature flag. The concurrency-group cutover and pipeline-readiness contracts are provisional until their server APIs ship. Do not use this CLI for a production migration until those contracts and their operational safety gates are complete.
+> Queue migration APIs are implemented behind a Buildkite feature flag. The pipeline-readiness contract is provisional until its server API ships. Do not use this CLI for a production migration until that contract and its operational safety gates are complete.
 
 ## Build
 
@@ -34,16 +34,11 @@ cluster-migrator queue set-percent test --to 10
 cluster-migrator queue set-percent test --to 30
 cluster-migrator queue set-percent test --to 100
 
-# 3. Atomically hold, drain, and move a concurrency group.
-cluster-migrator concurrency-group cutover deploy-production \
-  --destination-cluster production \
-  --wait
-
-# 4. Inspect all queue and group blockers.
+# 3. Inspect all queue blockers.
 cluster-migrator pipeline readiness monorepo \
   --destination-cluster production
 
-# 5. Permanently assign the pipeline to the cluster.
+# 4. Permanently assign the pipeline to the cluster.
 cluster-migrator pipeline move monorepo \
   --destination-cluster production \
   --wait
@@ -61,9 +56,6 @@ cluster-migrator queue set-percent
 cluster-migrator queue rollback
 cluster-migrator queue status
 
-cluster-migrator concurrency-group cutover
-cluster-migrator concurrency-group status
-
 cluster-migrator pipeline readiness
 cluster-migrator pipeline move
 ```
@@ -80,11 +72,8 @@ PATCH  /v2/organizations/{org}/cluster-queue-migrations/{queue_key}
 DELETE /v2/organizations/{org}/cluster-queue-migrations/{queue_key}
 POST   /v2/organizations/{org}/cluster-queue-migrations/{queue_key}/route
 
-GET    /v2/organizations/{org}/cluster-queue-migrations/concurrency-groups/{group}
-POST   /v2/organizations/{org}/cluster-queue-migrations/concurrency-groups/{group}/cutover
-
 GET    /v2/organizations/{org}/cluster-queue-migrations/pipelines/{pipeline}/readiness
 POST   /v2/organizations/{org}/cluster-queue-migrations/pipelines/{pipeline}/move
 ```
 
-The `route` endpoint must atomically enforce capacity and dependency gates. The `move` endpoint must atomically revalidate pipeline readiness before changing its cluster. These guarded endpoints, along with the concurrency-group and pipeline contracts, are provisional until their server implementations ship. They are isolated in `internal/buildkite` so they can change without affecting command parsing.
+The `route` endpoint must atomically enforce capacity and dependency gates. The `move` endpoint must atomically revalidate pipeline readiness before changing its cluster. These guarded endpoints and the pipeline contracts are provisional until their server implementations ship. They are isolated in `internal/buildkite` so they can change without affecting command parsing.

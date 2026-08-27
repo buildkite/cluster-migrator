@@ -7,12 +7,11 @@ type Pipeline struct {
 }
 
 type PipelineReadiness struct {
-	Pipeline                  string   `json:"pipeline"`
-	DestinationClusterID      string   `json:"destination_cluster_id"`
-	Ready                     bool     `json:"ready"`
-	BlockingQueues            []string `json:"blocking_queues"`
-	BlockingConcurrencyGroups []string `json:"blocking_concurrency_groups"`
-	URL                       string   `json:"url"`
+	Pipeline             string   `json:"pipeline"`
+	DestinationClusterID string   `json:"destination_cluster_id"`
+	Ready                bool     `json:"ready"`
+	BlockingQueues       []string `json:"blocking_queues"`
+	URL                  string   `json:"url"`
 }
 
 func (c *Client) pipelinePath(pipeline string, parts ...string) string {

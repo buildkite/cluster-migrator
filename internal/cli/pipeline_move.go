@@ -27,9 +27,8 @@ func (cmd *PipelineMoveCmd) Run(app *Context) error {
 		}
 		if !readiness.Ready {
 			return fmt.Errorf(
-				"pipeline is not ready: blocking queues=%v blocking concurrency groups=%v",
+				"pipeline is not ready: blocking queues=%v",
 				readiness.BlockingQueues,
-				readiness.BlockingConcurrencyGroups,
 			)
 		}
 		return app.Print(change)

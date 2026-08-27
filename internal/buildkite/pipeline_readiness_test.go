@@ -21,7 +21,7 @@ func TestGetPipelineReadiness(t *testing.T) {
 			t.Fatalf("destination_cluster_id = %q", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"pipeline":"monorepo","ready":true,"blocking_queues":[],"blocking_concurrency_groups":[]}`))
+		_, _ = w.Write([]byte(`{"pipeline":"monorepo","ready":true,"blocking_queues":[]}`))
 	}))
 	defer server.Close()
 
