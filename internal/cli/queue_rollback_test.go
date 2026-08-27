@@ -35,7 +35,7 @@ func TestQueueRollbackSetsZero(t *testing.T) {
 
 	err := Run(context.Background(), []string{
 		"--organization", "acme",
-		"--api-url", server.URL,
+		"--endpoint", server.URL,
 		"--yes",
 		"queue", "rollback", "test",
 	}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}, server.Client())

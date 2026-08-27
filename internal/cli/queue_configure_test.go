@@ -33,7 +33,7 @@ func TestQueueConfigureDryRunDoesNotMutate(t *testing.T) {
 	var stdout bytes.Buffer
 	err := Run(context.Background(), []string{
 		"--organization", "acme",
-		"--api-url", server.URL,
+		"--endpoint", server.URL,
 		"--dry-run",
 		"queue", "configure", "test",
 		"--destination-cluster", "production",
