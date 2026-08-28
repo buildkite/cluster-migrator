@@ -1,0 +1,35 @@
+env:
+  MISE_JOBS: "1"
+
+agents:
+  queue: "hosted"
+
+cache: ".buildkite/cache-volume"
+
+common:
+  use-go-with-mise: &use-go-with-mise
+    - setup-go#v0.1.0:
+        mise-version: "2026.5.12"
+    - mise#a5845c5082d3a4fe36dd77ae74973dfc86fc91a2:
+        version: "2026.5.12"
+
+steps:
+  - label: ":go: Run tests"
+    key: "tests"
+    if: build.branch != "main"
+    plugins: *use-go-with-mise
+    command: ".buildkite/steps/test.sh"
+
+  - label: ":mag: Run go vet"
+    key: "vet"
+    if: build.branch != "main"
+    plugins: *use-go-with-mise
+    command: "mise run vet"
+
+  - label: ":golangci-lint: Run linters"
+    key: "lint"
+    if: build.branch != "main"
+    plugins: *use-go-with-mise
+    env:
+      GOLANGCI_LINT_CACHE: "/tmp/golangci-lint"
+    command: ".buildkite/steps/lint.sh"

@@ -1,0 +1,38 @@
+[tools]
+go = "1.26.7"
+golangci-lint = "2.13.1"
+shellcheck = "0.11.0"
+
+[env]
+GOTOOLCHAIN = "local"
+
+[tasks.format]
+description = "Check Go formatting"
+run = '''
+unformatted="$(gofmt -l .)"
+test -z "$unformatted" || { printf '%s\n' "$unformatted"; exit 1; }
+'''
+
+[tasks."lint:go"]
+description = "Lint Go code"
+run = "golangci-lint run"
+
+[tasks."lint:shell"]
+description = "Lint shell scripts"
+run = "shellcheck .buildkite/steps/*.sh"
+
+[tasks.lint]
+description = "Run all linters"
+depends = ["lint:go", "lint:shell"]
+
+[tasks.test]
+description = "Run Go tests"
+run = "go test ./..."
+
+[tasks.vet]
+description = "Run go vet"
+run = "go vet ./..."
+
+[tasks.check]
+description = "Run all CI checks"
+depends = ["format", "lint", "test", "vet"]
