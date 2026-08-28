@@ -52,26 +52,21 @@ exit 0
 EOF
 chmod +x "$fake_bin"/*
 
-if ! (
-  PATH="$fake_bin:$PATH"
-  BUILDKITE_COMMIT=0000000000000000000000000000000000000000
-  BUILDKITE_AGENT_CALLS="$fake_bin/buildkite-agent-calls"
-  GITHUB_TOKEN=test-token
-  export PATH BUILDKITE_COMMIT BUILDKITE_AGENT_CALLS GITHUB_TOKEN
-  main >/dev/null
-); then
+run_tag() {
+  env \
+    PATH="$fake_bin:$PATH" \
+    BUILDKITE_COMMIT=0000000000000000000000000000000000000000 \
+    BUILDKITE_AGENT_CALLS="$fake_bin/buildkite-agent-calls" \
+    GITHUB_TOKEN=test-token \
+    FAKE_REMOTE_MAIN="${1:-0000000000000000000000000000000000000000}" \
+    "$root/.buildkite/tag.sh" >/dev/null
+}
+
+if ! run_tag; then
   fail 'tag command fails after pushing the tag'
 fi
 assert_contains "$fake_bin/buildkite-agent-calls" 'meta-data set release-tag v0.0.1'
-if (
-  PATH="$fake_bin:$PATH"
-  BUILDKITE_COMMIT=0000000000000000000000000000000000000000
-  BUILDKITE_AGENT_CALLS="$fake_bin/buildkite-agent-calls"
-  GITHUB_TOKEN=test-token
-  FAKE_REMOTE_MAIN=1111111111111111111111111111111111111111
-  export PATH BUILDKITE_COMMIT BUILDKITE_AGENT_CALLS GITHUB_TOKEN FAKE_REMOTE_MAIN
-  main >/dev/null
-); then
+if run_tag 1111111111111111111111111111111111111111; then
   fail 'tag command succeeds for a stale main build'
 fi
 
