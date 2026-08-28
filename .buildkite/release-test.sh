@@ -22,10 +22,13 @@ fake_bin="$(mktemp -d)"
 trap 'rm -rf "$fake_bin"' EXIT
 cat > "$fake_bin/git" <<'EOF'
 #!/usr/bin/env bash
-case "$1 $2" in
+case "$*" in
   "rev-parse HEAD") printf '%040d\n' 0 ;;
-  "tag --merged") exit 0 ;;
-  "ls-remote --exit-code") exit 2 ;;
+  "tag --merged "*) exit 0 ;;
+  "ls-remote --exit-code origin refs/heads/main")
+    printf '%s\trefs/heads/main\n' "${FAKE_REMOTE_MAIN:-0000000000000000000000000000000000000000}"
+    ;;
+  "ls-remote --exit-code --tags origin refs/tags/"*) exit 2 ;;
 esac
 EOF
 cat > "$fake_bin/buildkite-agent" <<'EOF'
@@ -60,6 +63,17 @@ if ! (
   fail 'tag command fails after pushing the tag'
 fi
 assert_contains "$fake_bin/buildkite-agent-calls" 'meta-data set release-tag v0.0.1'
+if (
+  PATH="$fake_bin:$PATH"
+  BUILDKITE_COMMIT=0000000000000000000000000000000000000000
+  BUILDKITE_AGENT_CALLS="$fake_bin/buildkite-agent-calls"
+  GITHUB_TOKEN=test-token
+  FAKE_REMOTE_MAIN=1111111111111111111111111111111111111111
+  export PATH BUILDKITE_COMMIT BUILDKITE_AGENT_CALLS GITHUB_TOKEN FAKE_REMOTE_MAIN
+  main >/dev/null
+); then
+  fail 'tag command succeeds for a stale main build'
+fi
 
 assert_equal 1 "$(grep -Fc 'if: build.branch != "main"' "$root/.buildkite/pipeline.yml")"
 assert_contains "$root/.buildkite/pipeline.release.yml" 'input: ":package: Release"'

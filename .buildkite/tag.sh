@@ -36,7 +36,7 @@ latest_release_version() {
 }
 
 main() {
-  local release_type latest tag gh_version gh_directory
+  local release_type latest tag gh_version gh_directory remote_main
 
   : "${BUILDKITE_COMMIT:?BUILDKITE_COMMIT is required}"
   : "${GITHUB_TOKEN:?GITHUB_TOKEN is required}"
@@ -67,6 +67,11 @@ main() {
   export PATH="$temporary_directory/$gh_directory/bin:$PATH"
 
   gh auth setup-git
+  remote_main="$(git ls-remote --exit-code origin refs/heads/main)" \
+    || die 'failed to resolve origin main'
+  remote_main=${remote_main%%[[:space:]]*}
+  [[ "$remote_main" == "$BUILDKITE_COMMIT" ]] \
+    || die "cannot release stale build: origin main is $remote_main"
   git tag "$tag" "$BUILDKITE_COMMIT"
   buildkite-agent meta-data set release-tag "$tag"
   git push origin "$tag"
