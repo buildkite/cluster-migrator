@@ -68,7 +68,11 @@ assert_contains "$root/.buildkite/pipeline.release.yml" 'blocked_state: "passed"
 assert_contains "$root/.buildkite/pipeline.release.yml" 'value: "major"'
 assert_contains "$root/.buildkite/pipeline.release.yml" 'command: ".buildkite/tag.sh"'
 assert_contains "$root/.buildkite/pipeline.release.yml" 'command: "mise exec -- scripts/ci-buildkite-release"'
+assert_equal 2 "$(grep -Fc 'GITHUB_TOKEN: "CLUSTER_MIGRATOR_GITHUB_TOKEN"' "$root/.buildkite/pipeline.release.yml")"
 assert_contains "$root/mise.toml" 'shellcheck -x -P .buildkite'
+if grep -Eq 'aws-assume-role-with-web-identity|aws-ssm|AWS_REGION|github-token' "$root/.buildkite/pipeline.release.yml"; then
+  fail 'the release pipeline still uses AWS to load the GitHub token'
+fi
 if grep -Eq 'tag\.sh|ci-buildkite-release' "$root/.buildkite/pipeline.yml"; then
   fail 'the CI pipeline still participates in releases'
 fi
