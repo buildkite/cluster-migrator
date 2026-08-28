@@ -32,6 +32,8 @@ steps:
   - label: ":label: Push release tag"
     key: "push-release-tag"
     command: ".buildkite/tag.sh"
+    concurrency: 1
+    concurrency_group: "cluster-migrator-release-tag"
     depends_on: "release"
     branches:
       - "main"
