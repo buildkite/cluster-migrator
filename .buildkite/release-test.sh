@@ -61,7 +61,7 @@ if ! (
 fi
 assert_contains "$fake_bin/buildkite-agent-calls" 'meta-data set release-tag v0.0.1'
 
-assert_equal 4 "$(grep -Fc 'if: build.branch != "main"' "$root/.buildkite/pipeline.yml")"
+assert_equal 1 "$(grep -Fc 'if: build.branch != "main"' "$root/.buildkite/pipeline.yml")"
 assert_contains "$root/.buildkite/pipeline.release.yml" 'input: ":package: Release"'
 assert_contains "$root/.buildkite/pipeline.release.yml" 'key: "release"'
 assert_contains "$root/.buildkite/pipeline.release.yml" 'blocked_state: "passed"'
