@@ -32,7 +32,7 @@ cluster-migrator queue set-percent test --to 10
 cluster-migrator queue set-percent test --to 30
 cluster-migrator queue set-percent test --to 100
 
-# 3. Inspect all queue blockers.
+# 3. Inspect all pipeline move blockers.
 cluster-migrator pipeline readiness monorepo \
   --destination-cluster production
 
