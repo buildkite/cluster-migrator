@@ -33,9 +33,6 @@ func (cmd *PipelineMoveCmd) Run(app *Context) error {
 		}
 		return app.Print(change)
 	}
-	if err := app.Confirm(change); err != nil {
-		return err
-	}
 
 	pipeline, err := app.Client.MovePipeline(app.Context, cmd.Pipeline, cluster.ID)
 	if err != nil {

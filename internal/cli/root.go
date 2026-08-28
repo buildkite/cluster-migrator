@@ -17,7 +17,6 @@ type rootCommand struct {
 	Endpoint     string        `help:"Buildkite REST API endpoint." env:"BUILDKITE_API_ENDPOINT" default:"https://api.buildkite.com/"`
 	JSON         bool          `help:"Write machine-readable JSON." global:""`
 	DryRun       bool          `help:"Validate and display a mutation without applying it." global:""`
-	Yes          bool          `help:"Skip interactive confirmation." global:""`
 	Timeout      time.Duration `help:"Maximum command duration." default:"10m" global:""`
 
 	Queue    QueueCmd    `cmd:"" help:"Configure and inspect queue migrations."`
@@ -27,7 +26,6 @@ type rootCommand struct {
 func Run(
 	ctx context.Context,
 	args []string,
-	stdin io.Reader,
 	stdout, stderr io.Writer,
 	httpClient *http.Client,
 ) error {
@@ -56,14 +54,11 @@ func Run(
 	defer cancel()
 
 	app := &Context{
-		Context:     commandContext,
-		Client:      client,
-		Input:       stdin,
-		Output:      stdout,
-		ErrorOutput: stderr,
-		JSON:        root.JSON,
-		DryRun:      root.DryRun,
-		Yes:         root.Yes,
+		Context: commandContext,
+		Client:  client,
+		Output:  stdout,
+		JSON:    root.JSON,
+		DryRun:  root.DryRun,
 	}
 	return parsed.Run(app)
 }
