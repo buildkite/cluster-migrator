@@ -19,7 +19,7 @@ func TestQueueSetPercentValidatesRange(t *testing.T) {
 		"--organization", "acme",
 		"--endpoint", server.URL,
 		"queue", "set-percent", "test", "--to", "101",
-	}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}, server.Client())
+	}, &bytes.Buffer{}, &bytes.Buffer{}, server.Client())
 	if err == nil || !strings.Contains(err.Error(), "between 0 and 100") {
 		t.Fatalf("error = %v", err)
 	}

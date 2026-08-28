@@ -44,7 +44,7 @@ cluster-migrator pipeline move monorepo \
 
 Use `cluster-migrator queue rollback test` to return newly created jobs to the unclustered queue. Existing jobs remain where they were originally routed.
 
-Every mutation supports `--dry-run`. Use `--yes` for non-interactive operation and `--json` for machine-readable output. Percentages are absolute, not relative increments.
+Every mutation runs non-interactively and supports `--dry-run`. Use `--json` for machine-readable output. Percentages are absolute, not relative increments.
 
 ## Commands
 

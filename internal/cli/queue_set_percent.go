@@ -30,9 +30,6 @@ func setQueuePercent(app *Context, queue string, percent int, action string) err
 	if current.RoutedPercent == percent || app.DryRun {
 		return app.Print(change)
 	}
-	if err := app.Confirm(change); err != nil {
-		return err
-	}
 
 	updated, err := app.Client.SetQueueMigrationPercent(app.Context, queue, percent)
 	if err != nil {
