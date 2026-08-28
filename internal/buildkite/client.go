@@ -48,28 +48,38 @@ func NewClient(baseURL, organization, token string, httpClient *http.Client) (*C
 }
 
 func (c *Client) ResolveCluster(ctx context.Context, identifier string) (*Cluster, error) {
+	clusters, err := c.ListClusters(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var match *Cluster
-	path := c.path("clusters") + "?per_page=100"
-	for path != "" {
-		page, err := offsetPage[Cluster](ctx, c, path)
-		if err != nil {
-			return nil, err
+	for i := range clusters {
+		if clusters[i].ID != identifier && clusters[i].Name != identifier {
+			continue
 		}
-		for i := range page.Items {
-			if page.Items[i].ID != identifier && page.Items[i].Name != identifier {
-				continue
-			}
-			if match != nil {
-				return nil, fmt.Errorf("multiple clusters match %q", identifier)
-			}
-			match = &page.Items[i]
+		if match != nil {
+			return nil, fmt.Errorf("multiple clusters match %q", identifier)
 		}
-		path = page.Next
+		match = &clusters[i]
 	}
 	if match == nil {
 		return nil, fmt.Errorf("no cluster found matching %q", identifier)
 	}
 	return match, nil
+}
+
+func (c *Client) ListClusters(ctx context.Context) ([]Cluster, error) {
+	path := c.path("clusters") + "?per_page=100"
+	var clusters []Cluster
+	for path != "" {
+		page, err := offsetPage[Cluster](ctx, c, path)
+		if err != nil {
+			return nil, err
+		}
+		clusters = append(clusters, page.Items...)
+		path = page.Next
+	}
+	return clusters, nil
 }
 
 func (c *Client) path(parts ...string) string {

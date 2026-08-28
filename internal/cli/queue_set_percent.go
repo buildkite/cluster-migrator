@@ -8,10 +8,10 @@ type QueueSetPercentCmd struct {
 }
 
 func (cmd *QueueSetPercentCmd) Run(app *Context) error {
-	return setQueuePercent(app, cmd.Queue, cmd.To, "set routed percentage")
+	return setQueuePercent(app, cmd.Queue, cmd.To, "")
 }
 
-func setQueuePercent(app *Context, queue string, percent int, action string) error {
+func setQueuePercent(app *Context, queue string, percent int, note string) error {
 	if percent < 0 || percent > 100 {
 		return fmt.Errorf("--to must be between 0 and 100")
 	}
@@ -20,20 +20,27 @@ func setQueuePercent(app *Context, queue string, percent int, action string) err
 	if err != nil {
 		return fmt.Errorf("get queue migration: %w", err)
 	}
-	change := Change{
-		Action:      action,
-		Resource:    "queue " + queue,
+	cluster, err := app.Client.ResolveCluster(app.Context, current.Destination.ClusterID)
+	if err != nil {
+		return fmt.Errorf("resolve destination cluster: %w", err)
+	}
+	change := QueueChange{
+		Queue:       queue,
 		FromPercent: &current.RoutedPercent,
-		ToPercent:   &percent,
-		DryRun:      app.DryRun,
+		ToPercent:   percent,
+		Destination: QueueDestination{
+			ClusterID:   cluster.ID,
+			ClusterName: cluster.Name,
+		},
+		DryRun: app.DryRun,
+		Note:   note,
 	}
 	if current.RoutedPercent == percent || app.DryRun {
 		return app.Print(change)
 	}
 
-	updated, err := app.Client.SetQueueMigrationPercent(app.Context, queue, percent)
-	if err != nil {
+	if _, err := app.Client.SetQueueMigrationPercent(app.Context, queue, percent); err != nil {
 		return fmt.Errorf("set routed percentage: %w", err)
 	}
-	return app.Print(updated)
+	return app.Print(change)
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	"github.com/buildkite/cluster-migrator/internal/buildkite"
@@ -28,6 +29,27 @@ type Change struct {
 	DryRun             bool   `json:"dry_run"`
 }
 
+type QueueDestination struct {
+	ClusterID   string `json:"cluster_id"`
+	ClusterName string `json:"cluster_name"`
+}
+
+type QueueChange struct {
+	Queue       string           `json:"queue"`
+	FromPercent *int             `json:"from_percent,omitempty"`
+	ToPercent   int              `json:"to_percent"`
+	Destination QueueDestination `json:"destination"`
+	DryRun      bool             `json:"dry_run"`
+	Next        string           `json:"-"`
+	Note        string           `json:"-"`
+}
+
+type QueueStatus struct {
+	Queue          string           `json:"queue"`
+	RoutingPercent int              `json:"routing_percent"`
+	Destination    QueueDestination `json:"destination"`
+}
+
 func (c *Context) Print(value any) error {
 	if c.JSON {
 		encoder := json.NewEncoder(c.Output)
@@ -36,16 +58,37 @@ func (c *Context) Print(value any) error {
 	}
 
 	switch value := value.(type) {
-	case *buildkite.QueueMigration:
-		_, err := fmt.Fprintf(c.Output, "%s\t%d%%\t%s\n", value.QueueKey, value.RoutedPercent, value.Destination.ClusterID)
-		return err
-	case []buildkite.QueueMigration:
-		for i := range value {
-			if err := c.Print(&value[i]); err != nil {
-				return err
-			}
+	case QueueChange:
+		heading := "RESULT"
+		if value.DryRun {
+			heading = "PROPOSED CHANGE"
+		}
+		if _, err := fmt.Fprintf(c.Output, "%s\n\n", heading); err != nil {
+			return err
+		}
+		writer := tabwriter.NewWriter(c.Output, 0, 4, 2, ' ', 0)
+		_, _ = fmt.Fprintln(writer, "QUEUE\tFROM\tTO\tDESTINATION")
+		from := "—"
+		if value.FromPercent != nil {
+			from = fmt.Sprintf("%d%%", *value.FromPercent)
+		}
+		_, _ = fmt.Fprintf(writer, "%s\t%s\t%d%%\t%s\n", value.Queue, from, value.ToPercent, value.Destination.ClusterName)
+		if err := writer.Flush(); err != nil {
+			return err
+		}
+		if value.Next != "" {
+			_, err := fmt.Fprintf(c.Output, "\nNEXT\n\n%s\n", value.Next)
+			return err
+		}
+		if value.Note != "" {
+			_, err := fmt.Fprintf(c.Output, "\n%s\n", value.Note)
+			return err
 		}
 		return nil
+	case QueueStatus:
+		return c.printQueueStatuses([]QueueStatus{value})
+	case []QueueStatus:
+		return c.printQueueStatuses(value)
 	case Change:
 		var line strings.Builder
 		_, _ = fmt.Fprintf(&line, "%s %s", value.Action, value.Resource)
@@ -67,6 +110,15 @@ func (c *Context) Print(value any) error {
 		encoder.SetIndent("", "  ")
 		return encoder.Encode(value)
 	}
+}
+
+func (c *Context) printQueueStatuses(statuses []QueueStatus) error {
+	writer := tabwriter.NewWriter(c.Output, 0, 4, 2, ' ', 0)
+	_, _ = fmt.Fprintln(writer, "QUEUE\tROUTING\tDESTINATION")
+	for _, status := range statuses {
+		_, _ = fmt.Fprintf(writer, "%s\t%d%%\t%s\n", status.Queue, status.RoutingPercent, status.Destination.ClusterName)
+	}
+	return writer.Flush()
 }
 
 func (c *Context) Poll(check func() (bool, error)) error {

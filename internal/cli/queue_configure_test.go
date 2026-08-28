@@ -48,3 +48,37 @@ func TestQueueConfigureDryRunDoesNotMutate(t *testing.T) {
 		t.Fatalf("output = %q", stdout.String())
 	}
 }
+
+func TestQueueConfigurePrintsNextStep(t *testing.T) {
+	t.Setenv("BUILDKITE_API_TOKEN", "secret")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/clusters":
+			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/clusters/cluster-id/queues":
+			_, _ = w.Write([]byte(`[{"id":"queue-id","key":"test"}]`))
+		case r.Method == http.MethodPost && r.URL.Path == "/v2/organizations/acme/cluster-queue-migrations":
+			_, _ = w.Write([]byte(`{"queue_key":"test","destination":{"cluster_id":"cluster-id","queue_id":"queue-id","queue_key":"test"},"routed_percent":0}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	err := Run(context.Background(), []string{
+		"--organization", "acme",
+		"--endpoint", server.URL,
+		"queue", "configure", "test",
+		"--destination-cluster", "production",
+	}, &stdout, &bytes.Buffer{}, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "RESULT\n\nQUEUE  FROM  TO  DESTINATION\ntest   —     0%  production\n\nNEXT\n\nScale the destination infrastructure. When ready, begin routing:\n\n  cluster-migrator queue set-percent test --to <percentage>\n"
+	if got := stdout.String(); got != want {
+		t.Fatalf("output = %q, want %q", got, want)
+	}
+}
