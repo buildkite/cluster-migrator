@@ -76,8 +76,8 @@ assert_contains "$root/.buildkite/pipeline.release.yml" 'key: "release"'
 assert_contains "$root/.buildkite/pipeline.release.yml" 'blocked_state: "passed"'
 assert_contains "$root/.buildkite/pipeline.release.yml" 'value: "major"'
 assert_contains "$root/.buildkite/pipeline.release.yml" 'command: ".buildkite/tag.sh"'
-assert_contains "$root/.buildkite/pipeline.release.yml" 'concurrency: 1'
-assert_contains "$root/.buildkite/pipeline.release.yml" 'concurrency_group: "cluster-migrator-release-tag"'
+assert_equal 2 "$(grep -Fc 'concurrency: 1' "$root/.buildkite/pipeline.release.yml")"
+assert_equal 2 "$(grep -Fc 'concurrency_group: "cluster-migrator-release-tag"' "$root/.buildkite/pipeline.release.yml")"
 assert_contains "$root/.buildkite/pipeline.release.yml" 'command: "mise exec -- scripts/ci-buildkite-release"'
 assert_equal 2 "$(grep -Fc 'GITHUB_TOKEN: "CLUSTER_MIGRATOR_GITHUB_TOKEN"' "$root/.buildkite/pipeline.release.yml")"
 assert_contains "$root/mise.toml" 'shellcheck -x -P .buildkite'

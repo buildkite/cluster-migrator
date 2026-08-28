@@ -43,6 +43,8 @@ steps:
   - label: ":rocket: Publish GitHub release"
     key: "publish-release"
     command: "mise exec -- scripts/ci-buildkite-release"
+    concurrency: 1
+    concurrency_group: "cluster-migrator-release-tag"
     depends_on: "push-release-tag"
     branches:
       - "main"
