@@ -37,7 +37,7 @@ func TestQueueConfigureDryRunDoesNotMutate(t *testing.T) {
 		"--dry-run",
 		"queue", "configure", "test",
 		"--destination-cluster", "production",
-	}, strings.NewReader(""), &stdout, &bytes.Buffer{}, server.Client())
+	}, &stdout, &bytes.Buffer{}, server.Client())
 	if err != nil {
 		t.Fatal(err)
 	}

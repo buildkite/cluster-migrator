@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -13,14 +12,11 @@ import (
 )
 
 type Context struct {
-	Context     context.Context
-	Client      *buildkite.Client
-	Input       io.Reader
-	Output      io.Writer
-	ErrorOutput io.Writer
-	JSON        bool
-	DryRun      bool
-	Yes         bool
+	Context context.Context
+	Client  *buildkite.Client
+	Output  io.Writer
+	JSON    bool
+	DryRun  bool
 }
 
 type Change struct {
@@ -71,41 +67,6 @@ func (c *Context) Print(value any) error {
 		encoder.SetIndent("", "  ")
 		return encoder.Encode(value)
 	}
-}
-
-func (c *Context) Confirm(change Change) error {
-	if c.Yes {
-		return nil
-	}
-	if _, err := fmt.Fprintf(c.ErrorOutput, "%s %s? [y/N] ", change.Action, change.Resource); err != nil {
-		return err
-	}
-	type result struct {
-		answer string
-		err    error
-	}
-	resultChannel := make(chan result, 1)
-	go func() {
-		answer, err := bufio.NewReader(c.Input).ReadString('\n')
-		resultChannel <- result{answer: answer, err: err}
-	}()
-
-	var answer string
-	var err error
-	select {
-	case <-c.Context.Done():
-		return c.Context.Err()
-	case result := <-resultChannel:
-		answer, err = result.answer, result.err
-	}
-	if err != nil && err != io.EOF {
-		return err
-	}
-	answer = strings.TrimSpace(strings.ToLower(answer))
-	if answer != "y" && answer != "yes" {
-		return fmt.Errorf("operation cancelled")
-	}
-	return nil
 }
 
 func (c *Context) Poll(check func() (bool, error)) error {

@@ -27,9 +27,6 @@ func (cmd *QueueConfigureCmd) Run(app *Context) error {
 	if app.DryRun {
 		return app.Print(change)
 	}
-	if err := app.Confirm(change); err != nil {
-		return err
-	}
 
 	migration, err := app.Client.ConfigureQueueMigration(app.Context, cmd.Queue, cluster.ID)
 	if err != nil {

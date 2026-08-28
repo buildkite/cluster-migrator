@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 )
 
@@ -36,9 +35,8 @@ func TestQueueRollbackSetsZero(t *testing.T) {
 	err := Run(context.Background(), []string{
 		"--organization", "acme",
 		"--endpoint", server.URL,
-		"--yes",
 		"queue", "rollback", "test",
-	}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}, server.Client())
+	}, &bytes.Buffer{}, &bytes.Buffer{}, server.Client())
 	if err != nil {
 		t.Fatal(err)
 	}
