@@ -9,17 +9,16 @@ import (
 func (c *Client) RequireClusterQueue(ctx context.Context, clusterID, queueKey string) error {
 	path := c.path("clusters", clusterID, "queues") + "?per_page=100"
 	for path != "" {
-		var queues []ClusterQueue
-		header, err := c.doWithHeaders(ctx, http.MethodGet, path, nil, &queues)
+		page, err := offsetPage[ClusterQueue](ctx, c, path)
 		if err != nil {
 			return err
 		}
-		for _, queue := range queues {
+		for _, queue := range page.Items {
 			if queue.Key == queueKey {
 				return nil
 			}
 		}
-		path = nextLink(header.Get("Link"))
+		path = page.Next
 	}
 	return fmt.Errorf("cluster %q has no queue with key %q", clusterID, queueKey)
 }

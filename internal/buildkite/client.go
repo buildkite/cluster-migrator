@@ -51,21 +51,20 @@ func (c *Client) ResolveCluster(ctx context.Context, identifier string) (*Cluste
 	var match *Cluster
 	path := c.path("clusters") + "?per_page=100"
 	for path != "" {
-		var clusters []Cluster
-		header, err := c.doWithHeaders(ctx, http.MethodGet, path, nil, &clusters)
+		page, err := offsetPage[Cluster](ctx, c, path)
 		if err != nil {
 			return nil, err
 		}
-		for i := range clusters {
-			if clusters[i].ID != identifier && clusters[i].Name != identifier {
+		for i := range page.Items {
+			if page.Items[i].ID != identifier && page.Items[i].Name != identifier {
 				continue
 			}
 			if match != nil {
 				return nil, fmt.Errorf("multiple clusters match %q", identifier)
 			}
-			match = &clusters[i]
+			match = &page.Items[i]
 		}
-		path = nextLink(header.Get("Link"))
+		path = page.Next
 	}
 	if match == nil {
 		return nil, fmt.Errorf("no cluster found matching %q", identifier)
