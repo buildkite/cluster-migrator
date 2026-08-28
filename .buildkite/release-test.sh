@@ -82,6 +82,7 @@ assert_contains "$root/.buildkite/pipeline.release.yml" 'command: "mise exec -- 
 assert_equal 2 "$(grep -Fc 'GITHUB_TOKEN: "CLUSTER_MIGRATOR_GITHUB_TOKEN"' "$root/.buildkite/pipeline.release.yml")"
 assert_contains "$root/mise.toml" 'shellcheck -x -P .buildkite'
 assert_contains "$root/.goreleaser.yml" 'make_latest: legacy'
+assert_contains "$root/.goreleaser.yml" 'replace_existing_artifacts: true'
 if grep -Eq 'aws-assume-role-with-web-identity|aws-ssm|AWS_REGION|github-token' "$root/.buildkite/pipeline.release.yml"; then
   fail 'the release pipeline still uses AWS to load the GitHub token'
 fi

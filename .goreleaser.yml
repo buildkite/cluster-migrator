@@ -35,6 +35,7 @@ release:
   name_template: "{{ .Tag }}"
   target_commitish: "{{ .Commit }}"
   make_latest: legacy
+  replace_existing_artifacts: true
 
 changelog:
   sort: asc
