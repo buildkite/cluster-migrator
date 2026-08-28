@@ -34,7 +34,7 @@ func TestConfirmWritesPromptToErrorOutput(t *testing.T) {
 func TestConfirmStopsWhenContextExpires(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	reader, writer := io.Pipe()
-	defer writer.Close()
+	defer func() { _ = writer.Close() }()
 
 	app := Context{
 		Context:     ctx,
