@@ -30,3 +30,9 @@ steps:
     env:
       GOLANGCI_LINT_CACHE: "/tmp/golangci-lint"
     command: ".buildkite/steps/lint.sh"
+
+  - label: ":package: Validate release"
+    key: "release-check"
+    if: build.branch != "main"
+    plugins: *use-go-with-mise
+    command: "mise run release-check"

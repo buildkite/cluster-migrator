@@ -5,6 +5,16 @@
 > [!IMPORTANT]
 > Queue migration APIs are implemented behind a Buildkite feature flag. The pipeline-readiness contract is provisional until its server API ships. Do not use this CLI for a production migration until that contract and its operational safety gates are complete.
 
+## Install
+
+Install the latest release with [mise](https://mise.jdx.dev/):
+
+```shell
+mise use --global github:buildkite/cluster-migrator
+```
+
+Prebuilt releases support macOS and Linux on x86-64 and ARM64.
+
 ## Build
 
 ```shell

@@ -1,0 +1,59 @@
+env:
+  MISE_JOBS: "1"
+
+agents:
+  queue: "hosted"
+
+cache: ".buildkite/cache-volume"
+
+steps:
+  - input: ":package: Release"
+    key: "release"
+    prompt: "Select the release type"
+    branches:
+      - "main"
+    allowed_teams:
+      - "support"
+      - "deploy"
+      - "pipelines"
+    blocked_state: "passed"
+    fields:
+      - key: "release-type"
+        select: "Release Type"
+        required: true
+        options:
+          - label: "Patch"
+            value: "patch"
+          - label: "Minor"
+            value: "minor"
+          - label: "Major"
+            value: "major"
+
+  - label: ":label: Push release tag"
+    key: "push-release-tag"
+    command: ".buildkite/tag.sh"
+    concurrency: 1
+    concurrency_group: "cluster-migrator-release-tag"
+    depends_on: "release"
+    branches:
+      - "main"
+    secrets:
+      GITHUB_TOKEN: "CLUSTER_MIGRATOR_GITHUB_TOKEN"
+
+  - label: ":rocket: Publish GitHub release"
+    key: "publish-release"
+    command: "mise exec -- scripts/ci-buildkite-release"
+    concurrency: 1
+    concurrency_group: "cluster-migrator-release-tag"
+    depends_on: "push-release-tag"
+    branches:
+      - "main"
+    artifact_paths:
+      - "dist/**/*"
+    secrets:
+      GITHUB_TOKEN: "CLUSTER_MIGRATOR_GITHUB_TOKEN"
+    plugins:
+      - setup-go#v0.1.0:
+          mise-version: "2026.5.12"
+      - mise#a5845c5082d3a4fe36dd77ae74973dfc86fc91a2:
+          version: "2026.5.12"
