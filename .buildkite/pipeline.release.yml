@@ -1,0 +1,74 @@
+env:
+  MISE_JOBS: "1"
+
+agents:
+  queue: "hosted"
+
+cache: ".buildkite/cache-volume"
+
+steps:
+  - input: ":package: Release"
+    key: "release"
+    prompt: "Select the release type"
+    branches:
+      - "main"
+    allowed_teams:
+      - "support"
+      - "deploy"
+      - "pipelines"
+    blocked_state: "passed"
+    fields:
+      - key: "release-type"
+        select: "Release Type"
+        required: true
+        options:
+          - label: "Patch"
+            value: "patch"
+          - label: "Minor"
+            value: "minor"
+          - label: "Major"
+            value: "major"
+
+  - label: ":label: Push release tag"
+    key: "push-release-tag"
+    command: ".buildkite/tag.sh"
+    depends_on: "release"
+    branches:
+      - "main"
+    env:
+      AWS_REGION: "us-east-1"
+    plugins:
+      - aws-assume-role-with-web-identity#v1.7.0:
+          role-arn: "arn:aws:iam::445615400570:role/pipeline-buildkite-cluster-migrator-release"
+          session-tags:
+            - organization_slug
+            - organization_id
+            - pipeline_slug
+      - aws-ssm#v1.1.0:
+          parameters:
+            GITHUB_TOKEN: "/pipelines/buildkite/cluster-migrator-release/github-token"
+
+  - label: ":rocket: Publish GitHub release"
+    key: "publish-release"
+    command: "mise exec -- scripts/ci-buildkite-release"
+    depends_on: "push-release-tag"
+    branches:
+      - "main"
+    artifact_paths:
+      - "dist/**/*"
+    env:
+      AWS_REGION: "us-east-1"
+    plugins:
+      - aws-assume-role-with-web-identity#v1.7.0:
+          role-arn: "arn:aws:iam::445615400570:role/pipeline-buildkite-cluster-migrator-release"
+          session-tags:
+            - organization_slug
+            - organization_id
+            - pipeline_slug
+      - aws-ssm#v1.1.0:
+          parameters:
+            GITHUB_TOKEN: "/pipelines/buildkite/cluster-migrator-release/github-token"
+      - setup-go#v0.1.0:
+          mise-version: "2026.5.12"
+      - mise#a5845c5082d3a4fe36dd77ae74973dfc86fc91a2:
+          version: "2026.5.12"
