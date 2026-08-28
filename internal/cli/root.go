@@ -13,7 +13,7 @@ import (
 
 type rootCommand struct {
 	Organization string        `help:"Buildkite organization slug." env:"BUILDKITE_ORGANIZATION_SLUG" required:""`
-	APIToken     string        `help:"Buildkite API token." env:"BUILDKITE_API_TOKEN" required:"" hidden:""`
+	APIToken     string        `help:"Buildkite API token." env:"BUILDKITE_API_TOKEN" required:""`
 	Endpoint     string        `help:"Buildkite REST API endpoint." env:"BUILDKITE_API_ENDPOINT" default:"https://api.buildkite.com/"`
 	JSON         bool          `help:"Write machine-readable JSON." global:""`
 	DryRun       bool          `help:"Validate and display a mutation without applying it." global:""`
