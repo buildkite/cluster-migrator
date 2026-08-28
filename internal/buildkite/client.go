@@ -126,7 +126,7 @@ func (c *Client) doWithHeaders(ctx context.Context, method, path string, request
 	if err != nil {
 		return nil, fmt.Errorf("send request: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, decodeAPIError(response)
