@@ -16,19 +16,16 @@ common:
 steps:
   - label: ":go: Run tests"
     key: "tests"
-    if: build.branch != "main"
     plugins: *use-go-with-mise
     command: ".buildkite/steps/test.sh"
 
   - label: ":mag: Run go vet"
     key: "vet"
-    if: build.branch != "main"
     plugins: *use-go-with-mise
     command: "mise run vet"
 
   - label: ":golangci-lint: Run linters"
     key: "lint"
-    if: build.branch != "main"
     plugins: *use-go-with-mise
     env:
       GOLANGCI_LINT_CACHE: "/tmp/golangci-lint"
