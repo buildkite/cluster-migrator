@@ -16,6 +16,7 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
+      - -X github.com/buildkite/cluster-migrator/internal/cli.version={{ .Tag }}
 
 archives:
   - formats:

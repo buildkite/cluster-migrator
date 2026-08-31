@@ -11,13 +11,16 @@ import (
 	"github.com/buildkite/cluster-migrator/internal/buildkite"
 )
 
+var version = "dev"
+
 type rootCommand struct {
-	Organization string        `help:"Buildkite organization slug." env:"BUILDKITE_ORGANIZATION_SLUG" required:""`
-	APIToken     string        `help:"Buildkite API token." env:"BUILDKITE_API_TOKEN" required:""`
-	Endpoint     string        `help:"Buildkite REST API endpoint." env:"BUILDKITE_API_ENDPOINT" default:"https://api.buildkite.com/"`
-	JSON         bool          `help:"Write machine-readable JSON." global:""`
-	DryRun       bool          `help:"Validate and display a mutation without applying it." global:""`
-	Timeout      time.Duration `help:"Maximum command duration." default:"10m" global:""`
+	Version      kong.VersionFlag `help:"Print version information and quit."`
+	Organization string           `help:"Buildkite organization slug." env:"BUILDKITE_ORGANIZATION_SLUG" required:""`
+	APIToken     string           `help:"Buildkite API token." env:"BUILDKITE_API_TOKEN" required:""`
+	Endpoint     string           `help:"Buildkite REST API endpoint." env:"BUILDKITE_API_ENDPOINT" default:"https://api.buildkite.com/"`
+	JSON         bool             `help:"Write machine-readable JSON." global:""`
+	DryRun       bool             `help:"Validate and display a mutation without applying it." global:""`
+	Timeout      time.Duration    `help:"Maximum command duration." default:"10m" global:""`
 
 	Queue    QueueCmd    `cmd:"" help:"Configure and inspect queue migrations."`
 	Pipeline PipelineCmd `cmd:"" help:"Check and move pipelines."`
@@ -34,6 +37,7 @@ func Run(
 		&root,
 		kong.Name("cluster-migrator"),
 		kong.Description("Safely migrate Buildkite workloads from unclustered queues to clusters."),
+		kong.Vars{"version": "cluster-migrator " + version},
 		kong.Writers(stdout, stderr),
 	)
 	if err != nil {

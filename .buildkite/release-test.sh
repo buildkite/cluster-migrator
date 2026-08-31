@@ -101,6 +101,7 @@ assert_equal 2 "$(grep -Fc 'GITHUB_TOKEN: "CLUSTER_MIGRATOR_GITHUB_TOKEN"' "$roo
 assert_contains "$root/mise.toml" 'shellcheck -x -P .buildkite'
 assert_contains "$root/.goreleaser.yml" 'make_latest: legacy'
 assert_contains "$root/.goreleaser.yml" 'replace_existing_artifacts: true'
+assert_contains "$root/.goreleaser.yml" '-X github.com/buildkite/cluster-migrator/internal/cli.version={{ .Tag }}'
 if grep -Eq 'aws-assume-role-with-web-identity|aws-ssm|AWS_REGION|github-token' "$root/.buildkite/pipeline.release.yml"; then
   fail 'the release pipeline still uses AWS to load the GitHub token'
 fi
