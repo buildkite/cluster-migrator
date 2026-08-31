@@ -15,11 +15,17 @@ mise use --global github:buildkite/cluster-migrator
 
 Prebuilt releases support macOS and Linux on x86-64 and ARM64.
 
-## Build
+## Build and test
+
+Install the development tools, build the executable, and run the tests with mise:
 
 ```shell
-go build ./cmd/cluster-migrator
+mise install
+mise run build
+mise run test
 ```
+
+The build task creates `./cluster-migrator`.
 
 Configure the organization and API token through the environment:
 
