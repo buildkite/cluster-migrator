@@ -29,3 +29,6 @@ tag_commit="$(git rev-list -n 1 "$BUILDKITE_TAG^{commit}")" || die 'release tag 
 [[ "$(git rev-parse HEAD)" == "$BUILDKITE_COMMIT" ]] || die 'checked-out HEAD does not match BUILDKITE_COMMIT'
 
 goreleaser release --clean
+buildkite-agent annotate \
+  "GitHub release [${BUILDKITE_TAG}](https://github.com/buildkite/cluster-migrator/releases/tag/${BUILDKITE_TAG})" \
+  --style success --context github-release

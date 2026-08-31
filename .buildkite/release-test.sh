@@ -24,9 +24,14 @@ cat > "$fake_bin/git" <<'EOF'
 #!/usr/bin/env bash
 case "$*" in
   "rev-parse HEAD") printf '%040d\n' 0 ;;
+  "rev-list -n 1 v0.0.1^{commit}") printf '%040d\n' 0 ;;
   "tag --merged "*) exit 0 ;;
+  "fetch --force --tags origin") exit 0 ;;
   "ls-remote --exit-code origin refs/heads/main")
     printf '%s\trefs/heads/main\n' "${FAKE_REMOTE_MAIN:-0000000000000000000000000000000000000000}"
+    ;;
+  "ls-remote --exit-code origin refs/tags/v0.0.1 refs/tags/v0.0.1^{}")
+    printf '%040d\trefs/tags/v0.0.1\n' 0
     ;;
   "ls-remote --exit-code --tags origin refs/tags/"*) exit 2 ;;
 esac
@@ -50,6 +55,10 @@ cat > "$fake_bin/gh" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
+cat > "$fake_bin/goreleaser" <<'EOF'
+#!/usr/bin/env bash
+[[ "$*" == 'release --clean' ]]
+EOF
 chmod +x "$fake_bin"/*
 
 run_tag() {
@@ -69,6 +78,15 @@ assert_contains "$fake_bin/buildkite-agent-calls" 'meta-data set release-tag v0.
 if run_tag 1111111111111111111111111111111111111111; then
   fail 'tag command succeeds for a stale main build'
 fi
+
+env \
+  PATH="$fake_bin:$PATH" \
+  BUILDKITE_COMMIT=0000000000000000000000000000000000000000 \
+  BUILDKITE_TAG=v0.0.1 \
+  BUILDKITE_AGENT_CALLS="$fake_bin/buildkite-agent-calls" \
+  GITHUB_TOKEN=test-token \
+  "$root/scripts/ci-buildkite-release" >/dev/null
+assert_contains "$fake_bin/buildkite-agent-calls" 'annotate GitHub release [v0.0.1](https://github.com/buildkite/cluster-migrator/releases/tag/v0.0.1) --style success --context github-release'
 
 assert_equal 1 "$(grep -Fc 'if: build.branch != "main"' "$root/.buildkite/pipeline.yml")"
 assert_contains "$root/.buildkite/pipeline.release.yml" 'input: ":package: Release"'
