@@ -62,6 +62,40 @@ Use `cluster-migrator queue rollback test` to return newly created jobs to the u
 
 Every mutation runs non-interactively and supports `--dry-run`. Use `--json` for machine-readable output. Percentages are absolute, not relative increments.
 
+## Output
+
+Queue mutations display the previous and resulting routing percentages. Successful configuration also identifies the next migration step. `queue status` is informational and displays one migration when given a queue key or every migration when the key is omitted.
+
+With `--json`, percentage changes and rollbacks return:
+
+```json
+{
+  "queue": "default",
+  "from_percent": 10,
+  "to_percent": 25,
+  "destination": {
+    "cluster_id": "cluster-id",
+    "cluster_name": "Cluster Migrator Demo"
+  },
+  "dry_run": false
+}
+```
+
+Initial configuration uses the same shape without `from_percent`. Queue status returns:
+
+```json
+{
+  "queue": "default",
+  "routing_percent": 25,
+  "destination": {
+    "cluster_id": "cluster-id",
+    "cluster_name": "Cluster Migrator Demo"
+  }
+}
+```
+
+Status for all queues returns an array of these objects. Terminal-only guidance is never included in JSON.
+
 ## Commands
 
 ```text

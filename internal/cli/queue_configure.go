@@ -16,21 +16,25 @@ func (cmd *QueueConfigureCmd) Run(app *Context) error {
 		return fmt.Errorf("validate destination queue: %w", err)
 	}
 
-	zero := 0
-	change := Change{
-		Action:             "configure",
-		Resource:           "queue " + cmd.Queue,
-		DestinationCluster: cluster.Name,
-		ToPercent:          &zero,
-		DryRun:             app.DryRun,
+	change := QueueChange{
+		Queue:     cmd.Queue,
+		ToPercent: 0,
+		Destination: QueueDestination{
+			ClusterID:   cluster.ID,
+			ClusterName: cluster.Name,
+		},
+		DryRun: app.DryRun,
 	}
 	if app.DryRun {
 		return app.Print(change)
 	}
 
-	migration, err := app.Client.ConfigureQueueMigration(app.Context, cmd.Queue, cluster.ID)
-	if err != nil {
+	if _, err := app.Client.ConfigureQueueMigration(app.Context, cmd.Queue, cluster.ID); err != nil {
 		return fmt.Errorf("configure queue migration: %w", err)
 	}
-	return app.Print(migration)
+	change.Next = fmt.Sprintf(
+		"Scale the destination infrastructure. When ready, begin routing:\n\n  cluster-migrator queue set-percent %s --to <percentage>",
+		cmd.Queue,
+	)
+	return app.Print(change)
 }

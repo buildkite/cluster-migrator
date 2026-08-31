@@ -5,5 +5,10 @@ type QueueRollbackCmd struct {
 }
 
 func (cmd *QueueRollbackCmd) Run(app *Context) error {
-	return setQueuePercent(app, cmd.Queue, 0, "roll back")
+	return setQueuePercent(
+		app,
+		cmd.Queue,
+		0,
+		"New jobs will return to the unclustered queue. Existing jobs remain where they were routed.",
+	)
 }
