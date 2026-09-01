@@ -48,11 +48,17 @@ cluster-migrator queue set-percent test --to 10
 cluster-migrator queue set-percent test --to 30
 cluster-migrator queue set-percent test --to 100
 
-# 3. Inspect all pipeline move blockers.
+# 3. Check recent destination activity for operational context.
+cluster-migrator queue metrics test
+
+# Before increasing traffic, also inspect dispatch and queue latency plus
+# stranded-job alerts in your observability tools.
+
+# 4. Inspect all pipeline move blockers.
 cluster-migrator pipeline readiness monorepo \
   --destination-cluster production
 
-# 4. Permanently assign the pipeline to the cluster.
+# 5. Permanently assign the pipeline to the cluster.
 cluster-migrator pipeline move monorepo \
   --destination-cluster production \
   --wait
@@ -64,7 +70,26 @@ Every mutation runs non-interactively and supports `--dry-run`. Use `--json` for
 
 ## Output
 
-Queue mutations display the previous and resulting routing percentages. Successful configuration also identifies the next migration step. `queue status` is informational and displays one migration when given a queue key or every migration when the key is omitted.
+Queue mutations display the previous and resulting routing percentages. Successful configuration, percentage changes below 100%, and single-queue status at 0% also identify the next migration step. Status for all queues remains informational.
+
+`queue metrics` displays the latest and maximum destination activity over the server's observation window. This activity is operational context only: it does not establish pipeline readiness. Before increasing traffic, also inspect dispatch and queue latency and stranded-job alerts in observability. The observation time shows when the window ended, and missing values are shown as `—`, not zero:
+
+```text
+QUEUE ACTIVITY
+Source: default (unclustered)
+Destination: default (cluster cluster-id)
+Routing: 30%
+Observed: 48 seconds ago
+
+METRIC            LATEST  10M MAX
+Connected agents  50      54
+Waiting jobs      4       12
+Running jobs      38      46
+```
+
+With `--json`, the command returns the API response, including `null` values, routing percentage, and observation timestamps.
+
+When metrics are still being prepared, the command waits for the server's requested retry interval without writing to stdout. If preparation takes longer than the first retry, it reports progress on stderr and keeps retrying for up to one minute.
 
 With `--json`, percentage changes and rollbacks return:
 
@@ -103,6 +128,7 @@ cluster-migrator queue configure
 cluster-migrator queue set-percent
 cluster-migrator queue rollback
 cluster-migrator queue status
+cluster-migrator queue metrics
 
 cluster-migrator pipeline readiness
 cluster-migrator pipeline move
@@ -116,6 +142,7 @@ The CLI calls these queue migration endpoints:
 GET    /v2/organizations/{org}/cluster-queue-migrations
 POST   /v2/organizations/{org}/cluster-queue-migrations
 GET    /v2/organizations/{org}/cluster-queue-migrations/{queue_key}
+GET    /v2/organizations/{org}/cluster-queue-migrations/{queue_key}/metrics
 PATCH  /v2/organizations/{org}/cluster-queue-migrations/{queue_key}
 DELETE /v2/organizations/{org}/cluster-queue-migrations/{queue_key}
 

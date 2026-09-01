@@ -38,6 +38,7 @@ func TestQueueStatusJSON(t *testing.T) {
 			ClusterID:   "cluster-id",
 			ClusterName: "Cluster Migrator Demo",
 		},
+		Next: "terminal-only guidance",
 	})
 	if err != nil {
 		t.Fatal(err)

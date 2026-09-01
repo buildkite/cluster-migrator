@@ -48,6 +48,9 @@ func Run(
 	if err != nil {
 		return err
 	}
+	if _, err := fmt.Fprintln(stderr); err != nil {
+		return fmt.Errorf("write output separator: %w", err)
+	}
 
 	client, err := buildkite.NewClient(root.Endpoint, root.Organization, root.APIToken, httpClient)
 	if err != nil {
@@ -58,11 +61,13 @@ func Run(
 	defer cancel()
 
 	app := &Context{
-		Context: commandContext,
-		Client:  client,
-		Output:  stdout,
-		JSON:    root.JSON,
-		DryRun:  root.DryRun,
+		Context:     commandContext,
+		Client:      client,
+		Output:      stdout,
+		ErrorOutput: stderr,
+		JSON:        root.JSON,
+		DryRun:      root.DryRun,
+		Now:         time.Now,
 	}
 	return parsed.Run(app)
 }

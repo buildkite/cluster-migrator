@@ -44,7 +44,7 @@ func queueStatus(migration *buildkite.QueueMigration, clusterNames map[string]st
 	if destinationName == "" {
 		destinationName = migration.Destination.ClusterID
 	}
-	return QueueStatus{
+	status := QueueStatus{
 		Queue:          migration.QueueKey,
 		RoutingPercent: migration.RoutedPercent,
 		Destination: QueueDestination{
@@ -52,4 +52,11 @@ func queueStatus(migration *buildkite.QueueMigration, clusterNames map[string]st
 			ClusterName: destinationName,
 		},
 	}
+	if migration.RoutedPercent == 0 {
+		status.Next = fmt.Sprintf(
+			"Scale the destination infrastructure. When ready, begin routing:\n\n  cluster-migrator queue set-percent %s --to <percentage>",
+			migration.QueueKey,
+		)
+	}
+	return status
 }
