@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"text/tabwriter"
 	"time"
@@ -8,16 +10,48 @@ import (
 	"github.com/buildkite/cluster-migrator/internal/buildkite"
 )
 
+const queueMetricsTimeout = time.Minute
+
 type QueueMetricsCmd struct {
 	Queue string `arg:"" help:"Source queue key."`
 }
 
 func (cmd *QueueMetricsCmd) Run(app *Context) error {
-	metrics, err := app.Client.GetQueueMetrics(app.Context, cmd.Queue)
-	if err != nil {
-		return fmt.Errorf("get queue metrics: %w", err)
+	ctx, cancel := context.WithTimeout(app.Context, queueMetricsTimeout)
+	defer cancel()
+	retries := 0
+	retryMessagePrinted := false
+
+	for {
+		metrics, err := app.Client.GetQueueMetrics(ctx, cmd.Queue)
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				return fmt.Errorf("queue metrics did not become available within %s", queueMetricsTimeout)
+			}
+			return fmt.Errorf("get queue metrics: %w", err)
+		}
+		if metrics.RetryAfter == nil {
+			return app.Print(metrics)
+		}
+
+		retryAfter := *metrics.RetryAfter
+		if retryAfter <= 0 {
+			return fmt.Errorf("invalid retry_after_seconds: %d", retryAfter)
+		}
+		if retries > 0 && !retryMessagePrinted {
+			if _, err := fmt.Fprintf(app.ErrorOutput, "Queue metrics are still being prepared; retrying every %d %s…\n", retryAfter, pluralize(retryAfter, "second")); err != nil {
+				return err
+			}
+			retryMessagePrinted = true
+		}
+		retries++
+		if err := app.wait(ctx, time.Duration(retryAfter)*time.Second); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				return fmt.Errorf("queue metrics did not become available within %s", queueMetricsTimeout)
+			}
+			return fmt.Errorf("wait to retry queue metrics: %w", err)
+		}
 	}
-	return app.Print(metrics)
 }
 
 func (c *Context) printQueueMetrics(metrics *buildkite.QueueMetrics) error {

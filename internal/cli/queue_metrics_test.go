@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"testing"
 	"time"
+
+	"github.com/buildkite/cluster-migrator/internal/buildkite"
 )
 
 func TestQueueMetricsPrintsDestinationActivity(t *testing.T) {
@@ -116,6 +118,72 @@ func TestQueueMetricsPrintsUnknownObservationWithoutError(t *testing.T) {
 	}
 	if got := stdout.String(); !bytes.Contains([]byte(got), []byte("Observed: —\n")) {
 		t.Fatalf("output = %q", got)
+	}
+}
+
+func TestQueueMetricsRetriesBeforePrinting(t *testing.T) {
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requestCount++
+		w.Header().Set("Content-Type", "application/json")
+		if requestCount < 3 {
+			_, _ = w.Write([]byte(`{"retry_after_seconds":10}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{
+			"queue":"default",
+			"destination":{"cluster_id":"cluster-id","queue_key":"cluster-default"},
+			"routed_percent":30,
+			"observed_at":"2026-09-01T07:00:00Z",
+			"window_seconds":600,
+			"activity":{
+				"connected_agents":{"current":50,"peak":54},
+				"waiting_jobs":{"current":4,"peak":12},
+				"running_jobs":{"current":38,"peak":46}
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	client, err := buildkite.NewClient(server.URL, "acme", "secret", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	waits := 0
+	app := Context{
+		Context:     context.Background(),
+		Client:      client,
+		Output:      &stdout,
+		ErrorOutput: &stderr,
+		Now:         func() time.Time { return time.Date(2026, time.September, 1, 7, 0, 48, 0, time.UTC) },
+		Wait: func(ctx context.Context, duration time.Duration) error {
+			waits++
+			if duration != 10*time.Second {
+				t.Fatalf("wait duration = %s, want 10s", duration)
+			}
+			if stdout.Len() != 0 {
+				t.Fatalf("stdout before final response = %q", stdout.String())
+			}
+			if _, ok := ctx.Deadline(); !ok {
+				t.Fatal("metrics retry context has no deadline")
+			}
+			return nil
+		},
+	}
+
+	err = (&QueueMetricsCmd{Queue: "default"}).Run(&app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if waits != 2 || requestCount != 3 {
+		t.Fatalf("waits/requests = %d/%d, want 2/3", waits, requestCount)
+	}
+	if got, want := stderr.String(), "Queue metrics are still being prepared; retrying every 10 seconds…\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
+	}
+	if got := stdout.String(); !bytes.Contains([]byte(got), []byte("Connected agents  50      54\n")) {
+		t.Fatalf("stdout = %q", got)
 	}
 }
 

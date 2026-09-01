@@ -13,12 +13,14 @@ import (
 )
 
 type Context struct {
-	Context context.Context
-	Client  *buildkite.Client
-	Output  io.Writer
-	JSON    bool
-	DryRun  bool
-	Now     func() time.Time
+	Context     context.Context
+	Client      *buildkite.Client
+	Output      io.Writer
+	ErrorOutput io.Writer
+	JSON        bool
+	DryRun      bool
+	Now         func() time.Time
+	Wait        func(context.Context, time.Duration) error
 }
 
 type Change struct {
@@ -128,6 +130,21 @@ func (c *Context) now() time.Time {
 		return c.Now()
 	}
 	return time.Now()
+}
+
+func (c *Context) wait(ctx context.Context, duration time.Duration) error {
+	if c.Wait != nil {
+		return c.Wait(ctx, duration)
+	}
+
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (c *Context) printQueueStatuses(statuses []QueueStatus) error {

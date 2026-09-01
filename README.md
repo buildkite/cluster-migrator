@@ -89,6 +89,8 @@ Running jobs      38      46
 
 With `--json`, the command returns the API response, including `null` values, routing percentage, and observation timestamps.
 
+When metrics are still being prepared, the command waits for the server's requested retry interval without writing to stdout. If preparation takes longer than the first retry, it reports progress on stderr and keeps retrying for up to one minute.
+
 With `--json`, percentage changes and rollbacks return:
 
 ```json
