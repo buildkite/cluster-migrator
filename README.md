@@ -76,7 +76,7 @@ Queue mutations display the previous and resulting routing percentages. Successf
 
 ```text
 QUEUE ACTIVITY
-Source: default
+Source: default (unclustered)
 Destination: default (cluster cluster-id)
 Routing: 30%
 Observed: 48 seconds ago

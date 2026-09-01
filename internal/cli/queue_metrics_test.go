@@ -48,7 +48,7 @@ func TestQueueMetricsPrintsDestinationActivity(t *testing.T) {
 	}
 	observedLine := regexp.MustCompile(`Observed: \d+ seconds ago`)
 	got := observedLine.ReplaceAllString(stdout.String(), "Observed: <age>")
-	want := "QUEUE ACTIVITY\nSource: default\nDestination: cluster-default (cluster cluster-id)\nRouting: 30%\nObserved: <age>\n\nMETRIC            LATEST  10M MAX\nConnected agents  50      54\nWaiting jobs      4       —\nRunning jobs      —       46\n"
+	want := "QUEUE ACTIVITY\nSource: default (unclustered)\nDestination: cluster-default (cluster cluster-id)\nRouting: 30%\nObserved: <age>\n\nMETRIC            LATEST  10M MAX\nConnected agents  50      54\nWaiting jobs      4       —\nRunning jobs      —       46\n"
 	if got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}

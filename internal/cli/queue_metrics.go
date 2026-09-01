@@ -30,7 +30,7 @@ func (c *Context) printQueueMetrics(metrics *buildkite.QueueMetrics) error {
 		}
 	}
 
-	if _, err := fmt.Fprintf(c.Output, "QUEUE ACTIVITY\nSource: %s\nDestination: %s (cluster %s)\nRouting: %s\nObserved: %s\n\n",
+	if _, err := fmt.Fprintf(c.Output, "QUEUE ACTIVITY\nSource: %s (unclustered)\nDestination: %s (cluster %s)\nRouting: %s\nObserved: %s\n\n",
 		displayValue(metrics.Queue),
 		displayValue(metrics.Destination.QueueKey),
 		displayValue(metrics.Destination.ClusterID),
