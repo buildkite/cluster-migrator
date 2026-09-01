@@ -146,6 +146,32 @@ func TestPipelineMoveDryRunRequiresNoKnownBlockers(t *testing.T) {
 	}
 }
 
+func TestPipelineMoveDryRunReportsConcurrencyGroupBlockers(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v2/organizations/acme/clusters":
+			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
+		case "/v2/organizations/acme/cluster-queue-migrations/pipelines/monorepo/readiness":
+			_, _ = w.Write([]byte(`{"status":"blocked","queue_observation":{"blocking_queues":[]},"concurrency_group_observation":{"blocking_concurrency_groups":[{"scope":"pipeline","key":"deploy","reason":"active_source_jobs"}]}}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client, err := buildkite.NewClient(server.URL, "acme", "secret", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := Context{Context: context.Background(), Client: client, Output: &bytes.Buffer{}, ErrorOutput: &bytes.Buffer{}, DryRun: true}
+
+	err = (&PipelineMoveCmd{Pipeline: "monorepo", DestinationCluster: "production"}).Run(&app)
+	if err == nil || err.Error() != "pipeline has known blockers" {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestPipelineReadinessRejectsInvalidRetryInterval(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
