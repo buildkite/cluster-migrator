@@ -32,7 +32,7 @@ func (cmd *PipelineMoveCmd) Run(app *Context) error {
 		if readiness.Status != buildkite.PipelineReadinessNoKnownBlockers {
 			return fmt.Errorf(
 				"pipeline has known blockers: blocking queues=%v",
-				readiness.BlockingQueues,
+				readiness.QueueObservation.BlockingQueues,
 			)
 		}
 		return app.Print(change)

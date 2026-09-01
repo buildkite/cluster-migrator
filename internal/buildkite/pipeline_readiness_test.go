@@ -26,19 +26,29 @@ func TestGetPipelineReadiness(t *testing.T) {
 			"destination_cluster_id":"cluster-id",
 			"status":"blocked",
 			"retry_after_seconds":null,
-			"blocking_queues":[{
-				"queue":"deploy",
-				"reasons":["routing_incomplete","active_source_jobs"],
-				"routed_percent":80,
-				"active_source_jobs":2
-			}],
-			"blocking_concurrency_groups":[{
-				"scope":"pipeline",
-				"key":"deploy",
-				"reason":"concurrency_group_migration_unavailable"
-			}],
-			"active_job_observation":{"observed_at":"2026-09-01T07:00:00Z","active_legacy_jobs":2},
-			"dependency_observation":{"observed_at":"2026-09-01T07:00:00Z","window_started_at":"2026-09-01T06:50:00Z","window_seconds":600,"complete":false}
+			"queue_observation":{
+				"observed_at":"2026-09-01T07:00:00Z",
+				"window_started_at":"2026-09-01T06:50:00Z",
+				"window_seconds":600,
+				"complete":false,
+				"blocking_queues":[{
+					"queue":"deploy",
+					"reasons":["routing_incomplete","active_source_jobs"],
+					"routed_percent":80,
+					"active_source_jobs":2
+				}]
+			},
+			"concurrency_group_observation":{
+				"observed_at":"2026-09-01T07:00:00Z",
+				"window_started_at":"2026-09-01T06:50:00Z",
+				"window_seconds":600,
+				"complete":false,
+				"blocking_concurrency_groups":[{
+					"scope":"pipeline",
+					"key":"deploy",
+					"reason":"concurrency_group_migration_unavailable"
+				}]
+			}
 		}`))
 	}))
 	defer server.Close()
@@ -55,13 +65,13 @@ func TestGetPipelineReadiness(t *testing.T) {
 	if readiness.Status != PipelineReadinessBlocked {
 		t.Fatalf("status = %q", readiness.Status)
 	}
-	if got := readiness.BlockingQueues[0]; got.Queue != "deploy" || got.RoutedPercent == nil || *got.RoutedPercent != 80 || got.ActiveSourceJobs != 2 {
+	if got := readiness.QueueObservation.BlockingQueues[0]; got.Queue != "deploy" || got.RoutedPercent == nil || *got.RoutedPercent != 80 || got.ActiveSourceJobs != 2 {
 		t.Fatalf("blocking queue = %#v", got)
 	}
-	if got := readiness.BlockingConcurrencyGroups[0]; got.Scope != "pipeline" || got.Key != "deploy" {
+	if got := readiness.ConcurrencyGroupObservation.BlockingConcurrencyGroups[0]; got.Scope != "pipeline" || got.Key != "deploy" {
 		t.Fatalf("blocking concurrency group = %#v", got)
 	}
-	if readiness.DependencyObservation.Complete {
-		t.Fatal("dependency observation should be incomplete")
+	if readiness.QueueObservation.Complete || readiness.ConcurrencyGroupObservation.Complete {
+		t.Fatal("observations should be incomplete")
 	}
 }

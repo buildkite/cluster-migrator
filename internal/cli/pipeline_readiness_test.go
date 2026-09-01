@@ -27,7 +27,7 @@ func TestPipelineReadinessRetriesPendingObservationBeforePrinting(t *testing.T) 
 				_, _ = w.Write([]byte(`{"status":"observation_pending","retry_after_seconds":10}`))
 				return
 			}
-			_, _ = w.Write([]byte(`{"pipeline":"monorepo","destination_cluster_id":"cluster-id","status":"no_known_blockers","blocking_queues":[],"blocking_concurrency_groups":[],"active_job_observation":{"observed_at":"2026-09-01T07:00:00Z","active_legacy_jobs":0},"dependency_observation":{"observed_at":"2026-09-01T07:00:00Z","window_started_at":"2026-09-01T06:50:00Z","window_seconds":600,"complete":false}}`))
+			_, _ = w.Write([]byte(`{"pipeline":"monorepo","destination_cluster_id":"cluster-id","status":"no_known_blockers","queue_observation":{"observed_at":"2026-09-01T07:00:00Z","window_started_at":"2026-09-01T06:50:00Z","window_seconds":600,"complete":false,"blocking_queues":[]},"concurrency_group_observation":{"observed_at":"2026-09-01T07:00:00Z","window_started_at":"2026-09-01T06:50:00Z","window_seconds":600,"complete":false,"blocking_concurrency_groups":[]}}`))
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
@@ -82,7 +82,7 @@ func TestPipelineReadinessPrintsBlockedAssessmentThenFails(t *testing.T) {
 			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
 			return
 		}
-		_, _ = w.Write([]byte(`{"pipeline":"monorepo","destination_cluster_id":"cluster-id","status":"blocked","blocking_queues":[{"queue":"deploy","reasons":["active_source_jobs"],"routed_percent":100,"active_source_jobs":1}],"blocking_concurrency_groups":[]}`))
+		_, _ = w.Write([]byte(`{"pipeline":"monorepo","destination_cluster_id":"cluster-id","status":"blocked","queue_observation":{"blocking_queues":[{"queue":"deploy","reasons":["active_source_jobs"],"routed_percent":100,"active_source_jobs":1}]},"concurrency_group_observation":{"blocking_concurrency_groups":[]}}`))
 	}))
 	defer server.Close()
 
@@ -124,7 +124,7 @@ func TestPipelineMoveDryRunRequiresNoKnownBlockers(t *testing.T) {
 		case "/v2/organizations/acme/clusters":
 			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
 		case "/v2/organizations/acme/cluster-queue-migrations/pipelines/monorepo/readiness":
-			_, _ = w.Write([]byte(`{"status":"no_known_blockers","blocking_queues":[],"blocking_concurrency_groups":[]}`))
+			_, _ = w.Write([]byte(`{"status":"no_known_blockers","queue_observation":{"blocking_queues":[]},"concurrency_group_observation":{"blocking_concurrency_groups":[]}}`))
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}

@@ -13,15 +13,13 @@ const (
 )
 
 type PipelineReadiness struct {
-	Pipeline                  string                     `json:"pipeline"`
-	DestinationClusterID      string                     `json:"destination_cluster_id"`
-	Status                    string                     `json:"status"`
-	RetryAfter                *int                       `json:"retry_after_seconds"`
-	BlockingQueues            []PipelineBlockingQueue    `json:"blocking_queues"`
-	BlockingConcurrencyGroups []BlockingConcurrencyGroup `json:"blocking_concurrency_groups"`
-	ActiveJobObservation      ActiveJobObservation       `json:"active_job_observation"`
-	DependencyObservation     DependencyObservation      `json:"dependency_observation"`
-	URL                       string                     `json:"url"`
+	Pipeline                    string                              `json:"pipeline"`
+	DestinationClusterID        string                              `json:"destination_cluster_id"`
+	Status                      string                              `json:"status"`
+	RetryAfter                  *int                                `json:"retry_after_seconds"`
+	QueueObservation            PipelineQueueObservation            `json:"queue_observation"`
+	ConcurrencyGroupObservation PipelineConcurrencyGroupObservation `json:"concurrency_group_observation"`
+	URL                         string                              `json:"url"`
 }
 
 type PipelineBlockingQueue struct {
@@ -37,16 +35,20 @@ type BlockingConcurrencyGroup struct {
 	Reason string `json:"reason"`
 }
 
-type ActiveJobObservation struct {
-	ObservedAt       *string `json:"observed_at"`
-	ActiveLegacyJobs *int    `json:"active_legacy_jobs"`
+type PipelineQueueObservation struct {
+	ObservedAt      *string                 `json:"observed_at"`
+	WindowStartedAt *string                 `json:"window_started_at"`
+	WindowSeconds   int                     `json:"window_seconds"`
+	Complete        bool                    `json:"complete"`
+	BlockingQueues  []PipelineBlockingQueue `json:"blocking_queues"`
 }
 
-type DependencyObservation struct {
-	ObservedAt      *string `json:"observed_at"`
-	WindowStartedAt *string `json:"window_started_at"`
-	WindowSeconds   int     `json:"window_seconds"`
-	Complete        bool    `json:"complete"`
+type PipelineConcurrencyGroupObservation struct {
+	ObservedAt                *string                    `json:"observed_at"`
+	WindowStartedAt           *string                    `json:"window_started_at"`
+	WindowSeconds             int                        `json:"window_seconds"`
+	Complete                  bool                       `json:"complete"`
+	BlockingConcurrencyGroups []BlockingConcurrencyGroup `json:"blocking_concurrency_groups"`
 }
 
 func (c *Client) pipelinePath(pipeline string, parts ...string) string {
