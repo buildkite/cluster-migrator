@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -184,6 +185,31 @@ func TestQueueMetricsRetriesBeforePrinting(t *testing.T) {
 	}
 	if got := stdout.String(); !bytes.Contains([]byte(got), []byte("Connected agents  50      54\n")) {
 		t.Fatalf("stdout = %q", got)
+	}
+}
+
+func TestQueueMetricsPreservesParentDeadline(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"retry_after_seconds":10}`))
+	}))
+	defer server.Close()
+
+	client, err := buildkite.NewClient(server.URL, "acme", "secret", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	app := Context{
+		Context:     ctx,
+		Client:      client,
+		Output:      &bytes.Buffer{},
+		ErrorOutput: &bytes.Buffer{},
+	}
+
+	err = (&QueueMetricsCmd{Queue: "default"}).Run(&app)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want parent deadline exceeded", err)
 	}
 }
 

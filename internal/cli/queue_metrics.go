@@ -26,7 +26,7 @@ func (cmd *QueueMetricsCmd) Run(app *Context) error {
 		metrics, err := app.Client.GetQueueMetrics(ctx, cmd.Queue)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
-				return fmt.Errorf("queue metrics did not become available within %s", queueMetricsTimeout)
+				return queueMetricsDeadlineError(app.Context)
 			}
 			return fmt.Errorf("get queue metrics: %w", err)
 		}
@@ -47,11 +47,18 @@ func (cmd *QueueMetricsCmd) Run(app *Context) error {
 		retries++
 		if err := app.wait(ctx, time.Duration(retryAfter)*time.Second); err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
-				return fmt.Errorf("queue metrics did not become available within %s", queueMetricsTimeout)
+				return queueMetricsDeadlineError(app.Context)
 			}
 			return fmt.Errorf("wait to retry queue metrics: %w", err)
 		}
 	}
+}
+
+func queueMetricsDeadlineError(parent context.Context) error {
+	if err := parent.Err(); err != nil {
+		return err
+	}
+	return fmt.Errorf("queue metrics did not become available within %s", queueMetricsTimeout)
 }
 
 func (c *Context) printQueueMetrics(metrics *buildkite.QueueMetrics) error {
