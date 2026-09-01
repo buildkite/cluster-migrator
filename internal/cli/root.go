@@ -63,6 +63,7 @@ func Run(
 		Output:  stdout,
 		JSON:    root.JSON,
 		DryRun:  root.DryRun,
+		Now:     time.Now,
 	}
 	return parsed.Run(app)
 }

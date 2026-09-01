@@ -52,7 +52,7 @@ func TestQueueSetPercentPrintsChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "RESULT\n\nQUEUE  FROM  TO   DESTINATION\ntest   10%   25%  production\n"
+	want := "RESULT\n\nQUEUE  FROM  TO   DESTINATION\ntest   10%   25%  production\n\nNEXT\n\nReview destination activity before increasing routing:\n\n  cluster-migrator queue metrics test\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}

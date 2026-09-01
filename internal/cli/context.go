@@ -18,6 +18,7 @@ type Context struct {
 	Output  io.Writer
 	JSON    bool
 	DryRun  bool
+	Now     func() time.Time
 }
 
 type Change struct {
@@ -48,6 +49,7 @@ type QueueStatus struct {
 	Queue          string           `json:"queue"`
 	RoutingPercent int              `json:"routing_percent"`
 	Destination    QueueDestination `json:"destination"`
+	Next           string           `json:"-"`
 }
 
 func (c *Context) Print(value any) error {
@@ -86,9 +88,18 @@ func (c *Context) Print(value any) error {
 		}
 		return nil
 	case QueueStatus:
-		return c.printQueueStatuses([]QueueStatus{value})
+		if err := c.printQueueStatuses([]QueueStatus{value}); err != nil {
+			return err
+		}
+		if value.Next != "" {
+			_, err := fmt.Fprintf(c.Output, "\nNEXT\n\n%s\n", value.Next)
+			return err
+		}
+		return nil
 	case []QueueStatus:
 		return c.printQueueStatuses(value)
+	case *buildkite.QueueMetrics:
+		return c.printQueueMetrics(value)
 	case Change:
 		var line strings.Builder
 		_, _ = fmt.Fprintf(&line, "%s %s", value.Action, value.Resource)
@@ -110,6 +121,13 @@ func (c *Context) Print(value any) error {
 		encoder.SetIndent("", "  ")
 		return encoder.Encode(value)
 	}
+}
+
+func (c *Context) now() time.Time {
+	if c.Now != nil {
+		return c.Now()
+	}
+	return time.Now()
 }
 
 func (c *Context) printQueueStatuses(statuses []QueueStatus) error {
