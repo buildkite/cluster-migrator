@@ -1,6 +1,6 @@
 # Cluster Migrator
 
-`cluster-migrator` safely moves Buildkite workloads from unclustered queues to a cluster. It configures queue routing, checks pipeline readiness, and permanently moves ready pipelines.
+`cluster-migrator` safely moves Buildkite workloads from unclustered queues to a cluster. It configures queue routing, assesses known pipeline blockers, and permanently moves pipelines.
 
 > [!IMPORTANT]
 > Queue migration APIs are implemented behind a Buildkite feature flag. The pipeline-readiness contract is provisional until its server API ships. Do not use this CLI for a production migration until that contract and its operational safety gates are complete.
@@ -54,7 +54,7 @@ cluster-migrator queue metrics test
 # Before increasing traffic, also inspect dispatch and queue latency plus
 # stranded-job alerts in your observability tools.
 
-# 4. Inspect all pipeline move blockers.
+# 4. Assess the known pipeline move blockers.
 cluster-migrator pipeline readiness monorepo \
   --destination-cluster production
 
@@ -90,6 +90,8 @@ Running jobs      38      46
 With `--json`, the command returns the API response, including `null` values, routing percentage, and observation timestamps.
 
 When metrics are still being prepared, the command waits for the server's requested retry interval without writing to stdout. If preparation takes longer than the first retry, it reports progress on stderr and keeps retrying for up to one minute.
+
+`pipeline readiness` reports either `blocked` or `no_known_blockers`. The latter is not proof that the pipeline is ready to move: dependency discovery covers the reported recent window and is explicitly incomplete. Current queue migration state is evaluated against a cached observation, while the assessment itself is never cached. If an observation is being refreshed, the CLI waits without writing to stdout, reports prolonged preparation on stderr, and retries for up to one minute.
 
 With `--json`, percentage changes and rollbacks return:
 
@@ -150,4 +152,4 @@ GET    /v2/organizations/{org}/cluster-queue-migrations/pipelines/{pipeline}/rea
 POST   /v2/organizations/{org}/cluster-queue-migrations/pipelines/{pipeline}/move
 ```
 
-Percentage changes through the queue migration `PATCH` endpoint must atomically enforce capacity and dependency gates. The `move` endpoint must atomically revalidate pipeline readiness before changing its cluster. These guarded endpoints and the pipeline contracts are provisional until their server implementations ship. They are isolated in `internal/buildkite` so they can change without affecting command parsing.
+Percentage changes through the queue migration `PATCH` endpoint must atomically enforce capacity and dependency gates. The future `move` endpoint must atomically validate authoritative invariants on the writer before changing a pipeline's cluster; a prior `no_known_blockers` assessment is not authorization to move. These guarded endpoints and the pipeline contracts are provisional until their server implementations ship. They are isolated in `internal/buildkite` so they can change without affecting command parsing.
