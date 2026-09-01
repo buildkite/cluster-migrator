@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"testing"
 	"time"
 )
@@ -24,7 +25,6 @@ func TestQueueMetricsPrintsDestinationActivity(t *testing.T) {
 			"queue":"default",
 			"destination":{"cluster_id":"cluster-id","queue_id":"queue-id","queue_key":"cluster-default"},
 			"routed_percent":30,
-			"status":"fresh",
 			"window_started_at":"2026-09-01T06:50:00Z",
 			"observed_at":%q,
 			"window_seconds":600,
@@ -46,13 +46,15 @@ func TestQueueMetricsPrintsDestinationActivity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "QUEUE ACTIVITY\nSource: default\nDestination: cluster-default (cluster cluster-id)\nRouting: 30%\nStatus: fresh\nObserved: 48 seconds ago\n\nMETRIC            LATEST  10M MAX\nConnected agents  50      54\nWaiting jobs      4       —\nRunning jobs      —       46\n"
-	if got := stdout.String(); got != want {
+	observedLine := regexp.MustCompile(`Observed: \d+ seconds ago`)
+	got := observedLine.ReplaceAllString(stdout.String(), "Observed: <age>")
+	want := "QUEUE ACTIVITY\nSource: default\nDestination: cluster-default (cluster cluster-id)\nRouting: 30%\nObserved: <age>\n\nMETRIC            LATEST  10M MAX\nConnected agents  50      54\nWaiting jobs      4       —\nRunning jobs      —       46\n"
+	if got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
 }
 
-func TestQueueMetricsPrintsIncompleteJSONThenReturnsError(t *testing.T) {
+func TestQueueMetricsPrintsJSONWithMissingValues(t *testing.T) {
 	t.Setenv("BUILDKITE_API_TOKEN", "secret")
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -61,7 +63,6 @@ func TestQueueMetricsPrintsIncompleteJSONThenReturnsError(t *testing.T) {
 			"queue":"default",
 			"destination":{"cluster_id":"cluster-id","queue_id":"queue-id","queue_key":"default"},
 			"routed_percent":30,
-			"status":"incomplete",
 			"window_started_at":"2026-09-01T06:50:00Z",
 			"observed_at":"2026-09-01T07:00:00Z",
 			"window_seconds":600,
@@ -81,8 +82,8 @@ func TestQueueMetricsPrintsIncompleteJSONThenReturnsError(t *testing.T) {
 		"--json",
 		"queue", "metrics", "default",
 	}, &stdout, &bytes.Buffer{}, server.Client())
-	if err == nil || err.Error() != "queue metrics status is incomplete" {
-		t.Fatalf("error = %v, want incomplete status error", err)
+	if err != nil {
+		t.Fatal(err)
 	}
 	var got map[string]any
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
@@ -95,25 +96,25 @@ func TestQueueMetricsPrintsIncompleteJSONThenReturnsError(t *testing.T) {
 	if waitingJobs["peak"] != nil {
 		t.Fatalf("waiting_jobs.peak = %v, want nil", waitingJobs["peak"])
 	}
-	if got["status"] != "incomplete" || got["routed_percent"] != float64(30) {
-		t.Fatalf("status/routed_percent = %v/%v", got["status"], got["routed_percent"])
+	if got["routed_percent"] != float64(30) {
+		t.Fatalf("routed_percent = %v", got["routed_percent"])
 	}
 }
 
-func TestQueueMetricsPrintsStaleTextThenReturnsError(t *testing.T) {
+func TestQueueMetricsPrintsUnknownObservationWithoutError(t *testing.T) {
 	t.Setenv("BUILDKITE_API_TOKEN", "secret")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"queue":"default","destination":{"cluster_id":"cluster-id","queue_key":"default"},"routed_percent":30,"status":"stale","window_started_at":null,"observed_at":null,"window_seconds":600,"activity":{}}`))
+		_, _ = w.Write([]byte(`{"queue":"default","destination":{"cluster_id":"cluster-id","queue_key":"default"},"routed_percent":30,"window_started_at":null,"observed_at":null,"window_seconds":600,"activity":{}}`))
 	}))
 	defer server.Close()
 
 	var stdout bytes.Buffer
 	err := Run(context.Background(), []string{"--organization", "acme", "--endpoint", server.URL, "queue", "metrics", "default"}, &stdout, &bytes.Buffer{}, server.Client())
-	if err == nil || err.Error() != "queue metrics status is stale" {
-		t.Fatalf("error = %v, want stale status error", err)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := stdout.String(); !bytes.Contains([]byte(got), []byte("Status: stale\nObserved: —\n")) {
+	if got := stdout.String(); !bytes.Contains([]byte(got), []byte("Observed: —\n")) {
 		t.Fatalf("output = %q", got)
 	}
 }

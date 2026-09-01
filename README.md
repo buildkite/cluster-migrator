@@ -72,14 +72,13 @@ Every mutation runs non-interactively and supports `--dry-run`. Use `--json` for
 
 Queue mutations display the previous and resulting routing percentages. Successful configuration, percentage changes below 100%, and single-queue status at 0% also identify the next migration step. Status for all queues remains informational.
 
-`queue metrics` displays the latest and maximum destination activity over the server's observation window. This activity is operational context only: it does not establish pipeline readiness. Before increasing traffic, also inspect dispatch and queue latency and stranded-job alerts in observability. Missing values are shown as `—`, not zero. Stale or incomplete responses are printed, then return a non-zero exit status:
+`queue metrics` displays the latest and maximum destination activity over the server's observation window. This activity is operational context only: it does not establish pipeline readiness. Before increasing traffic, also inspect dispatch and queue latency and stranded-job alerts in observability. The observation time shows when the window ended, and missing values are shown as `—`, not zero:
 
 ```text
 QUEUE ACTIVITY
 Source: default
 Destination: default (cluster cluster-id)
 Routing: 30%
-Status: fresh
 Observed: 48 seconds ago
 
 METRIC            LATEST  10M MAX
@@ -88,7 +87,7 @@ Waiting jobs      4       12
 Running jobs      38      46
 ```
 
-With `--json`, the command returns the API response, including `null` values, status, routing percentage, and observation timestamps. Stale or incomplete responses still return a non-zero exit status after emitting JSON.
+With `--json`, the command returns the API response, including `null` values, routing percentage, and observation timestamps.
 
 With `--json`, percentage changes and rollbacks return:
 

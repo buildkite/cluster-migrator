@@ -17,13 +17,7 @@ func (cmd *QueueMetricsCmd) Run(app *Context) error {
 	if err != nil {
 		return fmt.Errorf("get queue metrics: %w", err)
 	}
-	if err := app.Print(metrics); err != nil {
-		return err
-	}
-	if metrics.Status != "fresh" {
-		return fmt.Errorf("queue metrics status is %s", displayValue(metrics.Status))
-	}
-	return nil
+	return app.Print(metrics)
 }
 
 func (c *Context) printQueueMetrics(metrics *buildkite.QueueMetrics) error {
@@ -36,12 +30,11 @@ func (c *Context) printQueueMetrics(metrics *buildkite.QueueMetrics) error {
 		}
 	}
 
-	if _, err := fmt.Fprintf(c.Output, "QUEUE ACTIVITY\nSource: %s\nDestination: %s (cluster %s)\nRouting: %s\nStatus: %s\nObserved: %s\n\n",
+	if _, err := fmt.Fprintf(c.Output, "QUEUE ACTIVITY\nSource: %s\nDestination: %s (cluster %s)\nRouting: %s\nObserved: %s\n\n",
 		displayValue(metrics.Queue),
 		displayValue(metrics.Destination.QueueKey),
 		displayValue(metrics.Destination.ClusterID),
 		metricPercent(metrics.RoutedPercent),
-		displayValue(metrics.Status),
 		freshness,
 	); err != nil {
 		return err

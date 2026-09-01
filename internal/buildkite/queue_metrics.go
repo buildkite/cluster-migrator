@@ -9,7 +9,6 @@ type QueueMetrics struct {
 	Queue           string           `json:"queue"`
 	Destination     QueueDestination `json:"destination"`
 	RoutedPercent   *int             `json:"routed_percent"`
-	Status          string           `json:"status"`
 	WindowStartedAt *string          `json:"window_started_at"`
 	ObservedAt      *string          `json:"observed_at"`
 	WindowSeconds   int              `json:"window_seconds"`
