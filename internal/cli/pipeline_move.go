@@ -1,6 +1,10 @@
 package cli
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/buildkite/cluster-migrator/internal/buildkite"
+)
 
 type PipelineMoveCmd struct {
 	Pipeline           string `arg:"" help:"Pipeline slug."`
@@ -21,15 +25,12 @@ func (cmd *PipelineMoveCmd) Run(app *Context) error {
 		DryRun:             app.DryRun,
 	}
 	if app.DryRun {
-		readiness, err := app.Client.GetPipelineReadiness(app.Context, cmd.Pipeline, cluster.ID)
+		readiness, err := getPipelineReadiness(app, cmd.Pipeline, cluster.ID)
 		if err != nil {
 			return fmt.Errorf("check pipeline readiness: %w", err)
 		}
-		if !readiness.Ready {
-			return fmt.Errorf(
-				"pipeline is not ready: blocking queues=%v",
-				readiness.BlockingQueues,
-			)
+		if readiness.Status != buildkite.PipelineReadinessNoKnownBlockers {
+			return fmt.Errorf("pipeline has known blockers")
 		}
 		return app.Print(change)
 	}
