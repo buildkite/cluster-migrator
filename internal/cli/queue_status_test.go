@@ -24,18 +24,21 @@ func TestQueueStatusPrintsTable(t *testing.T) {
 	}))
 	defer server.Close()
 
-	var stdout bytes.Buffer
+	var stdout, stderr bytes.Buffer
 	err := Run(context.Background(), []string{
 		"--organization", "acme",
 		"--endpoint", server.URL,
 		"queue", "status", "default",
-	}, &stdout, &bytes.Buffer{}, server.Client())
+	}, &stdout, &stderr, server.Client())
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := "QUEUE    ROUTING  DESTINATION\ndefault  25%      Cluster Migrator Demo\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
+	}
+	if got, want := stderr.String(), "\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
 	}
 }
 

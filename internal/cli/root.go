@@ -48,6 +48,9 @@ func Run(
 	if err != nil {
 		return err
 	}
+	if _, err := fmt.Fprintln(stderr); err != nil {
+		return fmt.Errorf("write output separator: %w", err)
+	}
 
 	client, err := buildkite.NewClient(root.Endpoint, root.Organization, root.APIToken, httpClient)
 	if err != nil {
