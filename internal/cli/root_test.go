@@ -2,11 +2,33 @@ package cli
 
 import (
 	"bytes"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/alecthomas/kong"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
+
+func organizationClient(client *http.Client) *http.Client {
+	return &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path == "/v2/organizations" {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`[{"slug":"acme"}]`)),
+				Request:    request,
+			}, nil
+		}
+		return client.Transport.RoundTrip(request)
+	})}
+}
 
 func TestQueueHelpIncludesAPIToken(t *testing.T) {
 	var root rootCommand
@@ -34,7 +56,6 @@ func TestEndpointDefaultsToRESTAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := parser.Parse([]string{
-		"--organization", "acme",
 		"--api-token", "secret",
 		"queue", "status",
 	}); err != nil {

@@ -26,10 +26,9 @@ func TestQueueStatusPrintsTable(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	err := Run(context.Background(), []string{
-		"--organization", "acme",
 		"--endpoint", server.URL,
 		"queue", "status", "default",
-	}, &stdout, &stderr, server.Client())
+	}, &stdout, &stderr, organizationClient(server.Client()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,10 +59,9 @@ func TestQueueStatusAtZeroPrintsNextStep(t *testing.T) {
 
 	var stdout bytes.Buffer
 	err := Run(context.Background(), []string{
-		"--organization", "acme",
 		"--endpoint", server.URL,
 		"queue", "status", "default",
-	}, &stdout, &bytes.Buffer{}, server.Client())
+	}, &stdout, &bytes.Buffer{}, organizationClient(server.Client()))
 	if err != nil {
 		t.Fatal(err)
 	}
