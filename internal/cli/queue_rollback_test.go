@@ -38,10 +38,9 @@ func TestQueueRollbackSetsZero(t *testing.T) {
 
 	var stdout bytes.Buffer
 	err := Run(context.Background(), []string{
-		"--organization", "acme",
 		"--endpoint", server.URL,
 		"queue", "rollback", "test",
-	}, &stdout, &bytes.Buffer{}, server.Client())
+	}, &stdout, &bytes.Buffer{}, organizationClient(server.Client()))
 	if err != nil {
 		t.Fatal(err)
 	}

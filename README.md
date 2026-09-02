@@ -27,12 +27,13 @@ mise run test
 
 The build task creates `./cluster-migrator`.
 
-Configure the organization and API token through the environment:
+Configure an organization-scoped API token through the environment:
 
 ```shell
-export BUILDKITE_ORGANIZATION_SLUG=<organization>
 export BUILDKITE_API_TOKEN=<token>
 ```
+
+The CLI discovers the organization slug from the token and caches it locally. If the cached organization is no longer available, the CLI refreshes it automatically.
 
 ## Migration sequence
 

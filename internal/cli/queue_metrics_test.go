@@ -42,10 +42,9 @@ func TestQueueMetricsPrintsDestinationActivity(t *testing.T) {
 
 	var stdout bytes.Buffer
 	err := Run(context.Background(), []string{
-		"--organization", "acme",
 		"--endpoint", server.URL,
 		"queue", "metrics", "default",
-	}, &stdout, &bytes.Buffer{}, server.Client())
+	}, &stdout, &bytes.Buffer{}, organizationClient(server.Client()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,11 +79,10 @@ func TestQueueMetricsPrintsJSONWithMissingValues(t *testing.T) {
 
 	var stdout bytes.Buffer
 	err := Run(context.Background(), []string{
-		"--organization", "acme",
 		"--endpoint", server.URL,
 		"--json",
 		"queue", "metrics", "default",
-	}, &stdout, &bytes.Buffer{}, server.Client())
+	}, &stdout, &bytes.Buffer{}, organizationClient(server.Client()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +111,7 @@ func TestQueueMetricsPrintsUnknownObservationWithoutError(t *testing.T) {
 	defer server.Close()
 
 	var stdout bytes.Buffer
-	err := Run(context.Background(), []string{"--organization", "acme", "--endpoint", server.URL, "queue", "metrics", "default"}, &stdout, &bytes.Buffer{}, server.Client())
+	err := Run(context.Background(), []string{"--endpoint", server.URL, "queue", "metrics", "default"}, &stdout, &bytes.Buffer{}, organizationClient(server.Client()))
 	if err != nil {
 		t.Fatal(err)
 	}

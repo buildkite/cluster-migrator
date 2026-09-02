@@ -16,10 +16,9 @@ func TestQueueSetPercentValidatesRange(t *testing.T) {
 	defer server.Close()
 
 	err := Run(context.Background(), []string{
-		"--organization", "acme",
 		"--endpoint", server.URL,
 		"queue", "set-percent", "test", "--to", "101",
-	}, &bytes.Buffer{}, &bytes.Buffer{}, server.Client())
+	}, &bytes.Buffer{}, &bytes.Buffer{}, organizationClient(server.Client()))
 	if err == nil || !strings.Contains(err.Error(), "between 0 and 100") {
 		t.Fatalf("error = %v", err)
 	}
@@ -45,10 +44,9 @@ func TestQueueSetPercentPrintsChange(t *testing.T) {
 
 	var stdout bytes.Buffer
 	err := Run(context.Background(), []string{
-		"--organization", "acme",
 		"--endpoint", server.URL,
 		"queue", "set-percent", "test", "--to", "25",
-	}, &stdout, &bytes.Buffer{}, server.Client())
+	}, &stdout, &bytes.Buffer{}, organizationClient(server.Client()))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -32,12 +32,11 @@ func TestQueueConfigureDryRunDoesNotMutate(t *testing.T) {
 
 	var stdout bytes.Buffer
 	err := Run(context.Background(), []string{
-		"--organization", "acme",
 		"--endpoint", server.URL,
 		"--dry-run",
 		"queue", "configure", "test",
 		"--destination-cluster", "production",
-	}, &stdout, &bytes.Buffer{}, server.Client())
+	}, &stdout, &bytes.Buffer{}, organizationClient(server.Client()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,11 +68,10 @@ func TestQueueConfigurePrintsNextStep(t *testing.T) {
 
 	var stdout bytes.Buffer
 	err := Run(context.Background(), []string{
-		"--organization", "acme",
 		"--endpoint", server.URL,
 		"queue", "configure", "test",
 		"--destination-cluster", "production",
-	}, &stdout, &bytes.Buffer{}, server.Client())
+	}, &stdout, &bytes.Buffer{}, organizationClient(server.Client()))
 	if err != nil {
 		t.Fatal(err)
 	}
