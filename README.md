@@ -92,19 +92,61 @@ SOURCE - Unclustered             DESTINATION - Cluster cluster-id
                                  +------------------+--------+---------+
 
 Source observed: just now
+Source refresh eligible: in 48s
 Destination refreshed: 1m 52s ago
-Next refresh eligible: in 8s
+Destination refresh eligible: in 8s
 ```
 
 The source and destination tables are shown side by side when they fit within 80 columns and stacked otherwise. Queue and cluster identifiers are never truncated. The destination heading uses the authoritative cluster ID because this response does not provide its name.
 
-Destination activity comes from the cached metrics window; `Destination refreshed` shows when that observation ended. `Next refresh eligible` shows when a request may replace the cached snapshot, not when newer data is guaranteed. Source activity is queried separately for each request from the Pipelines replica, so `Source observed` has independent freshness and replica lag can delay its counts. Source waiting jobs are active unclustered script jobs in `scheduled`, `reserved`, `assigned`, and `accepted`; source running jobs are those in `running`, `canceling`, and `timing_out`. Source connected agents are registered, non-destroyed unclustered agents matching the source queue. Changing the routing percentage does not move existing jobs.
+Source and destination activity use independent caches. Their observation and refresh-eligibility lines must be read separately: each eligibility time shows when a request may replace that cache's snapshot, not when newer data is guaranteed. Destination activity comes from the metrics window; `Destination refreshed` shows when that observation ended. Source activity comes from the Pipelines replica, so replica lag can delay its counts. Source waiting jobs are active unclustered script jobs in `scheduled`, `reserved`, `assigned`, and `accepted`; source running jobs are those in `running`, `canceling`, and `timing_out`. Source connected agents are registered, non-destroyed unclustered agents matching the source queue. Changing the routing percentage does not move existing jobs.
 
-Historical source peaks and source wait-time percentiles are unavailable, so the source table shows only current values and the API returns `null` source peaks. Destination wait time is the p95 for the latest completed minute and the maximum minute-level p95 over the displayed window; either value may be `null` when the destination observation is unavailable or stale. With `--json`, the command preserves the API response shape and fractional wait times, including the required `source` object, `null` values, routing percentage, refresh time, and both observation timestamps. A missing or `null` `source` is an API contract error and produces no command output.
+Historical source peaks and source wait-time percentiles are unavailable, so the source table shows only current values and the API returns `null` source peaks. Destination wait time is the p95 for the latest completed minute and the maximum minute-level p95 over the displayed window; either value may be `null` when the destination observation is unavailable or stale. With `--json`, the command preserves the nested API response and fractional wait times, including explicit `null` values.
 
-The optional `next_refresh_at` may be absent; human-readable output then omits the eligibility line.
+The provisional metrics contract changed from flattened destination fields and redundant queue keys:
+
+```json
+{
+  "queue": "default",
+  "destination": { "cluster_id": "cluster-id", "queue_id": "queue-id", "queue_key": "default" },
+  "window_started_at": "2026-08-31T06:50:00Z",
+  "observed_at": "2026-08-31T07:00:00Z",
+  "next_refresh_at": "2026-08-31T07:01:00Z",
+  "window_seconds": 600,
+  "activity": {},
+  "source": { "queue_key": "default", "observed_at": "2026-08-31T07:00:48Z", "activity": {} }
+}
+```
+
+The destination observation now lives entirely under `destination`; source and destination expose independent required refresh timestamps:
+
+```json
+{
+  "queue": "default",
+  "routed_percent": 35,
+  "retry_after_seconds": null,
+  "destination": {
+    "cluster_id": "cluster-id",
+    "queue_id": "queue-id",
+    "window_started_at": "2026-08-31T06:50:00Z",
+    "observed_at": "2026-08-31T07:00:00Z",
+    "next_refresh_at": "2026-08-31T07:01:00Z",
+    "window_seconds": 600,
+    "activity": {}
+  },
+  "source": {
+    "observed_at": "2026-08-31T07:00:48Z",
+    "next_refresh_at": "2026-08-31T07:01:48Z",
+    "activity": {}
+  }
+}
+```
+
+Unavailable destination responses keep destination identity, window size, and refresh time, set destination observation, window start, and activity metric values to `null`, and include a complete source object. `retry_after_seconds` applies only to destination availability, so the command continues polling rather than printing a partial result.
 
 When metrics are still being prepared, the command waits for the server's requested retry interval without writing to stdout. If preparation takes longer than the first retry, it reports progress on stderr and keeps retrying for up to one minute.
+
+Deploy [buildkite/buildkite#33783](https://github.com/buildkite/buildkite/pull/33783) before releasing this client. Missing nested destination/source objects, activity objects, or required source observation and source/destination refresh timestamps are contract errors and produce no command output. Rolling the backend back to the flattened contract after this client is released requires rolling back this client first.
 
 `pipeline readiness` separates queue blockers from concurrency-group blockers, shows observation coverage and freshness, and suggests a next command only when a blocker has a supported CLI action. Missing routing percentages and timestamps are shown as `—` or unavailable rather than zero. Machine reason identifiers remain visible beside their operator-readable descriptions:
 

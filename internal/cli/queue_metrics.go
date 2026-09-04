@@ -67,30 +67,26 @@ func queueMetricsDeadlineError(parent context.Context) error {
 func (c *Context) printQueueMetrics(metrics *buildkite.QueueMetrics) error {
 	now := c.now()
 	destinationFreshness := "—"
-	if metrics.ObservedAt != nil {
+	if metrics.Destination.ObservedAt != nil {
 		var err error
-		destinationFreshness, err = formatCompactMetricsFreshness(*metrics.ObservedAt, now)
+		destinationFreshness, err = formatCompactMetricsFreshness(*metrics.Destination.ObservedAt, now)
 		if err != nil {
 			return err
 		}
 	}
 
-	nextRefreshLine := ""
-	if metrics.NextRefreshAt != nil {
-		refreshDue, err := formatCompactMetricsRefreshDue(*metrics.NextRefreshAt, now)
-		if err != nil {
-			return err
-		}
-		nextRefreshLine = fmt.Sprintf("Next refresh eligible: %s\n", refreshDue)
+	destinationRefreshDue, err := formatCompactMetricsRefreshDue(*metrics.Destination.NextRefreshAt, now)
+	if err != nil {
+		return err
 	}
 
-	sourceFreshness := "—"
-	if metrics.Source.ObservedAt != nil {
-		var err error
-		sourceFreshness, err = formatCompactMetricsFreshness(*metrics.Source.ObservedAt, now)
-		if err != nil {
-			return err
-		}
+	sourceFreshness, err := formatCompactMetricsFreshness(*metrics.Source.ObservedAt, now)
+	if err != nil {
+		return err
+	}
+	sourceRefreshDue, err := formatCompactMetricsRefreshDue(*metrics.Source.NextRefreshAt, now)
+	if err != nil {
+		return err
 	}
 
 	sourceTable := renderASCIITable(
@@ -102,12 +98,12 @@ func (c *Context) printQueueMetrics(metrics *buildkite.QueueMetrics) error {
 		},
 	)
 	destinationTable := renderASCIITable(
-		[]string{"Metric", "Latest", metricsWindowHeading(metrics.WindowSeconds)},
+		[]string{"Metric", "Latest", metricsWindowHeading(metrics.Destination.WindowSeconds)},
 		[][]string{
-			{"Waiting jobs", metricValue(metrics.Activity.WaitingJobs.Current), metricValue(metrics.Activity.WaitingJobs.Peak)},
-			{"Running jobs", metricValue(metrics.Activity.RunningJobs.Current), metricValue(metrics.Activity.RunningJobs.Peak)},
-			{"Connected agents", metricValue(metrics.Activity.ConnectedAgents.Current), metricValue(metrics.Activity.ConnectedAgents.Peak)},
-			{"Wait time (p95)", metricDuration(metrics.Activity.WaitTimeP95Seconds.Current), metricDuration(metrics.Activity.WaitTimeP95Seconds.Peak)},
+			{"Waiting jobs", metricValue(metrics.Destination.Activity.WaitingJobs.Current), metricValue(metrics.Destination.Activity.WaitingJobs.Peak)},
+			{"Running jobs", metricValue(metrics.Destination.Activity.RunningJobs.Current), metricValue(metrics.Destination.Activity.RunningJobs.Peak)},
+			{"Connected agents", metricValue(metrics.Destination.Activity.ConnectedAgents.Current), metricValue(metrics.Destination.Activity.ConnectedAgents.Peak)},
+			{"Wait time (p95)", metricDuration(metrics.Destination.Activity.WaitTimeP95Seconds.Current), metricDuration(metrics.Destination.Activity.WaitTimeP95Seconds.Peak)},
 		},
 	)
 
@@ -121,12 +117,13 @@ func (c *Context) printQueueMetrics(metrics *buildkite.QueueMetrics) error {
 		fmt.Sprintf("DESTINATION - Cluster %s", displayValue(metrics.Destination.ClusterID)),
 		destinationTable,
 	)
-	_, err := fmt.Fprintf(c.Output, "QUEUE METRICS\n\n%s\n\n%s\nSource observed: %s\nDestination refreshed: %s\n%s",
+	_, err = fmt.Fprintf(c.Output, "QUEUE METRICS\n\n%s\n\n%s\nSource observed: %s\nSource refresh eligible: %s\nDestination refreshed: %s\nDestination refresh eligible: %s\n",
 		summary,
 		comparison,
 		sourceFreshness,
+		sourceRefreshDue,
 		destinationFreshness,
-		nextRefreshLine,
+		destinationRefreshDue,
 	)
 	return err
 }
