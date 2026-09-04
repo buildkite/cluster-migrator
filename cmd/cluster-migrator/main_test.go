@@ -70,6 +70,13 @@ func TestParseErrorsPrintContextualUsage(t *testing.T) {
 			usage:     "Usage: cluster-migrator --api-token=",
 			excludes:  "Usage: cluster-migrator queue ",
 		},
+		{
+			name:      "removed pipeline move wait flag",
+			args:      []string{"pipeline", "move", "monorepo", "--destination-cluster=production", "--wait"},
+			errorText: "cluster-migrator: unknown flag --wait",
+			usage:     "Usage: cluster-migrator pipeline move --api-token=",
+			excludes:  "Wait until the pipeline reports",
+		},
 	}
 
 	for _, test := range tests {

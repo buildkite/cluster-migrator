@@ -9,7 +9,6 @@ import (
 type PipelineMoveCmd struct {
 	Pipeline           string `arg:"" help:"Pipeline ID, name, or slug."`
 	DestinationCluster string `name:"destination-cluster" required:"" help:"Destination cluster name or ID."`
-	Wait               bool   `help:"Wait until the pipeline reports the destination cluster."`
 }
 
 func (cmd *PipelineMoveCmd) Run(app *Context) error {
@@ -38,30 +37,11 @@ func (cmd *PipelineMoveCmd) Run(app *Context) error {
 		return app.Print(change)
 	}
 
-	pipelineIdentifier := cmd.Pipeline
 	pipeline, err := runWithPipelineIdentifierFallback(app.Context, app.Client, cmd.Pipeline, func(identifier string) (*buildkite.Pipeline, error) {
-		pipelineIdentifier = identifier
 		return app.Client.MovePipeline(app.Context, identifier, cluster.ID)
 	})
 	if err != nil {
 		return fmt.Errorf("move pipeline: %w", err)
-	}
-	if !cmd.Wait {
-		return app.Print(pipeline)
-	}
-	if _, err := fmt.Fprintf(app.ErrorOutput, "Waiting for pipeline %s to report cluster %s…\n", cmd.Pipeline, cluster.Name); err != nil {
-		return err
-	}
-
-	err = app.Poll(func() (bool, error) {
-		pipeline, err = app.Client.GetPipeline(app.Context, pipelineIdentifier)
-		if err != nil {
-			return false, err
-		}
-		return pipeline.ClusterID == cluster.ID, nil
-	})
-	if err != nil {
-		return err
 	}
 	return app.Print(pipeline)
 }

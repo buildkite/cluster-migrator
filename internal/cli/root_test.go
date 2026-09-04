@@ -93,6 +93,9 @@ func TestPipelineUsageAcceptsIDNameOrSlug(t *testing.T) {
 					t.Fatalf("help does not describe accepted cluster identifiers:\n%s", output.String())
 				}
 			}
+			if test.name == "move" && strings.Contains(output.String(), "--wait") {
+				t.Fatalf("move help includes removed --wait option:\n%s", output.String())
+			}
 		})
 	}
 }

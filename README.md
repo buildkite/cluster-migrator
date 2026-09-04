@@ -61,8 +61,7 @@ cluster-migrator pipeline readiness monorepo \
 
 # 5. Permanently assign the pipeline to the cluster.
 cluster-migrator pipeline move monorepo \
-  --destination-cluster production \
-  --wait
+  --destination-cluster production
 ```
 
 Use `cluster-migrator queue rollback test` to return newly created jobs to the unclustered queue. Existing jobs remain where they were originally routed.
@@ -97,6 +96,8 @@ When metrics are still being prepared, the command waits for the server's reques
 `pipeline readiness` reports either `blocked` or `no_known_blockers`. The latter is not proof that the pipeline is ready to move: dependency discovery covers the reported recent window and is explicitly incomplete. Current queue migration state is evaluated against a cached observation, while the assessment itself is never cached. If an observation is being refreshed, the CLI waits without writing to stdout, reports prolonged preparation on stderr, and retries for up to one minute.
 
 When `pipeline move --dry-run` is blocked, it prints the readiness assessment, including queue and concurrency-group blockers, and exits non-zero without printing a proposed move. With `--json`, stdout contains exactly one readiness assessment object.
+
+A successful `pipeline move` completes when the synchronous move response returns. The command verifies that the response reports the requested destination cluster and, with `--json`, prints that API response without a confirmation request.
 
 With `--json`, percentage changes and rollbacks return:
 

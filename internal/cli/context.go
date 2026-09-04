@@ -160,19 +160,3 @@ func (c *Context) printQueueStatuses(statuses []QueueStatus) error {
 	}
 	return writer.Flush()
 }
-
-func (c *Context) Poll(check func() (bool, error)) error {
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-	for {
-		done, err := check()
-		if err != nil || done {
-			return err
-		}
-		select {
-		case <-c.Context.Done():
-			return c.Context.Err()
-		case <-ticker.C:
-		}
-	}
-}
