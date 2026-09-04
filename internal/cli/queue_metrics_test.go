@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"regexp"
 	"testing"
 	"time"
@@ -15,14 +16,13 @@ import (
 	"github.com/buildkite/cluster-migrator/internal/buildkite"
 )
 
-func TestQueueMetricsPrintsDestinationActivity(t *testing.T) {
+func TestQueueMetricsPrintsSourceActivitySeparately(t *testing.T) {
 	t.Setenv("BUILDKITE_API_TOKEN", "secret")
-	observedAt := time.Now().Add(-48 * time.Second).UTC().Format(time.RFC3339Nano)
+	destinationObservedAt := time.Now().Add(-48 * time.Second).UTC().Format(time.RFC3339Nano)
+	sourceObservedAt := time.Now().Add(-2 * time.Minute).UTC().Format(time.RFC3339Nano)
+	nextRefreshAt := time.Now().Add(2 * time.Minute).UTC().Format(time.RFC3339Nano)
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/v2/organizations/acme/cluster-queue-migrations/default/metrics" {
-			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
-		}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprintf(w, `{
 			"queue":"default",
@@ -30,13 +30,22 @@ func TestQueueMetricsPrintsDestinationActivity(t *testing.T) {
 			"routed_percent":30,
 			"window_started_at":"2026-09-01T06:50:00Z",
 			"observed_at":%q,
+			"next_refresh_at":%q,
 			"window_seconds":600,
 			"activity":{
 				"connected_agents":{"current":50,"peak":54},
-				"waiting_jobs":{"current":4,"peak":null},
-				"running_jobs":{"current":null,"peak":46}
+				"waiting_jobs":{"current":4,"peak":12},
+				"running_jobs":{"current":38,"peak":46}
+			},
+			"source":{
+				"queue_key":"default",
+				"observed_at":%q,
+				"activity":{
+					"waiting_jobs":{"current":0,"peak":null},
+					"running_jobs":{"current":0,"peak":null}
+				}
 			}
-		}`, observedAt)
+		}`, destinationObservedAt, nextRefreshAt, sourceObservedAt)
 	}))
 	defer server.Close()
 
@@ -48,11 +57,99 @@ func TestQueueMetricsPrintsDestinationActivity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	observedLine := regexp.MustCompile(`Observed: \d+ seconds ago`)
-	got := observedLine.ReplaceAllString(stdout.String(), "Observed: <age>")
-	want := "QUEUE ACTIVITY\nSource: default (unclustered)\nDestination: cluster-default (cluster cluster-id)\nRouting: 30%\nObserved: <age>\n\nMETRIC            LATEST  10M MAX\nConnected agents  50      54\nWaiting jobs      4       —\nRunning jobs      —       46\n"
+	sourceObservation := regexp.MustCompile(`SOURCE ACTIVITY \(Unclustered\)\nObserved: \d+ minutes ago`)
+	destinationObservation := regexp.MustCompile(`DESTINATION ACTIVITY \(Cluster cluster-id\)\nObserved: \d+ seconds ago`)
+	refreshDue := regexp.MustCompile(`Refresh due: in \d+ minute(?:s)?(?: \d+ seconds)?`)
+	got := sourceObservation.ReplaceAllString(stdout.String(), "SOURCE ACTIVITY (Unclustered)\nObserved: <source age>")
+	got = destinationObservation.ReplaceAllString(got, "DESTINATION ACTIVITY (Cluster cluster-id)\nObserved: <destination age>")
+	got = refreshDue.ReplaceAllString(got, "Refresh due: <refresh due>")
+	want := "QUEUE METRICS\nQueue: default\nRouting: 30%\n\nSOURCE ACTIVITY (Unclustered)\nObserved: <source age>\n\nMETRIC        CURRENT\nWaiting jobs  0\nRunning jobs  0\n\nDESTINATION ACTIVITY (Cluster cluster-id)\nObserved: <destination age>\nRefresh due: <refresh due>\n\nMETRIC            LATEST  10M MAX\nConnected agents  50      54\nWaiting jobs      4       12\nRunning jobs      38      46\n"
 	if got != want {
 		t.Fatalf("output = %q, want %q", got, want)
+	}
+}
+
+func TestQueueMetricsPreservesSourceJSON(t *testing.T) {
+	t.Setenv("BUILDKITE_API_TOKEN", "secret")
+	response := `{
+		"queue":"default",
+		"destination":{"cluster_id":"cluster-id","queue_id":"queue-id","queue_key":"default"},
+		"routed_percent":30,
+		"retry_after_seconds":null,
+		"window_started_at":"2026-09-01T06:50:00Z",
+		"observed_at":"2026-09-01T07:00:00Z",
+		"window_seconds":600,
+		"activity":{
+			"connected_agents":{"current":50,"peak":54},
+			"waiting_jobs":{"current":4,"peak":12},
+			"running_jobs":{"current":38,"peak":46}
+		},
+		"source":{
+			"queue_key":"default",
+			"observed_at":"2026-09-01T07:00:48Z",
+			"activity":{
+				"waiting_jobs":{"current":16,"peak":null},
+				"running_jobs":{"current":31,"peak":null}
+			}
+		}
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(response))
+	}))
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	err := Run(context.Background(), []string{
+		"--endpoint", server.URL,
+		"--json",
+		"queue", "metrics", "default",
+	}, &stdout, &bytes.Buffer{}, organizationClient(server.Client()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got, want map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(response), &want); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("JSON = %#v, want %#v", got, want)
+	}
+}
+
+func TestQueueMetricsRejectsMissingSource(t *testing.T) {
+	t.Setenv("BUILDKITE_API_TOKEN", "secret")
+
+	for _, test := range []struct {
+		name     string
+		response string
+	}{
+		{name: "omitted", response: `{"queue":"default"}`},
+		{name: "null", response: `{"queue":"default","source":null}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(test.response))
+			}))
+			defer server.Close()
+
+			var stdout bytes.Buffer
+			err := Run(context.Background(), []string{
+				"--endpoint", server.URL,
+				"--json",
+				"queue", "metrics", "default",
+			}, &stdout, &bytes.Buffer{}, organizationClient(server.Client()))
+			if err == nil || !bytes.Contains([]byte(err.Error()), []byte("queue metrics response missing required source")) {
+				t.Fatalf("error = %v", err)
+			}
+			if stdout.Len() != 0 {
+				t.Fatalf("stdout = %q, want empty", stdout.String())
+			}
+		})
 	}
 }
 
@@ -73,6 +170,14 @@ func TestQueueMetricsPrintsJSONWithMissingValues(t *testing.T) {
 				"connected_agents":{"current":50,"peak":54},
 				"waiting_jobs":{"current":4,"peak":null},
 				"running_jobs":{"current":38,"peak":46}
+			},
+			"source":{
+				"queue_key":"default",
+				"observed_at":"2026-09-01T07:00:48Z",
+				"activity":{
+					"waiting_jobs":{"current":0,"peak":null},
+					"running_jobs":{"current":0,"peak":null}
+				}
 			}
 		}`))
 	}))
@@ -110,7 +215,7 @@ func TestQueueMetricsPrintsUnknownObservationWithoutError(t *testing.T) {
 	t.Setenv("BUILDKITE_API_TOKEN", "secret")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"queue":"default","destination":{"cluster_id":"cluster-id","queue_key":"default"},"routed_percent":30,"window_started_at":null,"observed_at":null,"window_seconds":600,"activity":{}}`))
+		_, _ = w.Write([]byte(`{"queue":"default","destination":{"cluster_id":"cluster-id","queue_key":"default"},"routed_percent":30,"window_started_at":null,"observed_at":null,"window_seconds":600,"activity":{},"source":{"queue_key":"default","observed_at":"2026-09-01T07:00:00Z","activity":{"waiting_jobs":{"current":0,"peak":null},"running_jobs":{"current":0,"peak":null}}}}`))
 	}))
 	defer server.Close()
 
@@ -122,6 +227,9 @@ func TestQueueMetricsPrintsUnknownObservationWithoutError(t *testing.T) {
 	if got := stdout.String(); !bytes.Contains([]byte(got), []byte("Observed: —\n")) {
 		t.Fatalf("output = %q", got)
 	}
+	if got := stdout.String(); !bytes.Contains([]byte(got), []byte("Waiting jobs  0\nRunning jobs  0\n")) {
+		t.Fatalf("source activity missing from stale destination output: %q", got)
+	}
 	if got := stdout.String(); bytes.Contains([]byte(got), []byte("Refresh due:")) {
 		t.Fatalf("output contains refresh due without next_refresh_at: %q", got)
 	}
@@ -130,8 +238,9 @@ func TestQueueMetricsPrintsUnknownObservationWithoutError(t *testing.T) {
 func TestQueueMetricsJSONOmitsAbsentNextRefreshAt(t *testing.T) {
 	var stdout bytes.Buffer
 	app := Context{Output: &stdout, JSON: true}
+	source := &buildkite.QueueSource{}
 
-	if err := app.Print(&buildkite.QueueMetrics{}); err != nil {
+	if err := app.Print(&buildkite.QueueMetrics{Source: source}); err != nil {
 		t.Fatal(err)
 	}
 	var got map[string]any
@@ -158,6 +267,7 @@ func TestQueueMetricsPrintsRefreshDue(t *testing.T) {
 		ObservedAt:    &observedAt,
 		NextRefreshAt: &nextRefreshAt,
 		WindowSeconds: 600,
+		Source:        &buildkite.QueueSource{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -186,7 +296,7 @@ func TestQueueMetricsRetriesBeforePrinting(t *testing.T) {
 		requestCount++
 		w.Header().Set("Content-Type", "application/json")
 		if requestCount < 3 {
-			_, _ = w.Write([]byte(`{"retry_after_seconds":10}`))
+			_, _ = w.Write([]byte(`{"retry_after_seconds":10,"source":{"queue_key":"default","observed_at":"2026-09-01T07:00:48Z","activity":{"waiting_jobs":{"current":0,"peak":null},"running_jobs":{"current":0,"peak":null}}}}`))
 			return
 		}
 		_, _ = w.Write([]byte(`{
@@ -199,6 +309,14 @@ func TestQueueMetricsRetriesBeforePrinting(t *testing.T) {
 				"connected_agents":{"current":50,"peak":54},
 				"waiting_jobs":{"current":4,"peak":12},
 				"running_jobs":{"current":38,"peak":46}
+			},
+			"source":{
+				"queue_key":"default",
+				"observed_at":"2026-09-01T07:00:48Z",
+				"activity":{
+					"waiting_jobs":{"current":0,"peak":null},
+					"running_jobs":{"current":0,"peak":null}
+				}
 			}
 		}`))
 	}))
@@ -241,7 +359,7 @@ func TestQueueMetricsRetriesBeforePrinting(t *testing.T) {
 	if got, want := stderr.String(), "Queue metrics are still being prepared; retrying every 10 seconds…\n"; got != want {
 		t.Fatalf("stderr = %q, want %q", got, want)
 	}
-	if got := stdout.String(); !bytes.Contains([]byte(got), []byte("Connected agents  50      54\n")) {
+	if got := stdout.String(); !bytes.Contains([]byte(got), []byte("Waiting jobs  0\nRunning jobs  0\n")) || !bytes.Contains([]byte(got), []byte("Connected agents  50      54\n")) {
 		t.Fatalf("stdout = %q", got)
 	}
 }
