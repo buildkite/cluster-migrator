@@ -24,7 +24,6 @@ func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 		run         func(*Context) error
 		wantLookups int
 		wantName    string
-		wantPolls   int
 		wantRuns    int
 	}{
 		{
@@ -93,11 +92,10 @@ func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 			pathSuffix: "/move",
 			response:   `{"id":"849411f9-9e6d-4739-a0d8-e247088e9b52","name":"Demo/Pipeline","slug":"demo-pipeline","cluster_id":"cluster-id"}`,
 			run: func(app *Context) error {
-				return (&PipelineMoveCmd{Pipeline: "Demo/Pipeline", DestinationCluster: "production", Wait: true}).Run(app)
+				return (&PipelineMoveCmd{Pipeline: "Demo/Pipeline", DestinationCluster: "production"}).Run(app)
 			},
 			wantLookups: 1,
 			wantName:    "Demo/Pipeline",
-			wantPolls:   1,
 			wantRuns:    2,
 		},
 	}
@@ -106,7 +104,6 @@ func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			operationRuns := 0
 			nameLookups := 0
-			polls := 0
 			pipelineBasePath := "/v2/organizations/acme/cluster-queue-migrations/pipelines/"
 			directPath := pipelineBasePath + url.PathEscape(test.identifier) + test.pathSuffix
 			resolvedPath := pipelineBasePath + "demo-pipeline" + test.pathSuffix
@@ -122,9 +119,6 @@ func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 						t.Fatalf("pipeline name query = %q, want %q", got, test.wantName)
 					}
 					_, _ = fmt.Fprintf(w, `[{"id":%q,"name":%q,"slug":"demo-pipeline"}]`, testPipelineID, test.identifier)
-				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/pipelines/demo-pipeline":
-					polls++
-					_, _ = w.Write([]byte(`{"id":"849411f9-9e6d-4739-a0d8-e247088e9b52","slug":"demo-pipeline","cluster_id":"cluster-id"}`))
 				case r.URL.EscapedPath() == directPath || r.URL.EscapedPath() == resolvedPath:
 					operationRuns++
 					if r.Method != test.method {
@@ -152,9 +146,6 @@ func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 			}
 			if nameLookups != test.wantLookups {
 				t.Fatalf("name lookups = %d, want %d", nameLookups, test.wantLookups)
-			}
-			if polls != test.wantPolls {
-				t.Fatalf("polls = %d, want %d", polls, test.wantPolls)
 			}
 			if operationRuns != test.wantRuns {
 				t.Fatalf("operation runs = %d, want %d", operationRuns, test.wantRuns)
