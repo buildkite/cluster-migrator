@@ -106,11 +106,65 @@ Complete the backend rollout that provides `source` before releasing this client
 
 When metrics are still being prepared, the command waits for the server's requested retry interval without writing to stdout. If preparation takes longer than the first retry, it reports progress on stderr and keeps retrying for up to one minute.
 
-`pipeline readiness` reports either `blocked` or `no_known_blockers`. The latter is not proof that the pipeline is ready to move: dependency discovery covers the reported recent window and is explicitly incomplete. Current queue migration state is evaluated against a cached observation, while the assessment itself is never cached. If an observation is being refreshed, the CLI waits without writing to stdout, reports prolonged preparation on stderr, and retries for up to one minute.
+`pipeline readiness` separates queue blockers from concurrency-group blockers, shows observation coverage and freshness, and suggests a next command only when a blocker has a supported CLI action. Missing routing percentages and timestamps are shown as `—` or unavailable rather than zero. Machine reason identifiers remain visible beside their operator-readable descriptions:
+
+```text
+PIPELINE READINESS
+Pipeline: monorepo
+Destination cluster: cluster-id
+Status: BLOCKED — 2 known blockers
+
+QUEUE BLOCKERS (1)
+
+QUEUE   ROUTING  ACTIVE SOURCE JOBS
+deploy  80%      2
+
+deploy
+  - Routing is below 100% (routing_incomplete)
+  - Active jobs remain on the source queue (active_source_jobs)
+
+CONCURRENCY-GROUP BLOCKERS (1)
+
+SCOPE     KEY
+pipeline  deploy
+
+pipeline / deploy
+  - Migration is unavailable for this concurrency group (concurrency_group_migration_unavailable)
+
+OBSERVATIONS
+Queues: incomplete; 10-minute window ending 48 seconds ago; started 2026-09-01 06:50:00 UTC
+Concurrency groups: incomplete; 10-minute window ending 48 seconds ago; started 2026-09-01 06:50:00 UTC
+
+Incomplete observations may omit blockers outside the observed window.
+
+NEXT
+
+Review destination activity before increasing routing for deploy:
+
+  cluster-migrator queue metrics deploy
+
+Wait for active source jobs on deploy to finish, then reassess:
+
+  cluster-migrator pipeline readiness monorepo --destination-cluster cluster-id
+```
+
+A blocked assessment is printed to stdout and still exits non-zero. `NO KNOWN BLOCKERS` means only that no blocker was found in the reported observations; it is not proof that the pipeline is ready to move or authorization to move it. Dependency discovery covers the reported recent window and may be incomplete. Current queue migration state is evaluated against a cached observation, while the assessment itself is never cached.
+
+With `--json`, `pipeline readiness` returns the unchanged API-shaped object, including raw statuses and reasons, `null` values, observation timestamps, and the API URL. Terminal descriptions and next-step guidance are not added to JSON.
+
+If an observation is being refreshed, the CLI waits without writing to stdout, reports prolonged preparation on stderr, and retries for up to one minute.
 
 When `pipeline move --dry-run` is blocked, it prints the readiness assessment, including queue and concurrency-group blockers, and exits non-zero without printing a proposed move. With `--json`, stdout contains exactly one readiness assessment object.
 
-A successful `pipeline move` completes when the synchronous move response returns. The command verifies that the response reports the requested destination cluster and, with `--json`, prints that API response without a confirmation request.
+A successful `pipeline move` completes when the synchronous move response returns and identifies the pipeline and destination cluster by name:
+
+```text
+RESULT
+
+Demo Pipeline (demo-pipeline) is now using the Production cluster
+```
+
+The command verifies that the response reports the requested destination cluster. If the API omits the pipeline name, the slug is displayed instead. With `--json`, it prints the API-shaped response without a confirmation request. Dry runs retain the proposed-change output and do not report a completed move.
 
 With `--json`, percentage changes and rollbacks return:
 

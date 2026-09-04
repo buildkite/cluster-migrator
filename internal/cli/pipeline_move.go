@@ -43,5 +43,5 @@ func (cmd *PipelineMoveCmd) Run(app *Context) error {
 	if err != nil {
 		return fmt.Errorf("move pipeline: %w", err)
 	}
-	return app.Print(pipeline)
+	return app.Print(PipelineMoveResult{Pipeline: pipeline, Destination: cluster.Name})
 }
