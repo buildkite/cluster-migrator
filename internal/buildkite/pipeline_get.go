@@ -17,8 +17,12 @@ func (c *Client) GetPipeline(ctx context.Context, pipeline string) (*Pipeline, e
 	return &result, nil
 }
 
-func (c *Client) ResolvePipelineName(ctx context.Context, identifier string) (*Pipeline, error) {
-	query := url.Values{"name": []string{identifier}, "per_page": []string{"100"}}
+func (c *Client) ResolvePipelineIdentifier(ctx context.Context, identifier string) (*Pipeline, error) {
+	query := url.Values{"per_page": []string{"100"}}
+	identifierIsID := isUUID(identifier)
+	if !identifierIsID {
+		query.Set("name", identifier)
+	}
 	path := c.path("pipelines") + "?" + query.Encode()
 	var matches []Pipeline
 	for path != "" {
@@ -27,7 +31,10 @@ func (c *Client) ResolvePipelineName(ctx context.Context, identifier string) (*P
 			return nil, err
 		}
 		for _, pipeline := range page.Items {
-			if pipeline.Name == identifier {
+			if identifierIsID && strings.EqualFold(pipeline.ID, identifier) {
+				return &pipeline, nil
+			}
+			if !identifierIsID && pipeline.Name == identifier {
 				matches = append(matches, pipeline)
 			}
 		}
@@ -35,7 +42,7 @@ func (c *Client) ResolvePipelineName(ctx context.Context, identifier string) (*P
 	}
 
 	if len(matches) == 0 {
-		return nil, fmt.Errorf("no pipeline found matching name or slug %q", identifier)
+		return nil, fmt.Errorf("no pipeline found matching ID, name, or slug %q", identifier)
 	}
 	if len(matches) > 1 {
 		slugs := make([]string, len(matches))
@@ -43,7 +50,25 @@ func (c *Client) ResolvePipelineName(ctx context.Context, identifier string) (*P
 			slugs[i] = pipeline.Slug
 		}
 		sort.Strings(slugs)
-		return nil, fmt.Errorf("multiple pipelines match name %q; use a slug: %s", identifier, strings.Join(slugs, ", "))
+		return nil, fmt.Errorf("multiple pipelines match name %q; use an ID or slug: %s", identifier, strings.Join(slugs, ", "))
 	}
 	return &matches[0], nil
+}
+
+func isUUID(value string) bool {
+	if len(value) != 36 {
+		return false
+	}
+	for i, char := range value {
+		if i == 8 || i == 13 || i == 18 || i == 23 {
+			if char != '-' {
+				return false
+			}
+			continue
+		}
+		if !strings.ContainsRune("0123456789abcdefABCDEF", char) {
+			return false
+		}
+	}
+	return true
 }

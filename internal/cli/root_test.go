@@ -49,7 +49,7 @@ func TestQueueHelpIncludesAPIToken(t *testing.T) {
 	}
 }
 
-func TestPipelineUsageAcceptsNameOrSlug(t *testing.T) {
+func TestPipelineUsageAcceptsIDNameOrSlug(t *testing.T) {
 	tests := []struct {
 		name string
 		args []string
@@ -86,7 +86,7 @@ func TestPipelineUsageAcceptsNameOrSlug(t *testing.T) {
 				t.Fatalf("usage requires a pipeline slug:\n%s", output.String())
 			}
 			if test.name == "readiness" || test.name == "move" {
-				if !strings.Contains(output.String(), "Pipeline name or slug.") {
+				if !strings.Contains(output.String(), "Pipeline ID, name, or slug.") {
 					t.Fatalf("help does not describe accepted pipeline identifiers:\n%s", output.String())
 				}
 				if !strings.Contains(output.String(), "Destination cluster name or ID.") {

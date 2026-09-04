@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestResolvePipelineNameRequiresUniqueExactMatch(t *testing.T) {
+func TestResolvePipelineIdentifierRequiresUniqueExactNameMatch(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -35,7 +35,7 @@ func TestResolvePipelineNameRequiresUniqueExactMatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pipeline, err := client.ResolvePipelineName(context.Background(), "Demo Pipeline")
+	pipeline, err := client.ResolvePipelineIdentifier(context.Background(), "Demo Pipeline")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestResolvePipelineNameRequiresUniqueExactMatch(t *testing.T) {
 	}
 }
 
-func TestResolvePipelineNameFollowsPagination(t *testing.T) {
+func TestResolvePipelineIdentifierFollowsPagination(t *testing.T) {
 	t.Parallel()
 
 	var server *httptest.Server
@@ -63,7 +63,7 @@ func TestResolvePipelineNameFollowsPagination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pipeline, err := client.ResolvePipelineName(context.Background(), "Demo Pipeline")
+	pipeline, err := client.ResolvePipelineIdentifier(context.Background(), "Demo Pipeline")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,36 @@ func TestResolvePipelineNameFollowsPagination(t *testing.T) {
 	}
 }
 
-func TestResolvePipelineNameRejectsAmbiguousName(t *testing.T) {
+func TestResolvePipelineIdentifierMatchesIDWithoutNameFilter(t *testing.T) {
+	t.Parallel()
+
+	const pipelineID = "849411f9-9e6d-4739-a0d8-e247088e9b52"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("name"); got != "" {
+			t.Fatalf("name = %q, want no filter", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{"id":"11111111-1111-1111-1111-111111111111","slug":"other"},
+			{"id":"849411f9-9e6d-4739-a0d8-e247088e9b52","slug":"demo-pipeline"}
+		]`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "acme", "secret", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pipeline, err := client.ResolvePipelineIdentifier(context.Background(), pipelineID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pipeline.Slug != "demo-pipeline" {
+		t.Fatalf("pipeline = %#v", pipeline)
+	}
+}
+
+func TestResolvePipelineIdentifierRejectsAmbiguousName(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -88,13 +117,13 @@ func TestResolvePipelineNameRejectsAmbiguousName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.ResolvePipelineName(context.Background(), "Demo Pipeline")
-	if err == nil || err.Error() != `multiple pipelines match name "Demo Pipeline"; use a slug: demo-one, demo-two` {
+	_, err = client.ResolvePipelineIdentifier(context.Background(), "Demo Pipeline")
+	if err == nil || err.Error() != `multiple pipelines match name "Demo Pipeline"; use an ID or slug: demo-one, demo-two` {
 		t.Fatalf("error = %q", err)
 	}
 }
 
-func TestResolvePipelineNameReportsMissingNameOrSlug(t *testing.T) {
+func TestResolvePipelineIdentifierReportsMissingIdentifier(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -107,8 +136,8 @@ func TestResolvePipelineNameReportsMissingNameOrSlug(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.ResolvePipelineName(context.Background(), "Missing Pipeline")
-	if err == nil || !strings.Contains(err.Error(), `no pipeline found matching name or slug "Missing Pipeline"`) {
+	_, err = client.ResolvePipelineIdentifier(context.Background(), "Missing Pipeline")
+	if err == nil || !strings.Contains(err.Error(), `no pipeline found matching ID, name, or slug "Missing Pipeline"`) {
 		t.Fatalf("error = %q", err)
 	}
 }

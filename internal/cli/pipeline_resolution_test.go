@@ -12,7 +12,7 @@ import (
 	"github.com/buildkite/cluster-migrator/internal/buildkite"
 )
 
-func TestPipelineCommandsAcceptSlugOrExactName(t *testing.T) {
+func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 	tests := []struct {
 		name        string
 		identifier  string
@@ -21,6 +21,7 @@ func TestPipelineCommandsAcceptSlugOrExactName(t *testing.T) {
 		response    string
 		run         func(*Context) error
 		wantLookups int
+		wantName    string
 		wantPolls   int
 		wantRuns    int
 	}{
@@ -43,6 +44,31 @@ func TestPipelineCommandsAcceptSlugOrExactName(t *testing.T) {
 			response:   `{"status":"no_known_blockers"}`,
 			run: func(app *Context) error {
 				return (&PipelineReadinessCmd{Pipeline: "Demo Pipeline", DestinationCluster: "production"}).Run(app)
+			},
+			wantLookups: 1,
+			wantName:    "Demo Pipeline",
+			wantRuns:    2,
+		},
+		{
+			name:       "readiness ID",
+			identifier: "849411f9-9e6d-4739-a0d8-e247088e9b52",
+			method:     http.MethodGet,
+			pathSuffix: "/readiness",
+			response:   `{"status":"no_known_blockers"}`,
+			run: func(app *Context) error {
+				return (&PipelineReadinessCmd{Pipeline: "849411f9-9e6d-4739-a0d8-e247088e9b52", DestinationCluster: "production"}).Run(app)
+			},
+			wantLookups: 1,
+			wantRuns:    2,
+		},
+		{
+			name:       "move ID",
+			identifier: "849411f9-9e6d-4739-a0d8-e247088e9b52",
+			method:     http.MethodPost,
+			pathSuffix: "/move",
+			response:   `{"name":"Demo Pipeline","slug":"demo-pipeline","cluster_id":"cluster-id"}`,
+			run: func(app *Context) error {
+				return (&PipelineMoveCmd{Pipeline: "849411f9-9e6d-4739-a0d8-e247088e9b52", DestinationCluster: "production"}).Run(app)
 			},
 			wantLookups: 1,
 			wantRuns:    2,
@@ -68,6 +94,7 @@ func TestPipelineCommandsAcceptSlugOrExactName(t *testing.T) {
 				return (&PipelineMoveCmd{Pipeline: "Demo/Pipeline", DestinationCluster: "production", Wait: true}).Run(app)
 			},
 			wantLookups: 1,
+			wantName:    "Demo/Pipeline",
 			wantPolls:   1,
 			wantRuns:    2,
 		},
@@ -89,10 +116,10 @@ func TestPipelineCommandsAcceptSlugOrExactName(t *testing.T) {
 					_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
 				case r.URL.Path == "/v2/organizations/acme/pipelines":
 					nameLookups++
-					if got := r.URL.Query().Get("name"); got != test.identifier {
-						t.Fatalf("pipeline name query = %q, want %q", got, test.identifier)
+					if got := r.URL.Query().Get("name"); got != test.wantName {
+						t.Fatalf("pipeline name query = %q, want %q", got, test.wantName)
 					}
-					_, _ = fmt.Fprintf(w, `[{"name":%q,"slug":"demo-pipeline"}]`, test.identifier)
+					_, _ = fmt.Fprintf(w, `[{"id":%q,"name":%q,"slug":"demo-pipeline"}]`, test.identifier, test.identifier)
 				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/pipelines/demo-pipeline":
 					polls++
 					_, _ = w.Write([]byte(`{"slug":"demo-pipeline","cluster_id":"cluster-id"}`))

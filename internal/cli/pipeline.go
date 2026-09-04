@@ -13,7 +13,7 @@ type PipelineCmd struct {
 	Move      PipelineMoveCmd      `cmd:"" help:"Permanently assign a pipeline to the cluster."`
 }
 
-func runWithPipelineNameFallback[T any](
+func runWithPipelineIdentifierFallback[T any](
 	ctx context.Context,
 	client *buildkite.Client,
 	identifier string,
@@ -27,7 +27,7 @@ func runWithPipelineNameFallback[T any](
 	if !errors.As(err, &apiError) || apiError.StatusCode != http.StatusNotFound {
 		return result, err
 	}
-	pipeline, err := client.ResolvePipelineName(ctx, identifier)
+	pipeline, err := client.ResolvePipelineIdentifier(ctx, identifier)
 	if err != nil {
 		return result, err
 	}

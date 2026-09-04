@@ -7,7 +7,7 @@ import (
 )
 
 type PipelineMoveCmd struct {
-	Pipeline           string `arg:"" help:"Pipeline name or slug."`
+	Pipeline           string `arg:"" help:"Pipeline ID, name, or slug."`
 	DestinationCluster string `name:"destination-cluster" required:"" help:"Destination cluster name or ID."`
 	Wait               bool   `help:"Wait until the pipeline reports the destination cluster."`
 }
@@ -36,7 +36,7 @@ func (cmd *PipelineMoveCmd) Run(app *Context) error {
 	}
 
 	pipelineIdentifier := cmd.Pipeline
-	pipeline, err := runWithPipelineNameFallback(app.Context, app.Client, cmd.Pipeline, func(identifier string) (*buildkite.Pipeline, error) {
+	pipeline, err := runWithPipelineIdentifierFallback(app.Context, app.Client, cmd.Pipeline, func(identifier string) (*buildkite.Pipeline, error) {
 		pipelineIdentifier = identifier
 		return app.Client.MovePipeline(app.Context, identifier, cluster.ID)
 	})

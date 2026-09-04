@@ -12,7 +12,7 @@ import (
 const pipelineReadinessTimeout = time.Minute
 
 type PipelineReadinessCmd struct {
-	Pipeline           string `arg:"" help:"Pipeline name or slug."`
+	Pipeline           string `arg:"" help:"Pipeline ID, name, or slug."`
 	DestinationCluster string `name:"destination-cluster" required:"" help:"Destination cluster name or ID."`
 }
 
@@ -38,7 +38,7 @@ func (cmd *PipelineReadinessCmd) Run(app *Context) error {
 }
 
 func getPipelineReadinessForPipeline(app *Context, pipeline, clusterID string) (*buildkite.PipelineReadiness, error) {
-	return runWithPipelineNameFallback(app.Context, app.Client, pipeline, func(pipeline string) (*buildkite.PipelineReadiness, error) {
+	return runWithPipelineIdentifierFallback(app.Context, app.Client, pipeline, func(pipeline string) (*buildkite.PipelineReadiness, error) {
 		return getPipelineReadiness(app, pipeline, clusterID)
 	})
 }
