@@ -9,6 +9,7 @@ func (cmd *QueueRollbackCmd) Run(app *Context) error {
 		app,
 		cmd.Queue,
 		0,
+		"ROLLBACK",
 		"New jobs will return to the unclustered queue. Existing jobs remain where they were routed.",
 	)
 }
