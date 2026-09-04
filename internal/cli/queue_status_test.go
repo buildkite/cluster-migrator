@@ -36,7 +36,7 @@ func TestQueueStatusPrintsTable(t *testing.T) {
 	if got := stdout.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
-	if got, want := stderr.String(), "\n"; got != want {
+	if got, want := stderr.String(), ""; got != want {
 		t.Fatalf("stderr = %q, want %q", got, want)
 	}
 }

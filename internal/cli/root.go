@@ -47,9 +47,6 @@ func Run(
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintln(stderr); err != nil {
-		return fmt.Errorf("write output separator: %w", err)
-	}
 
 	commandContext, cancel := context.WithTimeout(ctx, root.Timeout)
 	defer cancel()
