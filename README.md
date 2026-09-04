@@ -94,6 +94,8 @@ When metrics are still being prepared, the command waits for the server's reques
 
 `pipeline readiness` reports either `blocked` or `no_known_blockers`. The latter is not proof that the pipeline is ready to move: dependency discovery covers the reported recent window and is explicitly incomplete. Current queue migration state is evaluated against a cached observation, while the assessment itself is never cached. If an observation is being refreshed, the CLI waits without writing to stdout, reports prolonged preparation on stderr, and retries for up to one minute.
 
+When `pipeline move --dry-run` is blocked, it prints the readiness assessment, including queue and concurrency-group blockers, and exits non-zero without printing a proposed move. With `--json`, stdout contains exactly one readiness assessment object.
+
 With `--json`, percentage changes and rollbacks return:
 
 ```json

@@ -3,8 +3,10 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -164,11 +166,60 @@ func TestPipelineMoveDryRunReportsConcurrencyGroupBlockers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app := Context{Context: context.Background(), Client: client, Output: &bytes.Buffer{}, ErrorOutput: &bytes.Buffer{}, DryRun: true}
+	var stdout bytes.Buffer
+	app := Context{Context: context.Background(), Client: client, Output: &stdout, ErrorOutput: &bytes.Buffer{}, DryRun: true, JSON: true}
 
 	err = (&PipelineMoveCmd{Pipeline: "monorepo", DestinationCluster: "production"}).Run(&app)
 	if err == nil || err.Error() != "pipeline has known blockers" {
 		t.Fatalf("error = %v", err)
+	}
+	var assessment buildkite.PipelineReadiness
+	decoder := json.NewDecoder(&stdout)
+	if err := decoder.Decode(&assessment); err != nil {
+		t.Fatalf("decode stdout: %v; stdout = %q", err, stdout.String())
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		t.Fatalf("stdout contains more than one JSON document: %q", stdout.String())
+	}
+	if assessment.Status != buildkite.PipelineReadinessBlocked {
+		t.Fatalf("status = %q", assessment.Status)
+	}
+	if got := assessment.ConcurrencyGroupObservation.BlockingConcurrencyGroups; len(got) != 1 || got[0].Scope != "pipeline" || got[0].Key != "deploy" || got[0].Reason != "active_source_jobs" {
+		t.Fatalf("blocking concurrency groups = %#v", got)
+	}
+}
+
+func TestPipelineMoveDryRunReportsQueueBlockers(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v2/organizations/acme/clusters":
+			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
+		case "/v2/organizations/acme/cluster-queue-migrations/pipelines/monorepo/readiness":
+			_, _ = w.Write([]byte(`{"status":"blocked","queue_observation":{"blocking_queues":[{"queue":"deploy","reasons":["routing_incomplete","active_source_jobs"],"routed_percent":80,"active_source_jobs":2}]},"concurrency_group_observation":{"blocking_concurrency_groups":[]}}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client, err := buildkite.NewClient(server.URL, "acme", "secret", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	app := Context{Context: context.Background(), Client: client, Output: &stdout, ErrorOutput: &bytes.Buffer{}, DryRun: true, JSON: true}
+
+	err = (&PipelineMoveCmd{Pipeline: "monorepo", DestinationCluster: "production"}).Run(&app)
+	if err == nil || err.Error() != "pipeline has known blockers" {
+		t.Fatalf("error = %v", err)
+	}
+	var assessment buildkite.PipelineReadiness
+	if err := json.Unmarshal(stdout.Bytes(), &assessment); err != nil {
+		t.Fatalf("decode stdout: %v; stdout = %q", err, stdout.String())
+	}
+	if got := assessment.QueueObservation.BlockingQueues; len(got) != 1 || got[0].Queue != "deploy" || len(got[0].Reasons) != 2 || got[0].RoutedPercent == nil || *got[0].RoutedPercent != 80 || got[0].ActiveSourceJobs != 2 {
+		t.Fatalf("blocking queues = %#v", got)
 	}
 }
 
