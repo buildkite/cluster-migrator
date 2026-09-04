@@ -12,7 +12,7 @@ import (
 const pipelineReadinessTimeout = time.Minute
 
 type PipelineReadinessCmd struct {
-	Pipeline           string `arg:"" help:"Pipeline slug."`
+	Pipeline           string `arg:"" name:"pipeline-slug" help:"Pipeline slug (not pipeline name)."`
 	DestinationCluster string `name:"destination-cluster" required:"" help:"Destination cluster name or ID."`
 }
 
@@ -49,7 +49,7 @@ func getPipelineReadiness(app *Context, pipeline, clusterID string) (*buildkite.
 			if errors.Is(err, context.DeadlineExceeded) {
 				return nil, pipelineReadinessDeadlineError(app.Context)
 			}
-			return nil, fmt.Errorf("get pipeline readiness: %w", err)
+			return nil, fmt.Errorf("get pipeline readiness: %w", withPipelineSlugHint(err))
 		}
 		if readiness.Status != buildkite.PipelineReadinessPending {
 			return readiness, nil

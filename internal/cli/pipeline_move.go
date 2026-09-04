@@ -7,7 +7,7 @@ import (
 )
 
 type PipelineMoveCmd struct {
-	Pipeline           string `arg:"" help:"Pipeline slug."`
+	Pipeline           string `arg:"" name:"pipeline-slug" help:"Pipeline slug (not pipeline name)."`
 	DestinationCluster string `name:"destination-cluster" required:"" help:"Destination cluster name or ID."`
 	Wait               bool   `help:"Wait until the pipeline reports the destination cluster."`
 }
@@ -37,7 +37,7 @@ func (cmd *PipelineMoveCmd) Run(app *Context) error {
 
 	pipeline, err := app.Client.MovePipeline(app.Context, cmd.Pipeline, cluster.ID)
 	if err != nil {
-		return fmt.Errorf("move pipeline: %w", err)
+		return fmt.Errorf("move pipeline: %w", withPipelineSlugHint(err))
 	}
 	if !cmd.Wait {
 		return app.Print(pipeline)

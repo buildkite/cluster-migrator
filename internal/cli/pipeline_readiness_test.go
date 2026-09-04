@@ -102,6 +102,73 @@ func TestPipelineReadinessPrintsBlockedAssessmentThenFails(t *testing.T) {
 	}
 }
 
+func TestPipelineCommandsHandleAPIErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		path    string
+		status  int
+		run     func(*Context) error
+		wantErr string
+	}{
+		{
+			name:   "readiness",
+			path:   "/v2/organizations/acme/cluster-queue-migrations/pipelines/Demo Pipeline/readiness",
+			status: http.StatusNotFound,
+			run: func(app *Context) error {
+				return (&PipelineReadinessCmd{Pipeline: "Demo Pipeline", DestinationCluster: "production"}).Run(app)
+			},
+			wantErr: "get pipeline readiness: Buildkite API returned 404: No pipeline found (use the pipeline slug, not its name)",
+		},
+		{
+			name:   "move",
+			path:   "/v2/organizations/acme/cluster-queue-migrations/pipelines/Demo Pipeline/move",
+			status: http.StatusNotFound,
+			run: func(app *Context) error {
+				return (&PipelineMoveCmd{Pipeline: "Demo Pipeline", DestinationCluster: "production"}).Run(app)
+			},
+			wantErr: "move pipeline: Buildkite API returned 404: No pipeline found (use the pipeline slug, not its name)",
+		},
+		{
+			name:   "other API error",
+			path:   "/v2/organizations/acme/cluster-queue-migrations/pipelines/demo-pipeline/readiness",
+			status: http.StatusInternalServerError,
+			run: func(app *Context) error {
+				return (&PipelineReadinessCmd{Pipeline: "demo-pipeline", DestinationCluster: "production"}).Run(app)
+			},
+			wantErr: "get pipeline readiness: Buildkite API returned 500: No pipeline found",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/v2/organizations/acme/clusters":
+					_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
+				case test.path:
+					w.WriteHeader(test.status)
+					_, _ = w.Write([]byte(`{"message":"No pipeline found"}`))
+				default:
+					t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+				}
+			}))
+			defer server.Close()
+
+			client, err := buildkite.NewClient(server.URL, "acme", "secret", server.Client())
+			if err != nil {
+				t.Fatal(err)
+			}
+			app := Context{Context: context.Background(), Client: client, Output: &bytes.Buffer{}, ErrorOutput: &bytes.Buffer{}}
+
+			err = test.run(&app)
+			if err == nil || err.Error() != test.wantErr {
+				t.Fatalf("error = %q, want %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
 func TestPipelineReadinessPreservesParentDeadline(t *testing.T) {
 	client, err := buildkite.NewClient("https://example.com", "acme", "secret", nil)
 	if err != nil {

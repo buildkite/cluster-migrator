@@ -55,7 +55,7 @@ cluster-migrator queue metrics test
 # Before increasing traffic, also inspect dispatch and queue latency plus
 # stranded-job alerts in your observability tools.
 
-# 4. Assess the known pipeline move blockers.
+# 4. Assess known blockers using the pipeline slug (not its display name).
 cluster-migrator pipeline readiness monorepo \
   --destination-cluster production
 
