@@ -75,7 +75,7 @@ Queue mutations display the previous and resulting routing percentages. Successf
 
 When no queue migrations are configured, human-readable `queue status` points to `queue configure`; with `--json`, it returns `[]`.
 
-`queue metrics` displays the latest and maximum destination activity over the server's observation window. This activity is operational context only: it does not establish pipeline readiness. Before increasing traffic, also inspect dispatch and queue latency and stranded-job alerts in observability. The observation time shows when the window ended, and missing values are shown as `—`, not zero:
+`queue metrics` displays the latest and maximum destination activity over the server's observation window. This activity is operational context only: it does not establish pipeline readiness. Before increasing traffic, also inspect dispatch and queue latency and stranded-job alerts in observability. The observation time shows when the window ended. When the API provides `next_refresh_at`, the refresh countdown shows when the cached snapshot becomes eligible for request-driven replacement, not when a newer observation is guaranteed to be complete. Missing values are shown as `—`, not zero:
 
 ```text
 QUEUE ACTIVITY
@@ -83,6 +83,7 @@ Source: default (unclustered)
 Destination: default (cluster cluster-id)
 Routing: 30%
 Observed: 1 minute 52 seconds ago
+Refresh due: in 8 seconds
 
 METRIC            LATEST  10M MAX
 Connected agents  50      54
@@ -90,7 +91,7 @@ Waiting jobs      4       12
 Running jobs      38      46
 ```
 
-With `--json`, the command returns the API response, including `null` values, routing percentage, and observation timestamps.
+With `--json`, the command returns the API response, including `null` values, routing percentage, and observation timestamps. During a mixed deployment or rollback, an API response may omit `next_refresh_at`; human-readable output then omits the refresh line.
 
 When metrics are still being prepared, the command waits for the server's requested retry interval without writing to stdout. If preparation takes longer than the first retry, it reports progress on stderr and keeps retrying for up to one minute.
 
