@@ -38,6 +38,7 @@ type QueueDestination struct {
 }
 
 type QueueChange struct {
+	Command     string           `json:"-"`
 	Queue       string           `json:"queue"`
 	FromPercent *int             `json:"from_percent,omitempty"`
 	ToPercent   int              `json:"to_percent"`
@@ -63,21 +64,18 @@ func (c *Context) Print(value any) error {
 
 	switch value := value.(type) {
 	case QueueChange:
-		heading := "RESULT"
-		if value.DryRun {
-			heading = "PROPOSED CHANGE"
-		}
-		if _, err := fmt.Fprintf(c.Output, "%s\n\n", heading); err != nil {
+		if _, err := fmt.Fprintf(c.Output, "QUEUE %s\nQueue: %s\nDestination: %s\n\n", value.Command, value.Queue, value.Destination.ClusterName); err != nil {
 			return err
 		}
-		writer := tabwriter.NewWriter(c.Output, 0, 4, 2, ' ', 0)
-		_, _ = fmt.Fprintln(writer, "QUEUE\tFROM\tTO\tDESTINATION")
+		heading := "RESULT"
+		if value.DryRun {
+			heading += " (dry run)"
+		}
 		from := "—"
 		if value.FromPercent != nil {
 			from = fmt.Sprintf("%d%%", *value.FromPercent)
 		}
-		_, _ = fmt.Fprintf(writer, "%s\t%s\t%d%%\t%s\n", value.Queue, from, value.ToPercent, value.Destination.ClusterName)
-		if err := writer.Flush(); err != nil {
+		if _, err := fmt.Fprintf(c.Output, "%s\n\nRouting: %s → %d%%\n", heading, from, value.ToPercent); err != nil {
 			return err
 		}
 		if value.Next != "" {
@@ -85,12 +83,12 @@ func (c *Context) Print(value any) error {
 			return err
 		}
 		if value.Note != "" {
-			_, err := fmt.Fprintf(c.Output, "\n%s\n", value.Note)
+			_, err := fmt.Fprintf(c.Output, "\nSOURCE\n\n%s\n", value.Note)
 			return err
 		}
 		return nil
 	case QueueStatus:
-		if err := c.printQueueStatuses([]QueueStatus{value}); err != nil {
+		if _, err := fmt.Fprintf(c.Output, "QUEUE STATUS\nQueue: %s\nDestination: %s\n\nRESULT\n\nRouting: %d%%\n", value.Queue, value.Destination.ClusterName, value.RoutingPercent); err != nil {
 			return err
 		}
 		if value.Next != "" {
@@ -149,7 +147,10 @@ func (c *Context) wait(ctx context.Context, duration time.Duration) error {
 
 func (c *Context) printQueueStatuses(statuses []QueueStatus) error {
 	if len(statuses) == 0 {
-		_, err := fmt.Fprint(c.Output, "No queue migrations configured.\n\nTo configure one, run:\n\n  cluster-migrator queue configure <queue> --destination-cluster <cluster>\n")
+		_, err := fmt.Fprint(c.Output, "QUEUE STATUS\nMigrations: 0\n\nRESULT\n\nNo queue migrations configured.\n\nNEXT\n\nConfigure a queue migration:\n\n  cluster-migrator queue configure <queue> --destination-cluster <cluster>\n")
+		return err
+	}
+	if _, err := fmt.Fprintf(c.Output, "QUEUE STATUS\nMigrations: %d\n\nRESULT\n\n", len(statuses)); err != nil {
 		return err
 	}
 

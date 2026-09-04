@@ -8,10 +8,10 @@ type QueueSetPercentCmd struct {
 }
 
 func (cmd *QueueSetPercentCmd) Run(app *Context) error {
-	return setQueuePercent(app, cmd.Queue, cmd.To, "")
+	return setQueuePercent(app, cmd.Queue, cmd.To, "SET-PERCENT", "")
 }
 
-func setQueuePercent(app *Context, queue string, percent int, note string) error {
+func setQueuePercent(app *Context, queue string, percent int, command, note string) error {
 	if percent < 0 || percent > 100 {
 		return fmt.Errorf("--to must be between 0 and 100")
 	}
@@ -25,6 +25,7 @@ func setQueuePercent(app *Context, queue string, percent int, note string) error
 		return fmt.Errorf("resolve destination cluster: %w", err)
 	}
 	change := QueueChange{
+		Command:     command,
 		Queue:       queue,
 		FromPercent: &current.RoutedPercent,
 		ToPercent:   percent,

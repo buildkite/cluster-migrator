@@ -17,6 +17,7 @@ func (cmd *QueueConfigureCmd) Run(app *Context) error {
 	}
 
 	change := QueueChange{
+		Command:   "CONFIGURE",
 		Queue:     cmd.Queue,
 		ToPercent: 0,
 		Destination: QueueDestination{

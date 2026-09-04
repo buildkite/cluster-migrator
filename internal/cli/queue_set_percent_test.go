@@ -50,7 +50,7 @@ func TestQueueSetPercentPrintsChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "RESULT\n\nQUEUE  FROM  TO   DESTINATION\ntest   10%   25%  production\n\nNEXT\n\nReview destination activity before increasing routing:\n\n  cluster-migrator queue metrics test\n"
+	want := "QUEUE SET-PERCENT\nQueue: test\nDestination: production\n\nRESULT\n\nRouting: 10% → 25%\n\nNEXT\n\nReview destination activity before increasing routing:\n\n  cluster-migrator queue metrics test\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
@@ -82,7 +82,7 @@ func TestQueueSetPercentToZeroPrintsBeginRoutingGuidance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "RESULT\n\nQUEUE  FROM  TO  DESTINATION\ntest   25%   0%  production\n\nNEXT\n\nScale the destination infrastructure. When ready, begin routing:\n\n  cluster-migrator queue set-percent test --to <percentage>\n"
+	want := "QUEUE SET-PERCENT\nQueue: test\nDestination: production\n\nRESULT\n\nRouting: 25% → 0%\n\nNEXT\n\nScale the destination infrastructure. When ready, begin routing:\n\n  cluster-migrator queue set-percent test --to <percentage>\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}

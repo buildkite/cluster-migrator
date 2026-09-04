@@ -32,7 +32,7 @@ func TestQueueStatusPrintsTable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "QUEUE    ROUTING  DESTINATION\ndefault  25%      Cluster Migrator Demo\n"
+	want := "QUEUE STATUS\nQueue: default\nDestination: Cluster Migrator Demo\n\nRESULT\n\nRouting: 25%\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
@@ -65,7 +65,7 @@ func TestQueueStatusAtZeroPrintsNextStep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "QUEUE    ROUTING  DESTINATION\ndefault  0%       Cluster Migrator Demo\n\nNEXT\n\nScale the destination infrastructure. When ready, begin routing:\n\n  cluster-migrator queue set-percent default --to <percentage>\n"
+	want := "QUEUE STATUS\nQueue: default\nDestination: Cluster Migrator Demo\n\nRESULT\n\nRouting: 0%\n\nNEXT\n\nScale the destination infrastructure. When ready, begin routing:\n\n  cluster-migrator queue set-percent default --to <percentage>\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
@@ -95,7 +95,7 @@ func TestQueueStatusEmptyListOutput(t *testing.T) {
 		{
 			name: "human-readable",
 			args: []string{"--endpoint", server.URL, "queue", "status"},
-			want: "No queue migrations configured.\n\nTo configure one, run:\n\n  cluster-migrator queue configure <queue> --destination-cluster <cluster>\n",
+			want: "QUEUE STATUS\nMigrations: 0\n\nRESULT\n\nNo queue migrations configured.\n\nNEXT\n\nConfigure a queue migration:\n\n  cluster-migrator queue configure <queue> --destination-cluster <cluster>\n",
 		},
 		{
 			name: "JSON",
@@ -114,5 +114,35 @@ func TestQueueStatusEmptyListOutput(t *testing.T) {
 				t.Fatalf("output = %q, want %q", got, test.want)
 			}
 		})
+	}
+}
+
+func TestQueueStatusPrintsList(t *testing.T) {
+	t.Setenv("BUILDKITE_API_TOKEN", "secret")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v2/organizations/acme/clusters":
+			_, _ = w.Write([]byte(`[{"id":"cluster-a","name":"Production"},{"id":"cluster-b","name":"Development"}]`))
+		case "/v2/organizations/acme/cluster-queue-migrations":
+			_, _ = w.Write([]byte(`{"items":[{"queue_key":"deploy","destination":{"cluster_id":"cluster-a"},"routed_percent":75},{"queue_key":"test","destination":{"cluster_id":"cluster-b"},"routed_percent":10}],"links":{}}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	err := Run(context.Background(), []string{
+		"--endpoint", server.URL,
+		"queue", "status",
+	}, &stdout, &bytes.Buffer{}, organizationClient(server.Client()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "QUEUE STATUS\nMigrations: 2\n\nRESULT\n\nQUEUE   ROUTING  DESTINATION\ndeploy  75%      Production\ntest    10%      Development\n"
+	if got := stdout.String(); got != want {
+		t.Fatalf("output = %q, want %q", got, want)
 	}
 }

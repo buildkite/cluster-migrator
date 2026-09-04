@@ -130,6 +130,98 @@ Initial configuration uses the same shape without `from_percent`. Queue status r
 
 Status for all queues returns an array of these objects. Terminal-only guidance is never included in JSON.
 
+Human-readable queue mutations keep queue and destination identity outside the result, then show the routing transition on one line. Dry runs use the same layout with `RESULT (dry run)` and still make no mutation. For example:
+
+```text
+QUEUE CONFIGURE
+Queue: default
+Destination: Cluster Migrator Demo
+
+RESULT
+
+Routing: — → 0%
+
+NEXT
+
+Scale the destination infrastructure. When ready, begin routing:
+
+  cluster-migrator queue set-percent default --to <percentage>
+```
+
+```text
+QUEUE SET-PERCENT
+Queue: default
+Destination: Cluster Migrator Demo
+
+RESULT
+
+Routing: 10% → 25%
+
+NEXT
+
+Review destination activity before increasing routing:
+
+  cluster-migrator queue metrics default
+```
+
+Rollback context is grouped under `SOURCE` rather than mixed into the routing result:
+
+```text
+QUEUE ROLLBACK
+Queue: default
+Destination: Cluster Migrator Demo
+
+RESULT
+
+Routing: 25% → 0%
+
+SOURCE
+
+New jobs will return to the unclustered queue. Existing jobs remain where they were routed.
+```
+
+A single-queue status keeps identity in its summary:
+
+```text
+QUEUE STATUS
+Queue: default
+Destination: Cluster Migrator Demo
+
+RESULT
+
+Routing: 25%
+```
+
+Status for all queues uses a table because each row has the same comparable fields:
+
+```text
+QUEUE STATUS
+Migrations: 2
+
+RESULT
+
+QUEUE    ROUTING  DESTINATION
+default  25%      Cluster Migrator Demo
+deploy   100%     Production
+```
+
+The empty state uses the same hierarchy and puts its action under `NEXT`:
+
+```text
+QUEUE STATUS
+Migrations: 0
+
+RESULT
+
+No queue migrations configured.
+
+NEXT
+
+Configure a queue migration:
+
+  cluster-migrator queue configure <queue> --destination-cluster <cluster>
+```
+
 ## Commands
 
 ```text
