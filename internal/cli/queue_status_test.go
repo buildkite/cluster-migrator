@@ -32,7 +32,7 @@ func TestQueueStatusPrintsTable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "QUEUE STATUS\nQueue: default\nDestination: Cluster Migrator Demo\n\nRESULT\n\nRouting: 25%\n"
+	want := "QUEUE STATUS\n\n+---------+---------+-----------------------+\n| Queue   | Routing | Destination           |\n+---------+---------+-----------------------+\n| default |     25% | Cluster Migrator Demo |\n+---------+---------+-----------------------+\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
@@ -65,7 +65,7 @@ func TestQueueStatusAtZeroPrintsNextStep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "QUEUE STATUS\nQueue: default\nDestination: Cluster Migrator Demo\n\nRESULT\n\nRouting: 0%\n\nNEXT STEPS\n\n1. Scale the destination infrastructure.\n2. Once applied, begin routing:\n\n   cluster-migrator queue set-percent default --to <percentage>\n"
+	want := "QUEUE STATUS\n\n+---------+---------+-----------------------+\n| Queue   | Routing | Destination           |\n+---------+---------+-----------------------+\n| default |      0% | Cluster Migrator Demo |\n+---------+---------+-----------------------+\n\nNEXT STEPS\n\n1. Scale the destination infrastructure.\n2. Once applied, begin routing:\n\n   cluster-migrator queue set-percent default --to <percentage>\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
@@ -141,7 +141,7 @@ func TestQueueStatusPrintsList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "QUEUE STATUS\nMigrations: 2\n\nRESULT\n\nQUEUE   ROUTING  DESTINATION\ndeploy  75%      Production\ntest    10%      Development\n"
+	want := "QUEUE STATUS\n\n+--------+---------+-------------+\n| Queue  | Routing | Destination |\n+--------+---------+-------------+\n| deploy |     75% | Production  |\n| test   |     10% | Development |\n+--------+---------+-------------+\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}

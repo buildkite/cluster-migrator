@@ -96,6 +96,7 @@ func (c *Context) printQueueMetrics(metrics *buildkite.QueueMetrics) error {
 			{"Running jobs", metricValue(metrics.Source.Activity.RunningJobs.Current)},
 			{"Connected agents", metricValue(metrics.Source.Activity.ConnectedAgents.Current)},
 		},
+		[]bool{false, true},
 	)
 	destinationTable := renderASCIITable(
 		[]string{"Metric", "Latest", metricsWindowHeading(metrics.Destination.WindowSeconds)},
@@ -105,6 +106,7 @@ func (c *Context) printQueueMetrics(metrics *buildkite.QueueMetrics) error {
 			{"Connected agents", metricValue(metrics.Destination.Activity.ConnectedAgents.Current), metricValue(metrics.Destination.Activity.ConnectedAgents.Peak)},
 			{"Wait time (p95)", metricDuration(metrics.Destination.Activity.WaitTimeP95Seconds.Current), metricDuration(metrics.Destination.Activity.WaitTimeP95Seconds.Peak)},
 		},
+		[]bool{false, true, true},
 	)
 
 	summary := fmt.Sprintf("Queue: %s    Routing: %s", displayValue(metrics.Queue), metricPercent(metrics.RoutedPercent))
@@ -128,7 +130,7 @@ func (c *Context) printQueueMetrics(metrics *buildkite.QueueMetrics) error {
 	return err
 }
 
-func renderASCIITable(headers []string, rows [][]string) []string {
+func renderASCIITable(headers []string, rows [][]string, rightAligned []bool) []string {
 	widths := make([]int, len(headers))
 	for column, header := range headers {
 		widths[column] = utf8.RuneCountInString(header)
@@ -143,24 +145,24 @@ func renderASCIITable(headers []string, rows [][]string) []string {
 	for _, width := range widths {
 		border += strings.Repeat("-", width+2) + "+"
 	}
-	lines := []string{border, renderASCIIRow(headers, widths, false), border}
+	lines := []string{border, renderASCIIRow(headers, widths, nil), border}
 	for _, row := range rows {
-		lines = append(lines, renderASCIIRow(row, widths, true))
+		lines = append(lines, renderASCIIRow(row, widths, rightAligned))
 	}
 	return append(lines, border)
 }
 
-func renderASCIIRow(values []string, widths []int, rightAlignValues bool) string {
+func renderASCIIRow(values []string, widths []int, rightAligned []bool) string {
 	var line strings.Builder
 	line.WriteByte('|')
 	for column, value := range values {
 		padding := widths[column] - utf8.RuneCountInString(value)
 		line.WriteByte(' ')
-		if rightAlignValues && column > 0 {
+		if column < len(rightAligned) && rightAligned[column] {
 			line.WriteString(strings.Repeat(" ", padding))
 		}
 		line.WriteString(value)
-		if !rightAlignValues || column == 0 {
+		if column >= len(rightAligned) || !rightAligned[column] {
 			line.WriteString(strings.Repeat(" ", padding))
 		}
 		line.WriteString(" |")

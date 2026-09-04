@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"github.com/buildkite/cluster-migrator/internal/buildkite"
@@ -106,7 +105,7 @@ func (c *Context) Print(value any) error {
 		}
 		return nil
 	case QueueStatus:
-		if _, err := fmt.Fprintf(c.Output, "QUEUE STATUS\nQueue: %s\nDestination: %s\n\nRESULT\n\nRouting: %d%%\n", value.Queue, value.Destination.ClusterName, value.RoutingPercent); err != nil {
+		if err := c.printQueueStatuses([]QueueStatus{value}); err != nil {
 			return err
 		}
 		if value.Next != "" {
@@ -179,14 +178,15 @@ func (c *Context) printQueueStatuses(statuses []QueueStatus) error {
 		_, err := fmt.Fprint(c.Output, "QUEUE STATUS\nMigrations: 0\n\nRESULT\n\nNo queue migrations configured.\n\nNEXT STEPS\n\n1. Configure a queue migration:\n\n   cluster-migrator queue configure <queue> --destination-cluster <cluster>\n")
 		return err
 	}
-	if _, err := fmt.Fprintf(c.Output, "QUEUE STATUS\nMigrations: %d\n\nRESULT\n\n", len(statuses)); err != nil {
-		return err
-	}
-
-	writer := tabwriter.NewWriter(c.Output, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintln(writer, "QUEUE\tROUTING\tDESTINATION")
+	rows := make([][]string, 0, len(statuses))
 	for _, status := range statuses {
-		_, _ = fmt.Fprintf(writer, "%s\t%d%%\t%s\n", status.Queue, status.RoutingPercent, status.Destination.ClusterName)
+		rows = append(rows, []string{status.Queue, fmt.Sprintf("%d%%", status.RoutingPercent), status.Destination.ClusterName})
 	}
-	return writer.Flush()
+	table := renderASCIITable(
+		[]string{"Queue", "Routing", "Destination"},
+		rows,
+		[]bool{false, true, false},
+	)
+	_, err := fmt.Fprintf(c.Output, "QUEUE STATUS\n\n%s\n", strings.Join(table, "\n"))
+	return err
 }
