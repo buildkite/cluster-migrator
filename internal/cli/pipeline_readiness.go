@@ -282,7 +282,23 @@ func formatPipelineRefreshDue(nextRefreshAt *string, now time.Time) (string, err
 	if err != nil {
 		return "", fmt.Errorf("parse pipeline readiness next_refresh_at: %w", err)
 	}
-	return formatRefreshDue(refreshAt, now), nil
+	if !refreshAt.After(now) {
+		return "now", nil
+	}
+
+	remainingSeconds := int(refreshAt.Sub(now) / time.Second)
+	if remainingSeconds == 0 {
+		return "in less than 1 second", nil
+	}
+	minutes := remainingSeconds / 60
+	seconds := remainingSeconds % 60
+	if minutes == 0 {
+		return fmt.Sprintf("in %d %s", seconds, pluralize(seconds, "second")), nil
+	}
+	if seconds == 0 {
+		return fmt.Sprintf("in %d %s", minutes, pluralize(minutes, "minute")), nil
+	}
+	return fmt.Sprintf("in %d %s %d %s", minutes, pluralize(minutes, "minute"), seconds, pluralize(seconds, "second")), nil
 }
 
 func (c *Context) printPipelineReadinessActions(readiness *buildkite.PipelineReadiness) error {
