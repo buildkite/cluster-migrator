@@ -2,6 +2,7 @@ package buildkite
 
 import (
 	"context"
+	"errors"
 	"net/http"
 )
 
@@ -15,7 +16,7 @@ type QueueMetrics struct {
 	NextRefreshAt   *string          `json:"next_refresh_at,omitempty"`
 	WindowSeconds   int              `json:"window_seconds"`
 	Activity        QueueActivity    `json:"activity"`
-	Source          *QueueSource     `json:"source,omitempty"`
+	Source          *QueueSource     `json:"source"`
 }
 
 type QueueActivity struct {
@@ -44,6 +45,9 @@ func (c *Client) GetQueueMetrics(ctx context.Context, queue string) (*QueueMetri
 	var metrics QueueMetrics
 	if err := c.do(ctx, http.MethodGet, c.queuePath(queue)+"/metrics", nil, &metrics); err != nil {
 		return nil, err
+	}
+	if metrics.Source == nil {
+		return nil, errors.New("queue metrics response missing required source")
 	}
 	return &metrics, nil
 }
