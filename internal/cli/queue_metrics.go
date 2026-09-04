@@ -127,7 +127,11 @@ func formatMetricsFreshness(observedAt string, now time.Time) (string, error) {
 		return fmt.Sprintf("%d %s ago", seconds, pluralize(seconds, "second")), nil
 	case elapsed < time.Hour:
 		minutes := int(elapsed / time.Minute)
-		return fmt.Sprintf("%d %s ago", minutes, pluralize(minutes, "minute")), nil
+		seconds := int(elapsed/time.Second) % 60
+		if seconds == 0 {
+			return fmt.Sprintf("%d %s ago", minutes, pluralize(minutes, "minute")), nil
+		}
+		return fmt.Sprintf("%d %s %d %s ago", minutes, pluralize(minutes, "minute"), seconds, pluralize(seconds, "second")), nil
 	default:
 		hours := int(elapsed / time.Hour)
 		return fmt.Sprintf("%d %s ago", hours, pluralize(hours, "hour")), nil
