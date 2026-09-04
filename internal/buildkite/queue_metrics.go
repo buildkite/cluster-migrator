@@ -15,12 +15,24 @@ type QueueMetrics struct {
 	NextRefreshAt   *string          `json:"next_refresh_at,omitempty"`
 	WindowSeconds   int              `json:"window_seconds"`
 	Activity        QueueActivity    `json:"activity"`
+	Source          *QueueSource     `json:"source,omitempty"`
 }
 
 type QueueActivity struct {
 	ConnectedAgents MetricValues `json:"connected_agents"`
 	WaitingJobs     MetricValues `json:"waiting_jobs"`
 	RunningJobs     MetricValues `json:"running_jobs"`
+}
+
+type QueueSource struct {
+	QueueKey   string              `json:"queue_key"`
+	ObservedAt *string             `json:"observed_at"`
+	Activity   QueueSourceActivity `json:"activity"`
+}
+
+type QueueSourceActivity struct {
+	WaitingJobs MetricValues `json:"waiting_jobs"`
+	RunningJobs MetricValues `json:"running_jobs"`
 }
 
 type MetricValues struct {

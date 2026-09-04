@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"regexp"
 	"testing"
 	"time"
@@ -53,6 +54,110 @@ func TestQueueMetricsPrintsDestinationActivity(t *testing.T) {
 	want := "QUEUE ACTIVITY\nSource: default (unclustered)\nDestination: cluster-default (cluster cluster-id)\nRouting: 30%\nObserved: <age>\n\nMETRIC            LATEST  10M MAX\nConnected agents  50      54\nWaiting jobs      4       —\nRunning jobs      —       46\n"
 	if got != want {
 		t.Fatalf("output = %q, want %q", got, want)
+	}
+}
+
+func TestQueueMetricsPrintsSourceActivitySeparately(t *testing.T) {
+	t.Setenv("BUILDKITE_API_TOKEN", "secret")
+	destinationObservedAt := time.Now().Add(-48 * time.Second).UTC().Format(time.RFC3339Nano)
+	sourceObservedAt := time.Now().Add(-2 * time.Minute).UTC().Format(time.RFC3339Nano)
+	nextRefreshAt := time.Now().Add(2 * time.Minute).UTC().Format(time.RFC3339Nano)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{
+			"queue":"default",
+			"destination":{"cluster_id":"cluster-id","queue_id":"queue-id","queue_key":"cluster-default"},
+			"routed_percent":30,
+			"window_started_at":"2026-09-01T06:50:00Z",
+			"observed_at":%q,
+			"next_refresh_at":%q,
+			"window_seconds":600,
+			"activity":{
+				"connected_agents":{"current":50,"peak":54},
+				"waiting_jobs":{"current":4,"peak":12},
+				"running_jobs":{"current":38,"peak":46}
+			},
+			"source":{
+				"queue_key":"default",
+				"observed_at":%q,
+				"activity":{
+					"waiting_jobs":{"current":16,"peak":null},
+					"running_jobs":{"current":null,"peak":null}
+				}
+			}
+		}`, destinationObservedAt, nextRefreshAt, sourceObservedAt)
+	}))
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	err := Run(context.Background(), []string{
+		"--endpoint", server.URL,
+		"queue", "metrics", "default",
+	}, &stdout, &bytes.Buffer{}, organizationClient(server.Client()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceObservation := regexp.MustCompile(`SOURCE ACTIVITY \(Unclustered\)\nObserved: \d+ minutes ago`)
+	destinationObservation := regexp.MustCompile(`DESTINATION ACTIVITY \(Cluster cluster-id\)\nObserved: \d+ seconds ago`)
+	refreshDue := regexp.MustCompile(`Refresh due: in \d+ minute(?:s)?(?: \d+ seconds)?`)
+	got := sourceObservation.ReplaceAllString(stdout.String(), "SOURCE ACTIVITY (Unclustered)\nObserved: <source age>")
+	got = destinationObservation.ReplaceAllString(got, "DESTINATION ACTIVITY (Cluster cluster-id)\nObserved: <destination age>")
+	got = refreshDue.ReplaceAllString(got, "Refresh due: <refresh due>")
+	want := "QUEUE METRICS\nQueue: default\nRouting: 30%\n\nSOURCE ACTIVITY (Unclustered)\nObserved: <source age>\n\nMETRIC        CURRENT\nWaiting jobs  16\nRunning jobs  —\n\nDESTINATION ACTIVITY (Cluster cluster-id)\nObserved: <destination age>\nRefresh due: <refresh due>\n\nMETRIC            LATEST  10M MAX\nConnected agents  50      54\nWaiting jobs      4       12\nRunning jobs      38      46\n"
+	if got != want {
+		t.Fatalf("output = %q, want %q", got, want)
+	}
+}
+
+func TestQueueMetricsPreservesSourceJSON(t *testing.T) {
+	t.Setenv("BUILDKITE_API_TOKEN", "secret")
+	response := `{
+		"queue":"default",
+		"destination":{"cluster_id":"cluster-id","queue_id":"queue-id","queue_key":"default"},
+		"routed_percent":30,
+		"retry_after_seconds":null,
+		"window_started_at":"2026-09-01T06:50:00Z",
+		"observed_at":"2026-09-01T07:00:00Z",
+		"window_seconds":600,
+		"activity":{
+			"connected_agents":{"current":50,"peak":54},
+			"waiting_jobs":{"current":4,"peak":12},
+			"running_jobs":{"current":38,"peak":46}
+		},
+		"source":{
+			"queue_key":"default",
+			"observed_at":"2026-09-01T07:00:48Z",
+			"activity":{
+				"waiting_jobs":{"current":16,"peak":null},
+				"running_jobs":{"current":31,"peak":null}
+			}
+		}
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(response))
+	}))
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	err := Run(context.Background(), []string{
+		"--endpoint", server.URL,
+		"--json",
+		"queue", "metrics", "default",
+	}, &stdout, &bytes.Buffer{}, organizationClient(server.Client()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got, want map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(response), &want); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("JSON = %#v, want %#v", got, want)
 	}
 }
 

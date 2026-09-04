@@ -81,16 +81,49 @@ func (c *Context) printQueueMetrics(metrics *buildkite.QueueMetrics) error {
 		refreshDueLine = fmt.Sprintf("Refresh due: %s\n", refreshDue)
 	}
 
-	if _, err := fmt.Fprintf(c.Output, "QUEUE ACTIVITY\nSource: %s (unclustered)\nDestination: %s (cluster %s)\nRouting: %s\nObserved: %s\n%s\n",
-		displayValue(metrics.Queue),
-		displayValue(metrics.Destination.QueueKey),
-		displayValue(metrics.Destination.ClusterID),
-		metricPercent(metrics.RoutedPercent),
-		freshness,
-		refreshDueLine,
-	); err != nil {
-		return err
+	if metrics.Source == nil {
+		if _, err := fmt.Fprintf(c.Output, "QUEUE ACTIVITY\nSource: %s (unclustered)\nDestination: %s (cluster %s)\nRouting: %s\nObserved: %s\n%s\n",
+			displayValue(metrics.Queue),
+			displayValue(metrics.Destination.QueueKey),
+			displayValue(metrics.Destination.ClusterID),
+			metricPercent(metrics.RoutedPercent),
+			freshness,
+			refreshDueLine,
+		); err != nil {
+			return err
+		}
+	} else {
+		sourceFreshness := "—"
+		if metrics.Source.ObservedAt != nil {
+			var err error
+			sourceFreshness, err = formatMetricsFreshness(*metrics.Source.ObservedAt, now)
+			if err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprintf(c.Output, "QUEUE METRICS\nQueue: %s\nRouting: %s\n\nSOURCE ACTIVITY (Unclustered)\nObserved: %s\n\n",
+			displayValue(metrics.Queue),
+			metricPercent(metrics.RoutedPercent),
+			sourceFreshness,
+		); err != nil {
+			return err
+		}
+		writer := tabwriter.NewWriter(c.Output, 0, 4, 2, ' ', 0)
+		_, _ = fmt.Fprintln(writer, "METRIC\tCURRENT")
+		_, _ = fmt.Fprintf(writer, "Waiting jobs\t%s\n", metricValue(metrics.Source.Activity.WaitingJobs.Current))
+		_, _ = fmt.Fprintf(writer, "Running jobs\t%s\n", metricValue(metrics.Source.Activity.RunningJobs.Current))
+		if err := writer.Flush(); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(c.Output, "\nDESTINATION ACTIVITY (Cluster %s)\nObserved: %s\n%s\n",
+			displayValue(metrics.Destination.ClusterID),
+			freshness,
+			refreshDueLine,
+		); err != nil {
+			return err
+		}
 	}
+
 	writer := tabwriter.NewWriter(c.Output, 0, 4, 2, ' ', 0)
 	_, _ = fmt.Fprintf(writer, "METRIC\tLATEST\t%dM MAX\n", metrics.WindowSeconds/60)
 	_, _ = fmt.Fprintf(writer, "Connected agents\t%s\t%s\n", metricValue(metrics.Activity.ConnectedAgents.Current), metricValue(metrics.Activity.ConnectedAgents.Peak))
