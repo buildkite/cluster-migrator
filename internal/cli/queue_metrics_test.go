@@ -67,6 +67,7 @@ func TestQueueMetricsPrintsJSONWithMissingValues(t *testing.T) {
 			"routed_percent":30,
 			"window_started_at":"2026-09-01T06:50:00Z",
 			"observed_at":"2026-09-01T07:00:00Z",
+			"next_refresh_at":"2026-09-01T07:02:00Z",
 			"window_seconds":600,
 			"activity":{
 				"connected_agents":{"current":50,"peak":54},
@@ -93,6 +94,9 @@ func TestQueueMetricsPrintsJSONWithMissingValues(t *testing.T) {
 	if got["observed_at"] != "2026-09-01T07:00:00Z" {
 		t.Fatalf("observed_at = %v", got["observed_at"])
 	}
+	if got["next_refresh_at"] != "2026-09-01T07:02:00Z" {
+		t.Fatalf("next_refresh_at = %v", got["next_refresh_at"])
+	}
 	waitingJobs := got["activity"].(map[string]any)["waiting_jobs"].(map[string]any)
 	if waitingJobs["peak"] != nil {
 		t.Fatalf("waiting_jobs.peak = %v, want nil", waitingJobs["peak"])
@@ -117,6 +121,62 @@ func TestQueueMetricsPrintsUnknownObservationWithoutError(t *testing.T) {
 	}
 	if got := stdout.String(); !bytes.Contains([]byte(got), []byte("Observed: —\n")) {
 		t.Fatalf("output = %q", got)
+	}
+	if got := stdout.String(); bytes.Contains([]byte(got), []byte("Refresh due:")) {
+		t.Fatalf("output contains refresh due without next_refresh_at: %q", got)
+	}
+}
+
+func TestQueueMetricsJSONOmitsAbsentNextRefreshAt(t *testing.T) {
+	var stdout bytes.Buffer
+	app := Context{Output: &stdout, JSON: true}
+
+	if err := app.Print(&buildkite.QueueMetrics{}); err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got["next_refresh_at"]; ok {
+		t.Fatalf("next_refresh_at should be absent: %s", stdout.String())
+	}
+}
+
+func TestQueueMetricsPrintsRefreshDue(t *testing.T) {
+	observedAt := "2026-09-01T07:00:00Z"
+	nextRefreshAt := "2026-09-01T07:01:56Z"
+	var stdout bytes.Buffer
+	app := Context{
+		Output: &stdout,
+		Now: func() time.Time {
+			return time.Date(2026, time.September, 1, 7, 0, 48, 0, time.UTC)
+		},
+	}
+
+	err := app.printQueueMetrics(&buildkite.QueueMetrics{
+		ObservedAt:    &observedAt,
+		NextRefreshAt: &nextRefreshAt,
+		WindowSeconds: 600,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := stdout.String(); !bytes.Contains([]byte(got), []byte("Observed: 48 seconds ago\nRefresh due: in 1 minute 8 seconds\n")) {
+		t.Fatalf("output = %q", got)
+	}
+}
+
+func TestQueueMetricsRejectsInvalidNextRefreshAt(t *testing.T) {
+	nextRefreshAt := "not-a-timestamp"
+	app := Context{
+		Output: &bytes.Buffer{},
+		Now:    func() time.Time { return time.Date(2026, time.September, 1, 7, 0, 0, 0, time.UTC) },
+	}
+
+	err := app.printQueueMetrics(&buildkite.QueueMetrics{NextRefreshAt: &nextRefreshAt})
+	if err == nil || !bytes.Contains([]byte(err.Error()), []byte("parse queue metrics next_refresh_at")) {
+		t.Fatalf("error = %v", err)
 	}
 }
 
@@ -245,5 +305,19 @@ func TestFormatMetricsFreshness(t *testing.T) {
 				t.Fatalf("freshness = %q, want %q", got, test.want)
 			}
 		})
+	}
+}
+
+func TestFormatMetricsRefreshDueClampsDueAndPastTimes(t *testing.T) {
+	now := time.Date(2026, time.September, 1, 7, 2, 0, 0, time.UTC)
+
+	for _, refreshAt := range []string{"2026-09-01T07:02:00Z", "2026-09-01T07:01:59Z"} {
+		got, err := formatMetricsRefreshDue(refreshAt, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != "now" {
+			t.Fatalf("refresh due for %s = %q, want %q", refreshAt, got, "now")
+		}
 	}
 }

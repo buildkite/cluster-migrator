@@ -62,21 +62,32 @@ func queueMetricsDeadlineError(parent context.Context) error {
 }
 
 func (c *Context) printQueueMetrics(metrics *buildkite.QueueMetrics) error {
+	now := c.now()
 	freshness := "—"
 	if metrics.ObservedAt != nil {
 		var err error
-		freshness, err = formatMetricsFreshness(*metrics.ObservedAt, c.now())
+		freshness, err = formatMetricsFreshness(*metrics.ObservedAt, now)
 		if err != nil {
 			return err
 		}
 	}
 
-	if _, err := fmt.Fprintf(c.Output, "QUEUE ACTIVITY\nSource: %s (unclustered)\nDestination: %s (cluster %s)\nRouting: %s\nObserved: %s\n\n",
+	refreshDueLine := ""
+	if metrics.NextRefreshAt != nil {
+		refreshDue, err := formatMetricsRefreshDue(*metrics.NextRefreshAt, now)
+		if err != nil {
+			return err
+		}
+		refreshDueLine = fmt.Sprintf("Refresh due: %s\n", refreshDue)
+	}
+
+	if _, err := fmt.Fprintf(c.Output, "QUEUE ACTIVITY\nSource: %s (unclustered)\nDestination: %s (cluster %s)\nRouting: %s\nObserved: %s\n%s\n",
 		displayValue(metrics.Queue),
 		displayValue(metrics.Destination.QueueKey),
 		displayValue(metrics.Destination.ClusterID),
 		metricPercent(metrics.RoutedPercent),
 		freshness,
+		refreshDueLine,
 	); err != nil {
 		return err
 	}
@@ -136,6 +147,30 @@ func formatMetricsFreshness(observedAt string, now time.Time) (string, error) {
 		hours := int(elapsed / time.Hour)
 		return fmt.Sprintf("%d %s ago", hours, pluralize(hours, "hour")), nil
 	}
+}
+
+func formatMetricsRefreshDue(nextRefreshAt string, now time.Time) (string, error) {
+	refreshAt, err := time.Parse(time.RFC3339Nano, nextRefreshAt)
+	if err != nil {
+		return "", fmt.Errorf("parse queue metrics next_refresh_at: %w", err)
+	}
+	if !refreshAt.After(now) {
+		return "now", nil
+	}
+
+	remainingSeconds := int(refreshAt.Sub(now) / time.Second)
+	if remainingSeconds == 0 {
+		return "in less than 1 second", nil
+	}
+	minutes := remainingSeconds / 60
+	seconds := remainingSeconds % 60
+	if minutes == 0 {
+		return fmt.Sprintf("in %d %s", seconds, pluralize(seconds, "second")), nil
+	}
+	if seconds == 0 {
+		return fmt.Sprintf("in %d %s", minutes, pluralize(minutes, "minute")), nil
+	}
+	return fmt.Sprintf("in %d %s %d %s", minutes, pluralize(minutes, "minute"), seconds, pluralize(seconds, "second")), nil
 }
 
 func pluralize(value int, unit string) string {

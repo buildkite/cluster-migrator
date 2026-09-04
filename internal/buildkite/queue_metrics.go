@@ -12,6 +12,7 @@ type QueueMetrics struct {
 	RetryAfter      *int             `json:"retry_after_seconds"`
 	WindowStartedAt *string          `json:"window_started_at"`
 	ObservedAt      *string          `json:"observed_at"`
+	NextRefreshAt   *string          `json:"next_refresh_at,omitempty"`
 	WindowSeconds   int              `json:"window_seconds"`
 	Activity        QueueActivity    `json:"activity"`
 }
