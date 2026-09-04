@@ -100,6 +100,8 @@ func (c *Context) Print(value any) error {
 		return c.printQueueStatuses(value)
 	case *buildkite.QueueMetrics:
 		return c.printQueueMetrics(value)
+	case *buildkite.PipelineReadiness:
+		return c.printPipelineReadiness(value)
 	case Change:
 		var line strings.Builder
 		_, _ = fmt.Fprintf(&line, "%s %s", value.Action, value.Resource)
