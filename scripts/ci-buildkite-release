@@ -21,7 +21,7 @@ semver_prerelease="${semver_identifier}(\\.${semver_identifier})*"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 git fetch --force --tags origin
-remote_tag_commit="$(git ls-remote --exit-code origin "refs/tags/${BUILDKITE_TAG}" "refs/tags/${BUILDKITE_TAG}^{}" | awk '$2 ~ /\^\{\}$/ { peeled=$1 } $2 !~ /\^\{\}$/ { tag=$1 } END { print peeled != "" ? peeled : tag }')" \
+remote_tag_commit="$(git ls-remote --exit-code origin "refs/tags/${BUILDKITE_TAG}" "refs/tags/${BUILDKITE_TAG}^{}" | awk '$2 ~ /\^\{\}$/ { peeled=$1 } $2 !~ /\^\{\}$/ { tag=$1 } END { print (peeled != "" ? peeled : tag) }')" \
   || die 'release tag does not exist on origin'
 tag_commit="$(git rev-list -n 1 "$BUILDKITE_TAG^{commit}")" || die 'release tag does not resolve to a commit'
 [[ "$remote_tag_commit" == "$tag_commit" ]] || die "origin tag resolves to ${remote_tag_commit}, not ${tag_commit}"
