@@ -137,15 +137,15 @@ Concurrency groups: incomplete; 10-minute window ending 48 seconds ago; started 
 
 Incomplete observations may omit blockers outside the observed window.
 
-NEXT
+NEXT STEPS
 
-Review destination activity before increasing routing for deploy:
+1. Review destination activity for deploy:
 
-  cluster-migrator queue metrics deploy
+   cluster-migrator queue metrics deploy
 
-Wait for active source jobs on deploy to finish, then reassess:
+2. Wait for active source jobs on deploy to finish, then reassess:
 
-  cluster-migrator pipeline readiness monorepo --destination-cluster cluster-id
+   cluster-migrator pipeline readiness monorepo --destination-cluster cluster-id
 ```
 
 A blocked assessment is printed to stdout and still exits non-zero. `NO KNOWN BLOCKERS` means only that no blocker was found in the reported observations; it is not proof that the pipeline is ready to move or authorization to move it. Dependency discovery covers the reported recent window and may be incomplete. Current queue migration state is evaluated against a cached observation, while the assessment itself is never cached.
@@ -203,11 +203,12 @@ RESULT
 
 A migration for the 'default' queue was successfully created in the cluster 'Cluster Migrator Demo'
 
-NEXT
+NEXT STEPS
 
-Scale the destination infrastructure. When ready, begin routing:
+1. Scale the destination infrastructure.
+2. Once applied, begin routing:
 
-  cluster-migrator queue set-percent default --to <percentage>
+   cluster-migrator queue set-percent default --to <percentage>
 ```
 
 ```text
@@ -225,11 +226,15 @@ RESULT
 
 Routing: 10% → 25%
 
-NEXT
+NEXT STEPS
 
-Review destination activity before increasing routing:
+1. Review destination activity:
 
-  cluster-migrator queue metrics default
+   cluster-migrator queue metrics default
+
+2. When ready, increase routing:
+
+   cluster-migrator queue set-percent default --to <percentage>
 ```
 
 Rollback context is grouped under `SOURCE` rather than mixed into the routing result:
@@ -273,7 +278,7 @@ default  25%      Cluster Migrator Demo
 deploy   100%     Production
 ```
 
-The empty state uses the same hierarchy and puts its action under `NEXT`:
+The empty state uses the same hierarchy and puts its action under `NEXT STEPS`:
 
 ```text
 QUEUE STATUS
@@ -283,11 +288,11 @@ RESULT
 
 No queue migrations configured.
 
-NEXT
+NEXT STEPS
 
-Configure a queue migration:
+1. Configure a queue migration:
 
-  cluster-migrator queue configure <queue> --destination-cluster <cluster>
+   cluster-migrator queue configure <queue> --destination-cluster <cluster>
 ```
 
 ## Commands

@@ -65,7 +65,7 @@ func TestQueueStatusAtZeroPrintsNextStep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "QUEUE STATUS\nQueue: default\nDestination: Cluster Migrator Demo\n\nRESULT\n\nRouting: 0%\n\nNEXT\n\nScale the destination infrastructure. When ready, begin routing:\n\n  cluster-migrator queue set-percent default --to <percentage>\n"
+	want := "QUEUE STATUS\nQueue: default\nDestination: Cluster Migrator Demo\n\nRESULT\n\nRouting: 0%\n\nNEXT STEPS\n\n1. Scale the destination infrastructure.\n2. Once applied, begin routing:\n\n   cluster-migrator queue set-percent default --to <percentage>\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
@@ -95,7 +95,7 @@ func TestQueueStatusEmptyListOutput(t *testing.T) {
 		{
 			name: "human-readable",
 			args: []string{"--endpoint", server.URL, "queue", "status"},
-			want: "QUEUE STATUS\nMigrations: 0\n\nRESULT\n\nNo queue migrations configured.\n\nNEXT\n\nConfigure a queue migration:\n\n  cluster-migrator queue configure <queue> --destination-cluster <cluster>\n",
+			want: "QUEUE STATUS\nMigrations: 0\n\nRESULT\n\nNo queue migrations configured.\n\nNEXT STEPS\n\n1. Configure a queue migration:\n\n   cluster-migrator queue configure <queue> --destination-cluster <cluster>\n",
 		},
 		{
 			name: "JSON",

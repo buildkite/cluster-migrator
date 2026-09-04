@@ -268,11 +268,16 @@ func (c *Context) printPipelineReadinessActions(readiness *buildkite.PipelineRea
 	if len(actions) == 0 {
 		return nil
 	}
-	if _, err := fmt.Fprint(c.Output, "\nNEXT\n"); err != nil {
+	if _, err := fmt.Fprint(c.Output, "\nNEXT STEPS\n\n"); err != nil {
 		return err
 	}
-	for _, action := range actions {
-		if _, err := fmt.Fprint(c.Output, action); err != nil {
+	for index, action := range actions {
+		if index > 0 {
+			if _, err := fmt.Fprintln(c.Output); err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprintf(c.Output, "%d. %s\n", index+1, action); err != nil {
 			return err
 		}
 	}
@@ -281,20 +286,27 @@ func (c *Context) printPipelineReadinessActions(readiness *buildkite.PipelineRea
 
 func pipelineReadinessActions(readiness *buildkite.PipelineReadiness) []string {
 	var actions []string
+	seen := make(map[string]bool)
+	appendAction := func(action string) {
+		if !seen[action] {
+			actions = append(actions, action)
+			seen[action] = true
+		}
+	}
 	for _, blocker := range readiness.QueueObservation.BlockingQueues {
 		for _, reason := range blocker.Reasons {
 			switch reason {
 			case "routing_incomplete":
 				if blocker.Queue != "" {
-					actions = append(actions, fmt.Sprintf("\nReview destination activity before increasing routing for %s:\n\n  cluster-migrator queue metrics %s\n", blocker.Queue, blocker.Queue))
+					appendAction(fmt.Sprintf("Review destination activity for %s:\n\n   cluster-migrator queue metrics %s", blocker.Queue, blocker.Queue))
 				}
 			case "migration_missing":
 				if blocker.Queue != "" && readiness.DestinationClusterID != "" {
-					actions = append(actions, fmt.Sprintf("\nConfigure the missing queue migration for %s:\n\n  cluster-migrator queue configure %s --destination-cluster %s\n", blocker.Queue, blocker.Queue, readiness.DestinationClusterID))
+					appendAction(fmt.Sprintf("Configure the missing queue migration for %s:\n\n   cluster-migrator queue configure %s --destination-cluster %s", blocker.Queue, blocker.Queue, readiness.DestinationClusterID))
 				}
 			case "active_source_jobs":
 				if blocker.Queue != "" && readiness.Pipeline != "" && readiness.DestinationClusterID != "" {
-					actions = append(actions, fmt.Sprintf("\nWait for active source jobs on %s to finish, then reassess:\n\n  cluster-migrator pipeline readiness %s --destination-cluster %s\n", blocker.Queue, readiness.Pipeline, readiness.DestinationClusterID))
+					appendAction(fmt.Sprintf("Wait for active source jobs on %s to finish, then reassess:\n\n   cluster-migrator pipeline readiness %s --destination-cluster %s", blocker.Queue, readiness.Pipeline, readiness.DestinationClusterID))
 				}
 			}
 		}

@@ -75,7 +75,7 @@ func TestQueueConfigurePrintsNextStep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "RESULT\n\nA migration for the 'test' queue was successfully created in the cluster 'production'\n\nNEXT\n\nScale the destination infrastructure. When ready, begin routing:\n\n  cluster-migrator queue set-percent test --to <percentage>\n"
+	want := "RESULT\n\nA migration for the 'test' queue was successfully created in the cluster 'production'\n\nNEXT STEPS\n\n1. Scale the destination infrastructure.\n2. Once applied, begin routing:\n\n   cluster-migrator queue set-percent test --to <percentage>\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}

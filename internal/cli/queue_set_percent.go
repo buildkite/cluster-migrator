@@ -39,13 +39,13 @@ func setQueuePercent(app *Context, queue string, percent int, command, note stri
 	if note == "" && percent < 100 && !app.DryRun {
 		if percent == 0 {
 			change.Next = fmt.Sprintf(
-				"Scale the destination infrastructure. When ready, begin routing:\n\n  cluster-migrator queue set-percent %s --to <percentage>",
+				"1. Scale the destination infrastructure.\n2. Once applied, begin routing:\n\n   cluster-migrator queue set-percent %s --to <percentage>",
 				queue,
 			)
 		} else {
 			change.Next = fmt.Sprintf(
-				"Review destination activity before increasing routing:\n\n  cluster-migrator queue metrics %s",
-				queue,
+				"1. Review destination activity:\n\n   cluster-migrator queue metrics %s\n\n2. When ready, increase routing:\n\n   cluster-migrator queue set-percent %s --to <percentage>",
+				queue, queue,
 			)
 		}
 	}

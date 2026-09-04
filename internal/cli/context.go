@@ -97,7 +97,7 @@ func (c *Context) Print(value any) error {
 			}
 		}
 		if value.Next != "" {
-			_, err := fmt.Fprintf(c.Output, "\nNEXT\n\n%s\n", value.Next)
+			_, err := fmt.Fprintf(c.Output, "\nNEXT STEPS\n\n%s\n", value.Next)
 			return err
 		}
 		if value.Note != "" {
@@ -110,7 +110,7 @@ func (c *Context) Print(value any) error {
 			return err
 		}
 		if value.Next != "" {
-			_, err := fmt.Fprintf(c.Output, "\nNEXT\n\n%s\n", value.Next)
+			_, err := fmt.Fprintf(c.Output, "\nNEXT STEPS\n\n%s\n", value.Next)
 			return err
 		}
 		return nil
@@ -176,7 +176,7 @@ func (c *Context) wait(ctx context.Context, duration time.Duration) error {
 
 func (c *Context) printQueueStatuses(statuses []QueueStatus) error {
 	if len(statuses) == 0 {
-		_, err := fmt.Fprint(c.Output, "QUEUE STATUS\nMigrations: 0\n\nRESULT\n\nNo queue migrations configured.\n\nNEXT\n\nConfigure a queue migration:\n\n  cluster-migrator queue configure <queue> --destination-cluster <cluster>\n")
+		_, err := fmt.Fprint(c.Output, "QUEUE STATUS\nMigrations: 0\n\nRESULT\n\nNo queue migrations configured.\n\nNEXT STEPS\n\n1. Configure a queue migration:\n\n   cluster-migrator queue configure <queue> --destination-cluster <cluster>\n")
 		return err
 	}
 	if _, err := fmt.Fprintf(c.Output, "QUEUE STATUS\nMigrations: %d\n\nRESULT\n\n", len(statuses)); err != nil {

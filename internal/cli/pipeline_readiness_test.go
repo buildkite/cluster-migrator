@@ -74,7 +74,7 @@ func TestPipelineReadinessPrintsQueueBlockersAndActions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := "PIPELINE READINESS\nPipeline: monorepo\nDestination cluster: cluster-id\nStatus: BLOCKED — 2 known blockers\n\nQUEUE BLOCKERS (2)\n\nQUEUE    ROUTING  ACTIVE SOURCE JOBS\ndeploy   80%      2\nrelease  —        0\n\ndeploy\n  - Routing is below 100% (routing_incomplete)\n  - Active jobs remain on the source queue (active_source_jobs)\n\nrelease\n  - No queue migration is configured (migration_missing)\n\nCONCURRENCY-GROUP BLOCKERS\nNone\n\nOBSERVATIONS\nQueues: incomplete; 10-minute window ending 48 seconds ago; started 2026-09-01 06:50:00 UTC\nConcurrency groups: incomplete; 10-minute window ending 48 seconds ago; started 2026-09-01 06:50:00 UTC\n\nIncomplete observations may omit blockers outside the observed window.\n\nNEXT\n\nReview destination activity before increasing routing for deploy:\n\n  cluster-migrator queue metrics deploy\n\nWait for active source jobs on deploy to finish, then reassess:\n\n  cluster-migrator pipeline readiness monorepo --destination-cluster cluster-id\n\nConfigure the missing queue migration for release:\n\n  cluster-migrator queue configure release --destination-cluster cluster-id\n"
+	want := "PIPELINE READINESS\nPipeline: monorepo\nDestination cluster: cluster-id\nStatus: BLOCKED — 2 known blockers\n\nQUEUE BLOCKERS (2)\n\nQUEUE    ROUTING  ACTIVE SOURCE JOBS\ndeploy   80%      2\nrelease  —        0\n\ndeploy\n  - Routing is below 100% (routing_incomplete)\n  - Active jobs remain on the source queue (active_source_jobs)\n\nrelease\n  - No queue migration is configured (migration_missing)\n\nCONCURRENCY-GROUP BLOCKERS\nNone\n\nOBSERVATIONS\nQueues: incomplete; 10-minute window ending 48 seconds ago; started 2026-09-01 06:50:00 UTC\nConcurrency groups: incomplete; 10-minute window ending 48 seconds ago; started 2026-09-01 06:50:00 UTC\n\nIncomplete observations may omit blockers outside the observed window.\n\nNEXT STEPS\n\n1. Review destination activity for deploy:\n\n   cluster-migrator queue metrics deploy\n\n2. Wait for active source jobs on deploy to finish, then reassess:\n\n   cluster-migrator pipeline readiness monorepo --destination-cluster cluster-id\n\n3. Configure the missing queue migration for release:\n\n   cluster-migrator queue configure release --destination-cluster cluster-id\n"
 	if got := output.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
@@ -106,6 +106,23 @@ func TestPipelineReadinessPrintsConcurrencyAndUnknownBlockers(t *testing.T) {
 	want := "PIPELINE READINESS\nPipeline: monorepo\nDestination cluster: cluster-id\nStatus: BLOCKED — 2 known blockers\n\nQUEUE BLOCKERS\nNone\n\nCONCURRENCY-GROUP BLOCKERS (2)\n\nSCOPE     KEY\npipeline  deploy\n—         shared/deploy\n\npipeline / deploy\n  - Migration is unavailable for this concurrency group (concurrency_group_migration_unavailable)\n\n— / shared/deploy\n  - Unknown blocker (future_concurrency_reason)\n\nOBSERVATIONS\nQueues: complete; window unavailable; observation time unavailable\nConcurrency groups: complete; window unavailable; observation time unavailable\n"
 	if got := output.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
+	}
+}
+
+func TestPipelineReadinessActionsDeduplicateRepeatedReasons(t *testing.T) {
+	readiness := &buildkite.PipelineReadiness{
+		Pipeline:             "monorepo",
+		DestinationClusterID: "cluster-id",
+		QueueObservation: buildkite.PipelineQueueObservation{
+			BlockingQueues: []buildkite.PipelineBlockingQueue{
+				{Queue: "deploy", Reasons: []string{"routing_incomplete", "routing_incomplete"}},
+			},
+		},
+	}
+
+	actions := pipelineReadinessActions(readiness)
+	if len(actions) != 1 {
+		t.Fatalf("actions = %#v, want one unique action", actions)
 	}
 }
 
