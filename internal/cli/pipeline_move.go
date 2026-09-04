@@ -45,6 +45,9 @@ func (cmd *PipelineMoveCmd) Run(app *Context) error {
 	if !cmd.Wait {
 		return app.Print(pipeline)
 	}
+	if _, err := fmt.Fprintf(app.ErrorOutput, "Waiting for pipeline %s to report cluster %s…\n", cmd.Pipeline, cluster.Name); err != nil {
+		return err
+	}
 
 	err = app.Poll(func() (bool, error) {
 		pipeline, err = app.Client.GetPipeline(app.Context, cmd.Pipeline)
