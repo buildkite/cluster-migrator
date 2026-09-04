@@ -50,9 +50,3 @@ type PipelineConcurrencyGroupObservation struct {
 	Complete                  bool                       `json:"complete"`
 	BlockingConcurrencyGroups []BlockingConcurrencyGroup `json:"blocking_concurrency_groups"`
 }
-
-func (c *Client) pipelinePath(pipeline string, parts ...string) string {
-	segments := []string{"pipelines", pipeline}
-	segments = append(segments, parts...)
-	return c.path(segments...)
-}
