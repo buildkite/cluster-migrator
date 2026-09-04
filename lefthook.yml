@@ -1,0 +1,11 @@
+pre-commit:
+  parallel: true
+  commands:
+    format:
+      run: mise run format
+    lint:
+      run: mise run lint
+    test:
+      run: mise run test
+    vet:
+      run: mise run vet

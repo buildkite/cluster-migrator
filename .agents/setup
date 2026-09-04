@@ -2,3 +2,4 @@
 set -euo pipefail
 
 mise install
+mise exec -- lefthook install
