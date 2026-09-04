@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestResolvePipelineIdentifierRequiresUniqueExactNameMatch(t *testing.T) {
+func TestResolvePipelineSlugRequiresUniqueExactNameMatch(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -35,16 +35,16 @@ func TestResolvePipelineIdentifierRequiresUniqueExactNameMatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pipeline, err := client.ResolvePipelineIdentifier(context.Background(), "Demo Pipeline")
+	slug, err := client.ResolvePipelineSlug(context.Background(), "Demo Pipeline")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pipeline.Slug != "demo-pipeline" {
-		t.Fatalf("pipeline = %#v", pipeline)
+	if slug != "demo-pipeline" {
+		t.Fatalf("slug = %q", slug)
 	}
 }
 
-func TestResolvePipelineIdentifierFollowsPagination(t *testing.T) {
+func TestResolvePipelineSlugFollowsPagination(t *testing.T) {
 	t.Parallel()
 
 	var server *httptest.Server
@@ -63,16 +63,16 @@ func TestResolvePipelineIdentifierFollowsPagination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pipeline, err := client.ResolvePipelineIdentifier(context.Background(), "Demo Pipeline")
+	slug, err := client.ResolvePipelineSlug(context.Background(), "Demo Pipeline")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pipeline.Slug != "demo-pipeline" {
-		t.Fatalf("pipeline = %#v", pipeline)
+	if slug != "demo-pipeline" {
+		t.Fatalf("slug = %q", slug)
 	}
 }
 
-func TestResolvePipelineIdentifierMatchesIDWithoutNameFilter(t *testing.T) {
+func TestResolvePipelineSlugMatchesIDWithoutNameFilter(t *testing.T) {
 	t.Parallel()
 
 	const pipelineID = "849411f9-9e6d-4739-a0d8-e247088e9b52"
@@ -92,16 +92,39 @@ func TestResolvePipelineIdentifierMatchesIDWithoutNameFilter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pipeline, err := client.ResolvePipelineIdentifier(context.Background(), pipelineID)
+	slug, err := client.ResolvePipelineSlug(context.Background(), pipelineID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pipeline.Slug != "demo-pipeline" {
-		t.Fatalf("pipeline = %#v", pipeline)
+	if slug != "demo-pipeline" {
+		t.Fatalf("slug = %q", slug)
 	}
 }
 
-func TestResolvePipelineIdentifierRejectsAmbiguousName(t *testing.T) {
+func TestResolvePipelineSlugMatchesUUIDShapedNameWhenIDIsMissing(t *testing.T) {
+	t.Parallel()
+
+	const pipelineName = "849411f9-9e6d-4739-a0d8-e247088e9b52"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"id":"11111111-1111-1111-1111-111111111111","name":"849411f9-9e6d-4739-a0d8-e247088e9b52","slug":"uuid-named-pipeline"}]`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "acme", "secret", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	slug, err := client.ResolvePipelineSlug(context.Background(), pipelineName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slug != "uuid-named-pipeline" {
+		t.Fatalf("slug = %q", slug)
+	}
+}
+
+func TestResolvePipelineSlugRejectsAmbiguousName(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -117,13 +140,13 @@ func TestResolvePipelineIdentifierRejectsAmbiguousName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.ResolvePipelineIdentifier(context.Background(), "Demo Pipeline")
+	_, err = client.ResolvePipelineSlug(context.Background(), "Demo Pipeline")
 	if err == nil || err.Error() != `multiple pipelines match name "Demo Pipeline"; use an ID or slug: demo-one, demo-two` {
 		t.Fatalf("error = %q", err)
 	}
 }
 
-func TestResolvePipelineIdentifierReportsMissingIdentifier(t *testing.T) {
+func TestResolvePipelineSlugReportsMissingIdentifier(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -136,7 +159,7 @@ func TestResolvePipelineIdentifierReportsMissingIdentifier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.ResolvePipelineIdentifier(context.Background(), "Missing Pipeline")
+	_, err = client.ResolvePipelineSlug(context.Background(), "Missing Pipeline")
 	if err == nil || !strings.Contains(err.Error(), `no pipeline found matching ID, name, or slug "Missing Pipeline"`) {
 		t.Fatalf("error = %q", err)
 	}

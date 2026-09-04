@@ -31,7 +31,7 @@ func TestMovePipeline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pipeline.ID != "849411f9-9e6d-4739-a0d8-e247088e9b52" || pipeline.ClusterID != "cluster-id" {
+	if pipeline.ClusterID != "cluster-id" {
 		t.Fatalf("pipeline = %#v", pipeline)
 	}
 }

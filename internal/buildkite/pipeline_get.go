@@ -17,24 +17,30 @@ func (c *Client) GetPipeline(ctx context.Context, pipeline string) (*Pipeline, e
 	return &result, nil
 }
 
-func (c *Client) ResolvePipelineIdentifier(ctx context.Context, identifier string) (*Pipeline, error) {
+type pipelineLookup struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Slug string `json:"slug"`
+}
+
+func (c *Client) ResolvePipelineSlug(ctx context.Context, identifier string) (string, error) {
 	query := url.Values{"per_page": []string{"100"}}
 	identifierIsID := isUUID(identifier)
 	if !identifierIsID {
 		query.Set("name", identifier)
 	}
 	path := c.path("pipelines") + "?" + query.Encode()
-	var matches []Pipeline
+	var matches []pipelineLookup
 	for path != "" {
-		page, err := offsetPage[Pipeline](ctx, c, path)
+		page, err := offsetPage[pipelineLookup](ctx, c, path)
 		if err != nil {
-			return nil, err
+			return "", err
 		}
 		for _, pipeline := range page.Items {
 			if identifierIsID && strings.EqualFold(pipeline.ID, identifier) {
-				return &pipeline, nil
+				return pipeline.Slug, nil
 			}
-			if !identifierIsID && pipeline.Name == identifier {
+			if pipeline.Name == identifier {
 				matches = append(matches, pipeline)
 			}
 		}
@@ -42,7 +48,7 @@ func (c *Client) ResolvePipelineIdentifier(ctx context.Context, identifier strin
 	}
 
 	if len(matches) == 0 {
-		return nil, fmt.Errorf("no pipeline found matching ID, name, or slug %q", identifier)
+		return "", fmt.Errorf("no pipeline found matching ID, name, or slug %q", identifier)
 	}
 	if len(matches) > 1 {
 		slugs := make([]string, len(matches))
@@ -50,9 +56,9 @@ func (c *Client) ResolvePipelineIdentifier(ctx context.Context, identifier strin
 			slugs[i] = pipeline.Slug
 		}
 		sort.Strings(slugs)
-		return nil, fmt.Errorf("multiple pipelines match name %q; use an ID or slug: %s", identifier, strings.Join(slugs, ", "))
+		return "", fmt.Errorf("multiple pipelines match name %q; use an ID or slug: %s", identifier, strings.Join(slugs, ", "))
 	}
-	return &matches[0], nil
+	return matches[0].Slug, nil
 }
 
 func isUUID(value string) bool {

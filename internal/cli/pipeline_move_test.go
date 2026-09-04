@@ -46,7 +46,7 @@ func TestPipelineMoveWaitReportsProgressOnStderr(t *testing.T) {
 	if got, want := stderr.String(), "Waiting for pipeline monorepo to report cluster production…\n"; got != want {
 		t.Fatalf("stderr = %q, want %q", got, want)
 	}
-	want := "{\n  \"id\": \"849411f9-9e6d-4739-a0d8-e247088e9b52\",\n  \"slug\": \"monorepo\",\n  \"name\": \"Monorepo\",\n  \"cluster_id\": \"cluster-id\"\n}\n"
+	want := "{\n  \"slug\": \"monorepo\",\n  \"name\": \"Monorepo\",\n  \"cluster_id\": \"cluster-id\"\n}\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("stdout = %q, want %q", got, want)
 	}

@@ -27,9 +27,9 @@ func runWithPipelineIdentifierFallback[T any](
 	if !errors.As(err, &apiError) || apiError.StatusCode != http.StatusNotFound {
 		return result, err
 	}
-	pipeline, err := client.ResolvePipelineIdentifier(ctx, identifier)
+	slug, err := client.ResolvePipelineSlug(ctx, identifier)
 	if err != nil {
 		return result, err
 	}
-	return run(pipeline.Slug)
+	return run(slug)
 }
