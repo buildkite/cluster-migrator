@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -45,6 +46,12 @@ func Run(
 
 	parsed, err := parser.Parse(args)
 	if err != nil {
+		var parseError *kong.ParseError
+		if errors.As(err, &parseError) {
+			parseError.Context.Stdout = stderr
+			_ = parseError.Context.PrintUsage(false)
+			_, _ = fmt.Fprintln(stderr)
+		}
 		return err
 	}
 	if _, err := fmt.Fprintln(stderr); err != nil {
