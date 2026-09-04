@@ -14,6 +14,8 @@ import (
 
 const testPipelineID = "849411f9-9e6d-4739-a0d8-e247088e9b52"
 
+const testPipelineReadinessResponse = `{"status":"no_known_blockers","queue_observation":{"next_refresh_at":"2026-09-01T07:01:00Z"},"concurrency_group_observation":{"next_refresh_at":"2026-09-01T07:01:00Z"}}`
+
 func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -31,7 +33,7 @@ func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 			identifier: "demo-pipeline",
 			method:     http.MethodGet,
 			pathSuffix: "/readiness",
-			response:   `{"status":"no_known_blockers"}`,
+			response:   testPipelineReadinessResponse,
 			run: func(app *Context) error {
 				return (&PipelineReadinessCmd{Pipeline: "demo-pipeline", DestinationCluster: "production"}).Run(app)
 			},
@@ -42,7 +44,7 @@ func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 			identifier: "Demo Pipeline",
 			method:     http.MethodGet,
 			pathSuffix: "/readiness",
-			response:   `{"status":"no_known_blockers"}`,
+			response:   testPipelineReadinessResponse,
 			run: func(app *Context) error {
 				return (&PipelineReadinessCmd{Pipeline: "Demo Pipeline", DestinationCluster: "production"}).Run(app)
 			},
@@ -55,7 +57,7 @@ func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 			identifier: testPipelineID,
 			method:     http.MethodGet,
 			pathSuffix: "/readiness",
-			response:   `{"status":"no_known_blockers"}`,
+			response:   testPipelineReadinessResponse,
 			run: func(app *Context) error {
 				return (&PipelineReadinessCmd{Pipeline: testPipelineID, DestinationCluster: "production"}).Run(app)
 			},
