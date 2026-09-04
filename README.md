@@ -73,6 +73,8 @@ Every mutation runs non-interactively and supports `--dry-run`. Use `--json` for
 
 Queue mutations display the previous and resulting routing percentages. Successful configuration, percentage changes below 100%, and single-queue status at 0% also identify the next migration step. Status for all queues remains informational.
 
+When no queue migrations are configured, human-readable `queue status` points to `queue configure`; with `--json`, it returns `[]`.
+
 `queue metrics` displays the latest and maximum destination activity over the server's observation window. This activity is operational context only: it does not establish pipeline readiness. Before increasing traffic, also inspect dispatch and queue latency and stranded-job alerts in observability. The observation time shows when the window ended, and missing values are shown as `—`, not zero:
 
 ```text
@@ -80,7 +82,7 @@ QUEUE ACTIVITY
 Source: default (unclustered)
 Destination: default (cluster cluster-id)
 Routing: 30%
-Observed: 48 seconds ago
+Observed: 1 minute 52 seconds ago
 
 METRIC            LATEST  10M MAX
 Connected agents  50      54
@@ -93,6 +95,8 @@ With `--json`, the command returns the API response, including `null` values, ro
 When metrics are still being prepared, the command waits for the server's requested retry interval without writing to stdout. If preparation takes longer than the first retry, it reports progress on stderr and keeps retrying for up to one minute.
 
 `pipeline readiness` reports either `blocked` or `no_known_blockers`. The latter is not proof that the pipeline is ready to move: dependency discovery covers the reported recent window and is explicitly incomplete. Current queue migration state is evaluated against a cached observation, while the assessment itself is never cached. If an observation is being refreshed, the CLI waits without writing to stdout, reports prolonged preparation on stderr, and retries for up to one minute.
+
+When `pipeline move --dry-run` is blocked, it prints the readiness assessment, including queue and concurrency-group blockers, and exits non-zero without printing a proposed move. With `--json`, stdout contains exactly one readiness assessment object.
 
 With `--json`, percentage changes and rollbacks return:
 

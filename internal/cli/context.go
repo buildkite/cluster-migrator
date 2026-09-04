@@ -148,6 +148,11 @@ func (c *Context) wait(ctx context.Context, duration time.Duration) error {
 }
 
 func (c *Context) printQueueStatuses(statuses []QueueStatus) error {
+	if len(statuses) == 0 {
+		_, err := fmt.Fprint(c.Output, "No queue migrations configured.\n\nTo configure one, run:\n\n  cluster-migrator queue configure <queue> --destination-cluster <cluster>\n")
+		return err
+	}
+
 	writer := tabwriter.NewWriter(c.Output, 0, 4, 2, ' ', 0)
 	_, _ = fmt.Fprintln(writer, "QUEUE\tROUTING\tDESTINATION")
 	for _, status := range statuses {

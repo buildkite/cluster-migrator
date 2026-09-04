@@ -30,6 +30,9 @@ func (cmd *PipelineMoveCmd) Run(app *Context) error {
 			return fmt.Errorf("check pipeline readiness: %w", err)
 		}
 		if readiness.Status != buildkite.PipelineReadinessNoKnownBlockers {
+			if err := app.Print(readiness); err != nil {
+				return err
+			}
 			return fmt.Errorf("pipeline has known blockers")
 		}
 		return app.Print(change)
@@ -41,6 +44,9 @@ func (cmd *PipelineMoveCmd) Run(app *Context) error {
 	}
 	if !cmd.Wait {
 		return app.Print(pipeline)
+	}
+	if _, err := fmt.Fprintf(app.ErrorOutput, "Waiting for pipeline %s to report cluster %s…\n", cmd.Pipeline, cluster.Name); err != nil {
+		return err
 	}
 
 	err = app.Poll(func() (bool, error) {
