@@ -9,3 +9,5 @@ pre-commit:
       run: mise run test
     vet:
       run: mise run vet
+    release-check:
+      run: mise run release-check
