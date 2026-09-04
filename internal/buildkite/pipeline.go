@@ -1,7 +1,7 @@
 package buildkite
 
 type Pipeline struct {
-	ID        string `json:"id"`
+	ID        string `json:"id,omitempty"`
 	Slug      string `json:"slug"`
 	Name      string `json:"name"`
 	ClusterID string `json:"cluster_id"`
