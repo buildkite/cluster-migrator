@@ -5,7 +5,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 )
 
@@ -43,8 +42,9 @@ func TestQueueConfigureDryRunDoesNotMutate(t *testing.T) {
 	if requests != 2 {
 		t.Fatalf("requests = %d, want 2", requests)
 	}
-	if !strings.Contains(stdout.String(), "test") || !strings.Contains(stdout.String(), "0%") {
-		t.Fatalf("output = %q", stdout.String())
+	want := "QUEUE CONFIGURE (DRY RUN)\nQueue: test\nDestination: production\n\nPROPOSED CHANGE\n\nA migration would be created with 0% routing.\n"
+	if got := stdout.String(); got != want {
+		t.Fatalf("output = %q, want %q", got, want)
 	}
 }
 
@@ -75,7 +75,7 @@ func TestQueueConfigurePrintsNextStep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "RESULT\n\nQUEUE  FROM  TO  DESTINATION\ntest   —     0%  production\n\nNEXT\n\nScale the destination infrastructure. When ready, begin routing:\n\n  cluster-migrator queue set-percent test --to <percentage>\n"
+	want := "QUEUE CONFIGURE\nQueue: test\nDestination: production\n\nRESULT\n\nMigration created with 0% routing.\n\nNEXT STEPS\n\n1. Scale the destination infrastructure.\n\n2. Once ready, begin routing:\n\n   cluster-migrator queue set-percent test --to <percentage>\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}

@@ -37,6 +37,7 @@ type BlockingConcurrencyGroup struct {
 
 type PipelineQueueObservation struct {
 	ObservedAt      *string                 `json:"observed_at"`
+	NextRefreshAt   *string                 `json:"next_refresh_at"`
 	WindowStartedAt *string                 `json:"window_started_at"`
 	WindowSeconds   int                     `json:"window_seconds"`
 	Complete        bool                    `json:"complete"`
@@ -45,6 +46,7 @@ type PipelineQueueObservation struct {
 
 type PipelineConcurrencyGroupObservation struct {
 	ObservedAt                *string                    `json:"observed_at"`
+	NextRefreshAt             *string                    `json:"next_refresh_at"`
 	WindowStartedAt           *string                    `json:"window_started_at"`
 	WindowSeconds             int                        `json:"window_seconds"`
 	Complete                  bool                       `json:"complete"`

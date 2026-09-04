@@ -50,7 +50,7 @@ func TestQueueSetPercentPrintsChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "RESULT\n\nQUEUE  FROM  TO   DESTINATION\ntest   10%   25%  production\n\nNEXT\n\nReview destination activity before increasing routing:\n\n  cluster-migrator queue metrics test\n"
+	want := "QUEUE SET-PERCENT\nQueue: test\nDestination: production\n\nRESULT\n\nRouting changed from 10% to 25%.\n\nNEXT STEPS\n\n1. Review destination activity:\n\n   cluster-migrator queue metrics test\n\n2. When ready, increase routing:\n\n   cluster-migrator queue set-percent test --to <percentage>\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
@@ -82,7 +82,39 @@ func TestQueueSetPercentToZeroPrintsBeginRoutingGuidance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "RESULT\n\nQUEUE  FROM  TO  DESTINATION\ntest   25%   0%  production\n\nNEXT\n\nScale the destination infrastructure. When ready, begin routing:\n\n  cluster-migrator queue set-percent test --to <percentage>\n"
+	want := "QUEUE SET-PERCENT\nQueue: test\nDestination: production\n\nRESULT\n\nRouting changed from 25% to 0%.\n\nNEXT STEPS\n\n1. Scale the destination infrastructure.\n\n2. Once ready, begin routing:\n\n   cluster-migrator queue set-percent test --to <percentage>\n"
+	if got := stdout.String(); got != want {
+		t.Fatalf("output = %q, want %q", got, want)
+	}
+}
+
+func TestQueueSetPercentToHundredPrintsPipelineGuidance(t *testing.T) {
+	t.Setenv("BUILDKITE_API_TOKEN", "secret")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/cluster-queue-migrations/test":
+			_, _ = w.Write([]byte(`{"queue_key":"test","destination":{"cluster_id":"cluster-id"},"routed_percent":75}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/clusters":
+			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
+		case r.Method == http.MethodPatch && r.URL.Path == "/v2/organizations/acme/cluster-queue-migrations/test":
+			_, _ = w.Write([]byte(`{"queue_key":"test","destination":{"cluster_id":"cluster-id"},"routed_percent":100}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	err := Run(context.Background(), []string{
+		"--endpoint", server.URL,
+		"queue", "set-percent", "test", "--to", "100",
+	}, &stdout, &bytes.Buffer{}, organizationClient(server.Client()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "QUEUE SET-PERCENT\nQueue: test\nDestination: production\n\nRESULT\n\nRouting changed from 75% to 100%.\n\nNEXT STEPS\n\n1. Assess each pipeline using this queue:\n\n   cluster-migrator pipeline readiness <pipeline> --destination-cluster production\n\n2. If no known blockers remain, move the pipeline:\n\n   cluster-migrator pipeline move <pipeline> --destination-cluster production\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}

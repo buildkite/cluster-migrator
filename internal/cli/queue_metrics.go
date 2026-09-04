@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -63,60 +65,60 @@ func queueMetricsDeadlineError(parent context.Context) error {
 
 func (c *Context) printQueueMetrics(metrics *buildkite.QueueMetrics) error {
 	now := c.now()
-	freshness := "—"
-	if metrics.ObservedAt != nil {
+	destinationFreshness := "—"
+	if metrics.Destination.ObservedAt != nil {
 		var err error
-		freshness, err = formatMetricsFreshness(*metrics.ObservedAt, now)
+		destinationFreshness, err = formatCompactMetricsFreshness(*metrics.Destination.ObservedAt, now)
 		if err != nil {
 			return err
 		}
 	}
 
-	refreshDueLine := ""
-	if metrics.NextRefreshAt != nil {
-		refreshDue, err := formatMetricsRefreshDue(*metrics.NextRefreshAt, now)
-		if err != nil {
-			return err
-		}
-		refreshDueLine = fmt.Sprintf("Refresh due: %s\n", refreshDue)
+	destinationRefreshDue, err := formatCompactMetricsRefreshDue(*metrics.Destination.NextRefreshAt, now)
+	if err != nil {
+		return err
 	}
 
-	sourceFreshness := "—"
-	if metrics.Source.ObservedAt != nil {
-		var err error
-		sourceFreshness, err = formatMetricsFreshness(*metrics.Source.ObservedAt, now)
-		if err != nil {
-			return err
-		}
+	sourceFreshness, err := formatCompactMetricsFreshness(*metrics.Source.ObservedAt, now)
+	if err != nil {
+		return err
 	}
-	if _, err := fmt.Fprintf(c.Output, "QUEUE METRICS\nQueue: %s\nRouting: %s\n\nSOURCE ACTIVITY (Unclustered)\nObserved: %s\n\n",
+	sourceRefreshDue, err := formatCompactMetricsRefreshDue(*metrics.Source.NextRefreshAt, now)
+	if err != nil {
+		return err
+	}
+
+	if _, err := fmt.Fprintf(c.Output, "QUEUE METRICS\nQueue: %s\nRouting: %s\nDestination: %s\n\nACTIVITY\n\n",
 		displayValue(metrics.Queue),
 		metricPercent(metrics.RoutedPercent),
-		sourceFreshness,
+		displayValue(metrics.Destination.ClusterID),
 	); err != nil {
 		return err
 	}
 	writer := tabwriter.NewWriter(c.Output, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintln(writer, "METRIC\tCURRENT")
-	_, _ = fmt.Fprintf(writer, "Waiting jobs\t%s\n", metricValue(metrics.Source.Activity.WaitingJobs.Current))
-	_, _ = fmt.Fprintf(writer, "Running jobs\t%s\n", metricValue(metrics.Source.Activity.RunningJobs.Current))
+	_, _ = fmt.Fprintf(writer, "METRIC\tSOURCE LATEST\tDEST LATEST\tDEST %s\n", metricsWindowHeading(metrics.Destination.WindowSeconds))
+	_, _ = fmt.Fprintf(writer, "Waiting jobs\t%s\t%s\t%s\n", metricValue(metrics.Source.Activity.WaitingJobs.Current), metricValue(metrics.Destination.Activity.WaitingJobs.Current), metricValue(metrics.Destination.Activity.WaitingJobs.Peak))
+	_, _ = fmt.Fprintf(writer, "Running jobs\t%s\t%s\t%s\n", metricValue(metrics.Source.Activity.RunningJobs.Current), metricValue(metrics.Destination.Activity.RunningJobs.Current), metricValue(metrics.Destination.Activity.RunningJobs.Peak))
+	_, _ = fmt.Fprintf(writer, "Connected agents\t%s\t%s\t%s\n", metricValue(metrics.Source.Activity.ConnectedAgents.Current), metricValue(metrics.Destination.Activity.ConnectedAgents.Current), metricValue(metrics.Destination.Activity.ConnectedAgents.Peak))
+	_, _ = fmt.Fprintf(writer, "Wait time (p95)\t—\t%s\t%s\n", metricDuration(metrics.Destination.Activity.WaitTimeP95Seconds.Current), metricDuration(metrics.Destination.Activity.WaitTimeP95Seconds.Peak))
 	if err := writer.Flush(); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(c.Output, "\nDESTINATION ACTIVITY (Cluster %s)\nObserved: %s\n%s\n",
-		displayValue(metrics.Destination.ClusterID),
-		freshness,
-		refreshDueLine,
-	); err != nil {
-		return err
-	}
 
-	writer = tabwriter.NewWriter(c.Output, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintf(writer, "METRIC\tLATEST\t%dM MAX\n", metrics.WindowSeconds/60)
-	_, _ = fmt.Fprintf(writer, "Connected agents\t%s\t%s\n", metricValue(metrics.Activity.ConnectedAgents.Current), metricValue(metrics.Activity.ConnectedAgents.Peak))
-	_, _ = fmt.Fprintf(writer, "Waiting jobs\t%s\t%s\n", metricValue(metrics.Activity.WaitingJobs.Current), metricValue(metrics.Activity.WaitingJobs.Peak))
-	_, _ = fmt.Fprintf(writer, "Running jobs\t%s\t%s\n", metricValue(metrics.Activity.RunningJobs.Current), metricValue(metrics.Activity.RunningJobs.Peak))
-	return writer.Flush()
+	_, err = fmt.Fprintf(c.Output, "\nOBSERVATIONS\n\nSource observed: %s\nSource refresh eligible: %s\nDestination observed: %s\nDestination refresh eligible: %s\n",
+		sourceFreshness,
+		sourceRefreshDue,
+		destinationFreshness,
+		destinationRefreshDue,
+	)
+	return err
+}
+
+func metricsWindowHeading(windowSeconds int) string {
+	if windowSeconds > 0 && windowSeconds%60 == 0 {
+		return fmt.Sprintf("%dM MAX", windowSeconds/60)
+	}
+	return fmt.Sprintf("%dS MAX", windowSeconds)
 }
 
 func displayValue(value string) string {
@@ -138,6 +140,58 @@ func metricValue(value *int) string {
 		return "—"
 	}
 	return fmt.Sprintf("%d", *value)
+}
+
+func metricDuration(value *float64) string {
+	if value == nil {
+		return "—"
+	}
+	return strconv.FormatFloat(*value, 'f', -1, 64) + "s"
+}
+
+func formatCompactMetricsFreshness(observedAt string, now time.Time) (string, error) {
+	observed, err := time.Parse(time.RFC3339Nano, observedAt)
+	if err != nil {
+		return "", fmt.Errorf("parse queue metrics observed_at: %w", err)
+	}
+	elapsed := now.Sub(observed)
+	if elapsed < time.Second {
+		return "just now", nil
+	}
+	return formatCompactDuration(elapsed) + " ago", nil
+}
+
+func formatCompactMetricsRefreshDue(nextRefreshAt string, now time.Time) (string, error) {
+	refreshAt, err := time.Parse(time.RFC3339Nano, nextRefreshAt)
+	if err != nil {
+		return "", fmt.Errorf("parse queue metrics next_refresh_at: %w", err)
+	}
+	remaining := refreshAt.Sub(now)
+	if remaining <= 0 {
+		return "now", nil
+	}
+	if remaining < time.Second {
+		return "in <1s", nil
+	}
+	return "in " + formatCompactDuration(remaining), nil
+}
+
+func formatCompactDuration(duration time.Duration) string {
+	totalSeconds := int(duration / time.Second)
+	hours := totalSeconds / 3600
+	minutes := totalSeconds / 60 % 60
+	seconds := totalSeconds % 60
+	parts := make([]string, 0, 3)
+	if hours > 0 {
+		parts = append(parts, fmt.Sprintf("%dh", hours))
+	}
+	if minutes > 0 {
+		parts = append(parts, fmt.Sprintf("%dm", minutes))
+	}
+	if seconds > 0 || len(parts) == 0 {
+		parts = append(parts, fmt.Sprintf("%ds", seconds))
+	}
+	return strings.Join(parts, " ")
 }
 
 func formatMetricsFreshness(observedAt string, now time.Time) (string, error) {

@@ -38,6 +38,7 @@ type QueueDestination struct {
 }
 
 type QueueChange struct {
+	Command     string           `json:"-"`
 	Queue       string           `json:"queue"`
 	FromPercent *int             `json:"from_percent,omitempty"`
 	ToPercent   int              `json:"to_percent"`
@@ -54,8 +55,16 @@ type QueueStatus struct {
 	Next           string           `json:"-"`
 }
 
+type PipelineMoveResult struct {
+	Pipeline    *buildkite.Pipeline
+	Destination string
+}
+
 func (c *Context) Print(value any) error {
 	if c.JSON {
+		if result, ok := value.(PipelineMoveResult); ok {
+			value = result.Pipeline
+		}
 		encoder := json.NewEncoder(c.Output)
 		encoder.SetIndent("", "  ")
 		return encoder.Encode(value)
@@ -63,29 +72,48 @@ func (c *Context) Print(value any) error {
 
 	switch value := value.(type) {
 	case QueueChange:
-		heading := "RESULT"
+		commandHeading := "QUEUE " + value.Command
 		if value.DryRun {
-			heading = "PROPOSED CHANGE"
+			commandHeading += " (DRY RUN)"
 		}
-		if _, err := fmt.Fprintf(c.Output, "%s\n\n", heading); err != nil {
+		sectionHeading := "RESULT"
+		if value.DryRun {
+			sectionHeading = "PROPOSED CHANGE"
+		}
+		if _, err := fmt.Fprintf(c.Output, "%s\nQueue: %s\nDestination: %s\n\n%s\n\n", commandHeading, value.Queue, value.Destination.ClusterName, sectionHeading); err != nil {
 			return err
 		}
-		writer := tabwriter.NewWriter(c.Output, 0, 4, 2, ' ', 0)
-		_, _ = fmt.Fprintln(writer, "QUEUE\tFROM\tTO\tDESTINATION")
-		from := "—"
-		if value.FromPercent != nil {
-			from = fmt.Sprintf("%d%%", *value.FromPercent)
-		}
-		_, _ = fmt.Fprintf(writer, "%s\t%s\t%d%%\t%s\n", value.Queue, from, value.ToPercent, value.Destination.ClusterName)
-		if err := writer.Flush(); err != nil {
-			return err
+		if value.Command == "CONFIGURE" {
+			result := "Migration created with 0% routing."
+			if value.DryRun {
+				result = "A migration would be created with 0% routing."
+			}
+			if _, err := fmt.Fprintln(c.Output, result); err != nil {
+				return err
+			}
+		} else if value.FromPercent != nil {
+			verb := "changed"
+			if value.DryRun {
+				verb = "would change"
+			}
+			if *value.FromPercent == value.ToPercent {
+				verb = "remains"
+				if value.DryRun {
+					verb = "would remain"
+				}
+				if _, err := fmt.Fprintf(c.Output, "Routing %s at %d%%.\n", verb, value.ToPercent); err != nil {
+					return err
+				}
+			} else if _, err := fmt.Fprintf(c.Output, "Routing %s from %d%% to %d%%.\n", verb, *value.FromPercent, value.ToPercent); err != nil {
+				return err
+			}
 		}
 		if value.Next != "" {
-			_, err := fmt.Fprintf(c.Output, "\nNEXT\n\n%s\n", value.Next)
+			_, err := fmt.Fprintf(c.Output, "\nNEXT STEPS\n\n%s\n", value.Next)
 			return err
 		}
 		if value.Note != "" {
-			_, err := fmt.Fprintf(c.Output, "\n%s\n", value.Note)
+			_, err := fmt.Fprintf(c.Output, "\nCONTEXT\n\n%s\n", value.Note)
 			return err
 		}
 		return nil
@@ -94,7 +122,7 @@ func (c *Context) Print(value any) error {
 			return err
 		}
 		if value.Next != "" {
-			_, err := fmt.Fprintf(c.Output, "\nNEXT\n\n%s\n", value.Next)
+			_, err := fmt.Fprintf(c.Output, "\nNEXT STEPS\n\n%s\n", value.Next)
 			return err
 		}
 		return nil
@@ -102,21 +130,20 @@ func (c *Context) Print(value any) error {
 		return c.printQueueStatuses(value)
 	case *buildkite.QueueMetrics:
 		return c.printQueueMetrics(value)
+	case *buildkite.PipelineReadiness:
+		return c.printPipelineReadiness(value)
+	case PipelineMoveResult:
+		pipeline := value.Pipeline.Name
+		if pipeline == "" {
+			pipeline = value.Pipeline.Slug
+		} else {
+			pipeline = fmt.Sprintf("%s (%s)", pipeline, value.Pipeline.Slug)
+		}
+		_, err := fmt.Fprintf(c.Output, "PIPELINE MOVE\nPipeline: %s\nDestination: %s\n\nRESULT\n\nPipeline moved to the %s cluster.\n", pipeline, value.Destination, value.Destination)
+		return err
 	case Change:
-		var line strings.Builder
-		_, _ = fmt.Fprintf(&line, "%s %s", value.Action, value.Resource)
-		if value.FromPercent != nil && value.ToPercent != nil {
-			_, _ = fmt.Fprintf(&line, ": %d%% -> %d%%", *value.FromPercent, *value.ToPercent)
-		} else if value.ToPercent != nil {
-			_, _ = fmt.Fprintf(&line, " at %d%%", *value.ToPercent)
-		}
-		if value.DestinationCluster != "" {
-			_, _ = fmt.Fprintf(&line, " in %s", value.DestinationCluster)
-		}
-		if value.DryRun {
-			_, _ = fmt.Fprint(&line, " (dry run)")
-		}
-		_, err := fmt.Fprintln(c.Output, line.String())
+		pipeline := strings.TrimPrefix(value.Resource, "pipeline ")
+		_, err := fmt.Fprintf(c.Output, "PIPELINE MOVE (DRY RUN)\nPipeline: %s\nDestination: %s\n\nREADINESS\n\nNo known blockers. This is not proof of readiness.\n\nPROPOSED CHANGE\n\nThe pipeline would move to the %s cluster.\n", pipeline, value.DestinationCluster, value.DestinationCluster)
 		return err
 	default:
 		encoder := json.NewEncoder(c.Output)
@@ -149,10 +176,12 @@ func (c *Context) wait(ctx context.Context, duration time.Duration) error {
 
 func (c *Context) printQueueStatuses(statuses []QueueStatus) error {
 	if len(statuses) == 0 {
-		_, err := fmt.Fprint(c.Output, "No queue migrations configured.\n\nTo configure one, run:\n\n  cluster-migrator queue configure <queue> --destination-cluster <cluster>\n")
+		_, err := fmt.Fprint(c.Output, "QUEUE STATUS\nMigrations: 0\n\nSTATUS\n\nNo queue migrations are configured.\n")
 		return err
 	}
-
+	if _, err := fmt.Fprintf(c.Output, "QUEUE STATUS\nMigrations: %d\n\nSTATUS\n\n", len(statuses)); err != nil {
+		return err
+	}
 	writer := tabwriter.NewWriter(c.Output, 0, 4, 2, ' ', 0)
 	_, _ = fmt.Fprintln(writer, "QUEUE\tROUTING\tDESTINATION")
 	for _, status := range statuses {
