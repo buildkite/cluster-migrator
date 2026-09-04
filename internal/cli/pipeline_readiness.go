@@ -12,7 +12,7 @@ import (
 const pipelineReadinessTimeout = time.Minute
 
 type PipelineReadinessCmd struct {
-	Pipeline           string `arg:"" name:"pipeline-slug" help:"Pipeline slug (not pipeline name)."`
+	Pipeline           string `arg:"" help:"Pipeline name or slug."`
 	DestinationCluster string `name:"destination-cluster" required:"" help:"Destination cluster name or ID."`
 }
 
@@ -21,7 +21,7 @@ func (cmd *PipelineReadinessCmd) Run(app *Context) error {
 	if err != nil {
 		return fmt.Errorf("resolve destination cluster: %w", err)
 	}
-	readiness, err := getPipelineReadiness(app, cmd.Pipeline, cluster.ID)
+	readiness, err := getPipelineReadinessForPipeline(app, cmd.Pipeline, cluster.ID)
 	if err != nil {
 		return err
 	}
@@ -37,6 +37,12 @@ func (cmd *PipelineReadinessCmd) Run(app *Context) error {
 	return nil
 }
 
+func getPipelineReadinessForPipeline(app *Context, pipeline, clusterID string) (*buildkite.PipelineReadiness, error) {
+	return runWithPipelineNameFallback(app.Context, app.Client, pipeline, func(pipeline string) (*buildkite.PipelineReadiness, error) {
+		return getPipelineReadiness(app, pipeline, clusterID)
+	})
+}
+
 func getPipelineReadiness(app *Context, pipeline, clusterID string) (*buildkite.PipelineReadiness, error) {
 	ctx, cancel := context.WithTimeout(app.Context, pipelineReadinessTimeout)
 	defer cancel()
@@ -49,7 +55,7 @@ func getPipelineReadiness(app *Context, pipeline, clusterID string) (*buildkite.
 			if errors.Is(err, context.DeadlineExceeded) {
 				return nil, pipelineReadinessDeadlineError(app.Context)
 			}
-			return nil, fmt.Errorf("get pipeline readiness: %w", withPipelineSlugHint(err))
+			return nil, fmt.Errorf("get pipeline readiness: %w", err)
 		}
 		if readiness.Status != buildkite.PipelineReadinessPending {
 			return readiness, nil

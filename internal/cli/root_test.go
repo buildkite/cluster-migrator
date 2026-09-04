@@ -49,7 +49,7 @@ func TestQueueHelpIncludesAPIToken(t *testing.T) {
 	}
 }
 
-func TestPipelineUsageIdentifiesPipelineSlug(t *testing.T) {
+func TestPipelineUsageAcceptsNameOrSlug(t *testing.T) {
 	tests := []struct {
 		name string
 		args []string
@@ -79,15 +79,15 @@ func TestPipelineUsageIdentifiesPipelineSlug(t *testing.T) {
 			if err := context.PrintUsage(false); err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(output.String(), "<pipeline-slug>") {
-				t.Fatalf("usage does not identify pipeline slug:\n%s", output.String())
+			if !strings.Contains(output.String(), "<pipeline>") {
+				t.Fatalf("usage does not identify pipeline argument:\n%s", output.String())
 			}
-			if strings.Contains(output.String(), "<pipeline>") {
-				t.Fatalf("usage contains ambiguous pipeline argument:\n%s", output.String())
+			if strings.Contains(output.String(), "<pipeline-slug>") {
+				t.Fatalf("usage requires a pipeline slug:\n%s", output.String())
 			}
 			if test.name == "readiness" || test.name == "move" {
-				if !strings.Contains(output.String(), "Pipeline slug (not pipeline name).") {
-					t.Fatalf("help does not distinguish pipeline slug from name:\n%s", output.String())
+				if !strings.Contains(output.String(), "Pipeline name or slug.") {
+					t.Fatalf("help does not describe accepted pipeline identifiers:\n%s", output.String())
 				}
 				if !strings.Contains(output.String(), "Destination cluster name or ID.") {
 					t.Fatalf("help does not describe accepted cluster identifiers:\n%s", output.String())
