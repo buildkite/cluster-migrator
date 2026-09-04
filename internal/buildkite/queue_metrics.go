@@ -3,7 +3,9 @@ package buildkite
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"time"
 )
 
 type QueueMetrics struct {
@@ -78,6 +80,20 @@ func (c *Client) GetQueueMetrics(ctx context.Context, queue string) (*QueueMetri
 	}
 	if metrics.Source.NextRefreshAt == nil {
 		return nil, errors.New("queue metrics response missing required source next_refresh_at")
+	}
+	if metrics.Destination.ObservedAt != nil {
+		if _, err := time.Parse(time.RFC3339Nano, *metrics.Destination.ObservedAt); err != nil {
+			return nil, fmt.Errorf("parse destination observed_at: %w", err)
+		}
+	}
+	if _, err := time.Parse(time.RFC3339Nano, *metrics.Destination.NextRefreshAt); err != nil {
+		return nil, fmt.Errorf("parse destination next_refresh_at: %w", err)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, *metrics.Source.ObservedAt); err != nil {
+		return nil, fmt.Errorf("parse source observed_at: %w", err)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, *metrics.Source.NextRefreshAt); err != nil {
+		return nil, fmt.Errorf("parse source next_refresh_at: %w", err)
 	}
 	return &metrics, nil
 }
