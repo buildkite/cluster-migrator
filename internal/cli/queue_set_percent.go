@@ -36,10 +36,17 @@ func setQueuePercent(app *Context, queue string, percent int, note string) error
 		Note:   note,
 	}
 	if note == "" && percent < 100 && !app.DryRun {
-		change.Next = fmt.Sprintf(
-			"Review destination activity before increasing routing:\n\n  cluster-migrator queue metrics %s",
-			queue,
-		)
+		if percent == 0 {
+			change.Next = fmt.Sprintf(
+				"Scale the destination infrastructure. When ready, begin routing:\n\n  cluster-migrator queue set-percent %s --to <percentage>",
+				queue,
+			)
+		} else {
+			change.Next = fmt.Sprintf(
+				"Review destination activity before increasing routing:\n\n  cluster-migrator queue metrics %s",
+				queue,
+			)
+		}
 	}
 	if current.RoutedPercent == percent || app.DryRun {
 		return app.Print(change)
