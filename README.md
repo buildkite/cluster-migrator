@@ -21,6 +21,7 @@ The CLI does not yet migrate concurrency groups. You can route queues used by pi
 Before starting:
 
 - Ask Buildkite to enable the queue migration APIs for the organization.
+- Enable Advanced Queue Metrics for the organization so `queue metrics` can monitor source and destination activity.
 - Create the destination cluster and its queues. Each destination queue must have the same exact, case-sensitive key as its source queue.
 - Prepare enough agent capacity in the destination cluster for the traffic you will route.
 - Create an API token that can access exactly one Buildkite organization with these scopes:
