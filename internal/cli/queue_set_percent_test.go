@@ -97,7 +97,7 @@ func TestQueueSetPercentToHundredPrintsPipelineGuidance(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/cluster-queue-migrations/test":
 			_, _ = w.Write([]byte(`{"queue_key":"test","destination":{"cluster_id":"cluster-id"},"routed_percent":75}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/clusters":
-			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
+			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"Cluster Migrator Demo"}]`))
 		case r.Method == http.MethodPatch && r.URL.Path == "/v2/organizations/acme/cluster-queue-migrations/test":
 			_, _ = w.Write([]byte(`{"queue_key":"test","destination":{"cluster_id":"cluster-id"},"routed_percent":100}`))
 		default:
@@ -114,7 +114,7 @@ func TestQueueSetPercentToHundredPrintsPipelineGuidance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "QUEUE SET-PERCENT\nQueue: test\nDestination: production\n\nRESULT\n\nRouting changed from 75% to 100%.\n\nNEXT STEPS\n\n1. Assess each pipeline using this queue:\n\n   cluster-migrator pipeline readiness <pipeline> --destination-cluster production\n\n2. If no known blockers remain, move the pipeline:\n\n   cluster-migrator pipeline move <pipeline> --destination-cluster production\n"
+	want := "QUEUE SET-PERCENT\nQueue: test\nDestination: Cluster Migrator Demo\n\nRESULT\n\nRouting changed from 75% to 100%.\n\nNEXT STEPS\n\n1. Assess each pipeline using this queue:\n\n   cluster-migrator pipeline readiness <pipeline> --destination-cluster cluster-id\n\n2. If no known blockers remain, move the pipeline:\n\n   cluster-migrator pipeline move <pipeline> --destination-cluster cluster-id\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}

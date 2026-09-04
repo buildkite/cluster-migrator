@@ -171,7 +171,7 @@ func TestQueueStatusAtHundredPrintsPipelineGuidance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "QUEUE STATUS\nMigrations: 1\n\nSTATUS\n\nQUEUE    ROUTING  DESTINATION\ndefault  100%     Production\n\nNEXT STEPS\n\n1. Assess each pipeline using this queue:\n\n   cluster-migrator pipeline readiness <pipeline> --destination-cluster Production\n\n2. If no known blockers remain, move the pipeline:\n\n   cluster-migrator pipeline move <pipeline> --destination-cluster Production\n"
+	want := "QUEUE STATUS\nMigrations: 1\n\nSTATUS\n\nQUEUE    ROUTING  DESTINATION\ndefault  100%     Production\n\nNEXT STEPS\n\n1. Assess each pipeline using this queue:\n\n   cluster-migrator pipeline readiness <pipeline> --destination-cluster cluster-id\n\n2. If no known blockers remain, move the pipeline:\n\n   cluster-migrator pipeline move <pipeline> --destination-cluster cluster-id\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}

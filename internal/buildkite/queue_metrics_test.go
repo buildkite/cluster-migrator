@@ -147,3 +147,35 @@ func TestGetQueueMetricsRejectsMissingRequiredNestedContract(t *testing.T) {
 		})
 	}
 }
+
+func TestGetQueueMetricsRejectsInvalidTimestamps(t *testing.T) {
+	valid := `{"destination":{"observed_at":"2026-08-31T07:00:00Z","next_refresh_at":"2026-08-31T07:01:00Z","activity":{}},` +
+		`"source":{"observed_at":"2026-08-31T07:00:48Z","next_refresh_at":"2026-08-31T07:01:48Z","activity":{}}}`
+
+	for _, test := range []struct {
+		name  string
+		valid string
+	}{
+		{name: "destination observation", valid: "2026-08-31T07:00:00Z"},
+		{name: "destination refresh", valid: "2026-08-31T07:01:00Z"},
+		{name: "source observation", valid: "2026-08-31T07:00:48Z"},
+		{name: "source refresh", valid: "2026-08-31T07:01:48Z"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(strings.Replace(valid, test.valid, "not-a-time", 1)))
+			}))
+			defer server.Close()
+
+			client, err := NewClient(server.URL, "acme", "secret", server.Client())
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.GetQueueMetrics(context.Background(), "default")
+			if err == nil || !strings.Contains(err.Error(), "parse ") {
+				t.Fatalf("error = %v, want timestamp parse error", err)
+			}
+		})
+	}
+}
