@@ -29,20 +29,23 @@ func TestQueueMetricsPrintsSourceActivitySeparately(t *testing.T) {
 	app := Context{Output: &stdout, Now: func() time.Time { return now }}
 	err := app.printQueueMetrics(&buildkite.QueueMetrics{
 		Queue:         "default",
-		Destination:   buildkite.QueueDestination{ClusterID: "cluster-id"},
 		RoutedPercent: &routing,
-		ObservedAt:    &destinationObservedAt,
-		NextRefreshAt: &nextRefreshAt,
-		WindowSeconds: 600,
-		Activity: buildkite.QueueActivity{
-			ConnectedAgents:    buildkite.MetricValues{Current: &destinationAgents, Peak: &peakDestinationAgents},
-			WaitingJobs:        buildkite.MetricValues{Current: &destinationWaiting, Peak: &peakDestinationWaiting},
-			RunningJobs:        buildkite.MetricValues{Current: &destinationRunning, Peak: &peakDestinationRunning},
-			WaitTimeP95Seconds: buildkite.DecimalMetricValues{Current: &currentWait, Peak: &peakWait},
+		Destination: &buildkite.QueueMetricsDestination{
+			ClusterID:     "cluster-id",
+			ObservedAt:    &destinationObservedAt,
+			NextRefreshAt: &nextRefreshAt,
+			WindowSeconds: 600,
+			Activity: &buildkite.QueueActivity{
+				ConnectedAgents:    buildkite.MetricValues{Current: &destinationAgents, Peak: &peakDestinationAgents},
+				WaitingJobs:        buildkite.MetricValues{Current: &destinationWaiting, Peak: &peakDestinationWaiting},
+				RunningJobs:        buildkite.MetricValues{Current: &destinationRunning, Peak: &peakDestinationRunning},
+				WaitTimeP95Seconds: buildkite.DecimalMetricValues{Current: &currentWait, Peak: &peakWait},
+			},
 		},
 		Source: &buildkite.QueueSource{
-			ObservedAt: &sourceObservedAt,
-			Activity: buildkite.QueueSourceActivity{
+			ObservedAt:    &sourceObservedAt,
+			NextRefreshAt: &sourceObservedAt,
+			Activity: &buildkite.QueueSourceActivity{
 				ConnectedAgents: buildkite.MetricValues{Current: &sourceAgents},
 				WaitingJobs:     buildkite.MetricValues{Current: &sourceWaiting},
 				RunningJobs:     buildkite.MetricValues{Current: &sourceRunning},
@@ -52,7 +55,7 @@ func TestQueueMetricsPrintsSourceActivitySeparately(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "QUEUE METRICS\n\nQueue: default    Routing: 30%\n\nSOURCE - Unclustered             DESTINATION - Cluster cluster-id\n+------------------+---------+   +------------------+--------+---------+\n| Metric           | Current |   | Metric           | Latest | 10m max |\n+------------------+---------+   +------------------+--------+---------+\n| Waiting jobs     |      16 |   | Waiting jobs     |      4 |      12 |\n| Running jobs     |      31 |   | Running jobs     |     38 |      46 |\n| Connected agents |      46 |   | Connected agents |     50 |      54 |\n+------------------+---------+   | Wait time (p95)  |     3s |    6.5s |\n                                 +------------------+--------+---------+\n\nSource observed: just now\nDestination refreshed: 1m 52s ago\nNext refresh eligible: in 8s\n"
+	want := "QUEUE METRICS\n\nQueue: default    Routing: 30%\n\nSOURCE - Unclustered             DESTINATION - Cluster cluster-id\n+------------------+---------+   +------------------+--------+---------+\n| Metric           | Current |   | Metric           | Latest | 10m max |\n+------------------+---------+   +------------------+--------+---------+\n| Waiting jobs     |      16 |   | Waiting jobs     |      4 |      12 |\n| Running jobs     |      31 |   | Running jobs     |     38 |      46 |\n| Connected agents |      46 |   | Connected agents |     50 |      54 |\n+------------------+---------+   | Wait time (p95)  |     3s |    6.5s |\n                                 +------------------+--------+---------+\n\nSource observed: just now\nSource refresh eligible: now\nDestination refreshed: 1m 52s ago\nDestination refresh eligible: in 8s\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
@@ -61,15 +64,17 @@ func TestQueueMetricsPrintsSourceActivitySeparately(t *testing.T) {
 func TestQueueMetricsStacksLongIdentityWithoutTruncatingIt(t *testing.T) {
 	clusterID := strings.Repeat("destination-cluster-", 5)
 	queue := strings.Repeat("source-queue-", 7)
+	timestamp := "2026-09-01T07:00:00Z"
 	sourceAgents := 46
 	var stdout bytes.Buffer
 	app := Context{Output: &stdout}
 
 	err := app.printQueueMetrics(&buildkite.QueueMetrics{
-		Queue:         queue,
-		Destination:   buildkite.QueueDestination{ClusterID: clusterID},
-		WindowSeconds: 600,
-		Source: &buildkite.QueueSource{Activity: buildkite.QueueSourceActivity{
+		Queue: queue,
+		Destination: &buildkite.QueueMetricsDestination{
+			ClusterID: clusterID, NextRefreshAt: &timestamp, Activity: &buildkite.QueueActivity{},
+		},
+		Source: &buildkite.QueueSource{ObservedAt: &timestamp, NextRefreshAt: &timestamp, Activity: &buildkite.QueueSourceActivity{
 			ConnectedAgents: buildkite.MetricValues{Current: &sourceAgents},
 		}},
 	})
@@ -90,21 +95,25 @@ func TestQueueMetricsPreservesSourceJSON(t *testing.T) {
 	t.Setenv("BUILDKITE_API_TOKEN", "secret")
 	response := `{
 		"queue":"default",
-		"destination":{"cluster_id":"cluster-id","queue_id":"queue-id","queue_key":"default"},
 		"routed_percent":30,
 		"retry_after_seconds":null,
-		"window_started_at":"2026-09-01T06:50:00Z",
-		"observed_at":"2026-09-01T07:00:00Z",
-		"window_seconds":600,
-		"activity":{
-			"connected_agents":{"current":50,"peak":54},
-			"waiting_jobs":{"current":4,"peak":12},
-			"running_jobs":{"current":38,"peak":46},
-			"wait_time_p95_seconds":{"current":3,"peak":6.5}
+		"destination":{
+			"cluster_id":"cluster-id",
+			"queue_id":"queue-id",
+			"window_started_at":"2026-09-01T06:50:00Z",
+			"observed_at":"2026-09-01T07:00:00Z",
+			"next_refresh_at":"2026-09-01T07:01:00Z",
+			"window_seconds":600,
+			"activity":{
+				"connected_agents":{"current":50,"peak":54},
+				"waiting_jobs":{"current":4,"peak":12},
+				"running_jobs":{"current":38,"peak":46},
+				"wait_time_p95_seconds":{"current":3,"peak":6.5}
+			}
 		},
 		"source":{
-			"queue_key":"default",
 			"observed_at":"2026-09-01T07:00:48Z",
+			"next_refresh_at":"2026-09-01T07:01:48Z",
 			"activity":{
 				"connected_agents":{"current":46,"peak":null},
 				"waiting_jobs":{"current":16,"peak":null},
@@ -146,8 +155,8 @@ func TestQueueMetricsRejectsMissingSource(t *testing.T) {
 		name     string
 		response string
 	}{
-		{name: "omitted", response: `{"queue":"default"}`},
-		{name: "null", response: `{"queue":"default","source":null}`},
+		{name: "omitted", response: `{"queue":"default","destination":{"next_refresh_at":"2026-09-01T07:01:00Z","activity":{}}}`},
+		{name: "null", response: `{"queue":"default","destination":{"next_refresh_at":"2026-09-01T07:01:00Z","activity":{}},"source":null}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -179,21 +188,25 @@ func TestQueueMetricsPrintsJSONWithMissingValues(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
 			"queue":"default",
-			"destination":{"cluster_id":"cluster-id","queue_id":"queue-id","queue_key":"default"},
 			"routed_percent":30,
-			"window_started_at":"2026-09-01T06:50:00Z",
-			"observed_at":"2026-09-01T07:00:00Z",
-			"next_refresh_at":"2026-09-01T07:02:00Z",
-			"window_seconds":600,
-			"activity":{
-				"connected_agents":{"current":50,"peak":54},
-				"waiting_jobs":{"current":4,"peak":null},
-				"running_jobs":{"current":38,"peak":46},
-				"wait_time_p95_seconds":{"current":null,"peak":null}
+			"retry_after_seconds":null,
+			"destination":{
+				"cluster_id":"cluster-id",
+				"queue_id":"queue-id",
+				"window_started_at":"2026-09-01T06:50:00Z",
+				"observed_at":"2026-09-01T07:00:00Z",
+				"next_refresh_at":"2026-09-01T07:02:00Z",
+				"window_seconds":600,
+				"activity":{
+					"connected_agents":{"current":50,"peak":54},
+					"waiting_jobs":{"current":4,"peak":null},
+					"running_jobs":{"current":38,"peak":46},
+					"wait_time_p95_seconds":{"current":null,"peak":null}
+				}
 			},
 			"source":{
-				"queue_key":"default",
 				"observed_at":"2026-09-01T07:00:48Z",
+				"next_refresh_at":"2026-09-01T07:01:48Z",
 				"activity":{
 					"connected_agents":{"current":46,"peak":null},
 					"waiting_jobs":{"current":0,"peak":null},
@@ -217,20 +230,21 @@ func TestQueueMetricsPrintsJSONWithMissingValues(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got["observed_at"] != "2026-09-01T07:00:00Z" {
-		t.Fatalf("observed_at = %v", got["observed_at"])
+	destination := got["destination"].(map[string]any)
+	if destination["observed_at"] != "2026-09-01T07:00:00Z" {
+		t.Fatalf("destination.observed_at = %v", destination["observed_at"])
 	}
-	if got["next_refresh_at"] != "2026-09-01T07:02:00Z" {
-		t.Fatalf("next_refresh_at = %v", got["next_refresh_at"])
+	if destination["next_refresh_at"] != "2026-09-01T07:02:00Z" {
+		t.Fatalf("destination.next_refresh_at = %v", destination["next_refresh_at"])
 	}
-	waitingJobs := got["activity"].(map[string]any)["waiting_jobs"].(map[string]any)
+	waitingJobs := destination["activity"].(map[string]any)["waiting_jobs"].(map[string]any)
 	if waitingJobs["peak"] != nil {
 		t.Fatalf("waiting_jobs.peak = %v, want nil", waitingJobs["peak"])
 	}
 	if got["routed_percent"] != float64(30) {
 		t.Fatalf("routed_percent = %v", got["routed_percent"])
 	}
-	waitTime := got["activity"].(map[string]any)["wait_time_p95_seconds"].(map[string]any)
+	waitTime := destination["activity"].(map[string]any)["wait_time_p95_seconds"].(map[string]any)
 	if waitTime["current"] != nil || waitTime["peak"] != nil {
 		t.Fatalf("wait_time_p95_seconds = %v, want null values", waitTime)
 	}
@@ -244,7 +258,7 @@ func TestQueueMetricsPrintsUnknownObservationWithoutError(t *testing.T) {
 	t.Setenv("BUILDKITE_API_TOKEN", "secret")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"queue":"default","destination":{"cluster_id":"cluster-id","queue_key":"default"},"routed_percent":30,"window_started_at":null,"observed_at":null,"window_seconds":600,"activity":{"connected_agents":{"current":null,"peak":null},"waiting_jobs":{"current":null,"peak":null},"running_jobs":{"current":null,"peak":null},"wait_time_p95_seconds":{"current":null,"peak":null}},"source":{"queue_key":"default","observed_at":"2026-09-01T07:00:00Z","activity":{"connected_agents":{"current":46,"peak":null},"waiting_jobs":{"current":0,"peak":null},"running_jobs":{"current":0,"peak":null}}}}`))
+		_, _ = w.Write([]byte(`{"queue":"default","routed_percent":30,"retry_after_seconds":null,"destination":{"cluster_id":"cluster-id","queue_id":"queue-id","window_started_at":null,"observed_at":null,"next_refresh_at":"2026-09-01T07:01:00Z","window_seconds":600,"activity":{"connected_agents":{"current":null,"peak":null},"waiting_jobs":{"current":null,"peak":null},"running_jobs":{"current":null,"peak":null},"wait_time_p95_seconds":{"current":null,"peak":null}}},"source":{"observed_at":"2026-09-01T07:00:00Z","next_refresh_at":"2026-09-01T07:01:48Z","activity":{"connected_agents":{"current":46,"peak":null},"waiting_jobs":{"current":0,"peak":null},"running_jobs":{"current":0,"peak":null}}}}`))
 	}))
 	defer server.Close()
 
@@ -259,31 +273,16 @@ func TestQueueMetricsPrintsUnknownObservationWithoutError(t *testing.T) {
 	if got := stdout.String(); !strings.Contains(got, "| Connected agents |      46 |") || !strings.Contains(got, "| Wait time (p95)  |      — |       — |") {
 		t.Fatalf("source activity missing from stale destination output: %q", got)
 	}
-	if got := stdout.String(); strings.Contains(got, "Next refresh eligible:") {
-		t.Fatalf("output contains refresh due without next_refresh_at: %q", got)
-	}
-}
-
-func TestQueueMetricsJSONOmitsAbsentNextRefreshAt(t *testing.T) {
-	var stdout bytes.Buffer
-	app := Context{Output: &stdout, JSON: true}
-	source := &buildkite.QueueSource{}
-
-	if err := app.Print(&buildkite.QueueMetrics{Source: source}); err != nil {
-		t.Fatal(err)
-	}
-	var got map[string]any
-	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := got["next_refresh_at"]; ok {
-		t.Fatalf("next_refresh_at should be absent: %s", stdout.String())
+	if got := stdout.String(); !strings.Contains(got, "Source refresh eligible:") || !strings.Contains(got, "Destination refresh eligible:") {
+		t.Fatalf("output omits independent refresh eligibility: %q", got)
 	}
 }
 
 func TestQueueMetricsPrintsRefreshDue(t *testing.T) {
 	observedAt := "2026-09-01T07:00:00Z"
 	nextRefreshAt := "2026-09-01T07:01:56Z"
+	sourceObservedAt := "2026-09-01T07:00:40Z"
+	sourceNextRefreshAt := "2026-09-01T07:01:40Z"
 	var stdout bytes.Buffer
 	app := Context{
 		Output: &stdout,
@@ -293,27 +292,35 @@ func TestQueueMetricsPrintsRefreshDue(t *testing.T) {
 	}
 
 	err := app.printQueueMetrics(&buildkite.QueueMetrics{
-		ObservedAt:    &observedAt,
-		NextRefreshAt: &nextRefreshAt,
-		WindowSeconds: 600,
-		Source:        &buildkite.QueueSource{},
+		Destination: &buildkite.QueueMetricsDestination{
+			ObservedAt: &observedAt, NextRefreshAt: &nextRefreshAt, WindowSeconds: 600, Activity: &buildkite.QueueActivity{},
+		},
+		Source: &buildkite.QueueSource{
+			ObservedAt: &sourceObservedAt, NextRefreshAt: &sourceNextRefreshAt, Activity: &buildkite.QueueSourceActivity{},
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := stdout.String(); !strings.Contains(got, "Destination refreshed: 48s ago\nNext refresh eligible: in 1m 8s\n") {
+	if got := stdout.String(); !strings.Contains(got, "Source observed: 8s ago\nSource refresh eligible: in 52s\nDestination refreshed: 48s ago\nDestination refresh eligible: in 1m 8s\n") {
 		t.Fatalf("output = %q", got)
 	}
 }
 
 func TestQueueMetricsRejectsInvalidNextRefreshAt(t *testing.T) {
 	nextRefreshAt := "not-a-timestamp"
+	validTimestamp := "2026-09-01T07:00:00Z"
 	app := Context{
 		Output: &bytes.Buffer{},
 		Now:    func() time.Time { return time.Date(2026, time.September, 1, 7, 0, 0, 0, time.UTC) },
 	}
 
-	err := app.printQueueMetrics(&buildkite.QueueMetrics{NextRefreshAt: &nextRefreshAt})
+	err := app.printQueueMetrics(&buildkite.QueueMetrics{
+		Destination: &buildkite.QueueMetricsDestination{NextRefreshAt: &nextRefreshAt, Activity: &buildkite.QueueActivity{}},
+		Source: &buildkite.QueueSource{
+			ObservedAt: &validTimestamp, NextRefreshAt: &validTimestamp, Activity: &buildkite.QueueSourceActivity{},
+		},
+	})
 	if err == nil || !bytes.Contains([]byte(err.Error()), []byte("parse queue metrics next_refresh_at")) {
 		t.Fatalf("error = %v", err)
 	}
@@ -325,24 +332,30 @@ func TestQueueMetricsRetriesBeforePrinting(t *testing.T) {
 		requestCount++
 		w.Header().Set("Content-Type", "application/json")
 		if requestCount < 3 {
-			_, _ = w.Write([]byte(`{"retry_after_seconds":10,"source":{"queue_key":"default","observed_at":"2026-09-01T07:00:48Z","activity":{"connected_agents":{"current":46,"peak":null},"waiting_jobs":{"current":0,"peak":null},"running_jobs":{"current":0,"peak":null}}}}`))
+			_, _ = w.Write([]byte(`{"queue":"default","routed_percent":30,"retry_after_seconds":10,"destination":{"cluster_id":"cluster-id","queue_id":"queue-id","window_started_at":null,"observed_at":null,"next_refresh_at":"2026-09-01T07:00:58Z","window_seconds":600,"activity":{"connected_agents":{"current":null,"peak":null},"waiting_jobs":{"current":null,"peak":null},"running_jobs":{"current":null,"peak":null},"wait_time_p95_seconds":{"current":null,"peak":null}}},"source":{"observed_at":"2026-09-01T07:00:48Z","next_refresh_at":"2026-09-01T07:01:48Z","activity":{"connected_agents":{"current":46,"peak":null},"waiting_jobs":{"current":0,"peak":null},"running_jobs":{"current":0,"peak":null}}}}`))
 			return
 		}
 		_, _ = w.Write([]byte(`{
 			"queue":"default",
-			"destination":{"cluster_id":"cluster-id","queue_key":"cluster-default"},
 			"routed_percent":30,
-			"observed_at":"2026-09-01T07:00:00Z",
-			"window_seconds":600,
-			"activity":{
-				"connected_agents":{"current":50,"peak":54},
-				"waiting_jobs":{"current":4,"peak":12},
-				"running_jobs":{"current":38,"peak":46},
-				"wait_time_p95_seconds":{"current":3,"peak":6.5}
+			"retry_after_seconds":null,
+			"destination":{
+				"cluster_id":"cluster-id",
+				"queue_id":"queue-id",
+				"window_started_at":"2026-09-01T06:50:00Z",
+				"observed_at":"2026-09-01T07:00:00Z",
+				"next_refresh_at":"2026-09-01T07:01:00Z",
+				"window_seconds":600,
+				"activity":{
+					"connected_agents":{"current":50,"peak":54},
+					"waiting_jobs":{"current":4,"peak":12},
+					"running_jobs":{"current":38,"peak":46},
+					"wait_time_p95_seconds":{"current":3,"peak":6.5}
+				}
 			},
 			"source":{
-				"queue_key":"default",
 				"observed_at":"2026-09-01T07:00:48Z",
+				"next_refresh_at":"2026-09-01T07:01:48Z",
 				"activity":{
 					"connected_agents":{"current":46,"peak":null},
 					"waiting_jobs":{"current":0,"peak":null},
