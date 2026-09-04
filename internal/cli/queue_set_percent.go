@@ -36,18 +36,8 @@ func setQueuePercent(app *Context, queue string, percent int, command, note stri
 		DryRun: app.DryRun,
 		Note:   note,
 	}
-	if note == "" && percent < 100 && !app.DryRun {
-		if percent == 0 {
-			change.Next = fmt.Sprintf(
-				"1. Scale the destination infrastructure.\n2. Once applied, begin routing:\n\n   cluster-migrator queue set-percent %s --to <percentage>",
-				queue,
-			)
-		} else {
-			change.Next = fmt.Sprintf(
-				"1. Review destination activity:\n\n   cluster-migrator queue metrics %s\n\n2. When ready, increase routing:\n\n   cluster-migrator queue set-percent %s --to <percentage>",
-				queue, queue,
-			)
-		}
+	if note == "" && !app.DryRun {
+		change.Next = queueRoutingNextSteps(queue, cluster.Name, percent)
 	}
 	if current.RoutedPercent == percent || app.DryRun {
 		return app.Print(change)
@@ -57,4 +47,15 @@ func setQueuePercent(app *Context, queue string, percent int, command, note stri
 		return fmt.Errorf("set routed percentage: %w", err)
 	}
 	return app.Print(change)
+}
+
+func queueRoutingNextSteps(queue, destination string, percent int) string {
+	switch percent {
+	case 0:
+		return fmt.Sprintf("1. Scale the destination infrastructure.\n\n2. Once ready, begin routing:\n\n   cluster-migrator queue set-percent %s --to <percentage>", queue)
+	case 100:
+		return fmt.Sprintf("1. Assess each pipeline using this queue:\n\n   cluster-migrator pipeline readiness <pipeline> --destination-cluster %s\n\n2. If no known blockers remain, move the pipeline:\n\n   cluster-migrator pipeline move <pipeline> --destination-cluster %s", destination, destination)
+	default:
+		return fmt.Sprintf("1. Review destination activity:\n\n   cluster-migrator queue metrics %s\n\n2. When ready, increase routing:\n\n   cluster-migrator queue set-percent %s --to <percentage>", queue, queue)
+	}
 }

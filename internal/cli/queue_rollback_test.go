@@ -44,7 +44,7 @@ func TestQueueRollbackSetsZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "QUEUE ROLLBACK\nQueue: test\nDestination: production\n\nRESULT\n\nRouting: 30% → 0%\n\nSOURCE\n\nNew jobs will return to the unclustered queue. Existing jobs remain where they were routed.\n"
+	want := "QUEUE ROLLBACK\nQueue: test\nDestination: production\n\nRESULT\n\nRouting changed from 30% to 0%.\n\nCONTEXT\n\nNew jobs will return to the unclustered queue. Existing jobs remain where they were routed.\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}

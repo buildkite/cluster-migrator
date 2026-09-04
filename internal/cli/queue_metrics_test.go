@@ -55,13 +55,13 @@ func TestQueueMetricsPrintsSourceActivitySeparately(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "QUEUE METRICS\n\nQueue: default    Routing: 30%\n\nSOURCE - Unclustered             DESTINATION - Cluster cluster-id\n+------------------+---------+   +------------------+--------+---------+\n| Metric           | Current |   | Metric           | Latest | 10m max |\n+------------------+---------+   +------------------+--------+---------+\n| Waiting jobs     |      16 |   | Waiting jobs     |      4 |      12 |\n| Running jobs     |      31 |   | Running jobs     |     38 |      46 |\n| Connected agents |      46 |   | Connected agents |     50 |      54 |\n+------------------+---------+   | Wait time (p95)  |     3s |    6.5s |\n                                 +------------------+--------+---------+\n\nSource observed: just now\nSource refresh eligible: now\nDestination refreshed: 1m 52s ago\nDestination refresh eligible: in 8s\n"
+	want := "QUEUE METRICS\nQueue: default\nRouting: 30%\nDestination: cluster-id\n\nACTIVITY\n\nMETRIC            SOURCE LATEST  DEST LATEST  DEST 10M MAX\nWaiting jobs      16             4            12\nRunning jobs      31             38           46\nConnected agents  46             50           54\nWait time (p95)   —              3s           6.5s\n\nOBSERVATIONS\n\nSource observed: just now\nSource refresh eligible: now\nDestination observed: 1m 52s ago\nDestination refresh eligible: in 8s\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
 }
 
-func TestQueueMetricsStacksLongIdentityWithoutTruncatingIt(t *testing.T) {
+func TestQueueMetricsPrintsLongIdentityWithoutTruncatingIt(t *testing.T) {
 	clusterID := strings.Repeat("destination-cluster-", 5)
 	queue := strings.Repeat("source-queue-", 7)
 	timestamp := "2026-09-01T07:00:00Z"
@@ -83,11 +83,11 @@ func TestQueueMetricsStacksLongIdentityWithoutTruncatingIt(t *testing.T) {
 	}
 
 	got := stdout.String()
-	if !strings.Contains(got, "Queue: "+queue+"\nRouting: —\n") {
-		t.Fatalf("long summary was not stacked intact: %q", got)
+	if !strings.Contains(got, "Queue: "+queue+"\nRouting: —\nDestination: "+clusterID+"\n") {
+		t.Fatalf("long identity was not printed intact: %q", got)
 	}
-	if !strings.Contains(got, "SOURCE - Unclustered\n+") || !strings.Contains(got, "\n\nDESTINATION - Cluster "+clusterID+"\n+") {
-		t.Fatalf("long destination identity was not stacked intact: %q", got)
+	if strings.Contains(got, "+---") || strings.Contains(got, "| Metric") {
+		t.Fatalf("metrics should use a borderless table: %q", got)
 	}
 }
 
@@ -267,10 +267,10 @@ func TestQueueMetricsPrintsUnknownObservationWithoutError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := stdout.String(); !strings.Contains(got, "Destination refreshed: —\n") {
+	if got := stdout.String(); !strings.Contains(got, "Destination observed: —\n") {
 		t.Fatalf("output = %q", got)
 	}
-	if got := stdout.String(); !strings.Contains(got, "| Connected agents |      46 |") || !strings.Contains(got, "| Wait time (p95)  |      — |       — |") {
+	if got := stdout.String(); !strings.Contains(got, "Connected agents  46") || !strings.Contains(got, "Wait time (p95)   —") {
 		t.Fatalf("source activity missing from stale destination output: %q", got)
 	}
 	if got := stdout.String(); !strings.Contains(got, "Source refresh eligible:") || !strings.Contains(got, "Destination refresh eligible:") {
@@ -302,7 +302,7 @@ func TestQueueMetricsPrintsRefreshDue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := stdout.String(); !strings.Contains(got, "Source observed: 8s ago\nSource refresh eligible: in 52s\nDestination refreshed: 48s ago\nDestination refresh eligible: in 1m 8s\n") {
+	if got := stdout.String(); !strings.Contains(got, "Source observed: 8s ago\nSource refresh eligible: in 52s\nDestination observed: 48s ago\nDestination refresh eligible: in 1m 8s\n") {
 		t.Fatalf("output = %q", got)
 	}
 }
@@ -403,7 +403,7 @@ func TestQueueMetricsRetriesBeforePrinting(t *testing.T) {
 	if got, want := stderr.String(), "Queue metrics are still being prepared; retrying every 10 seconds…\n"; got != want {
 		t.Fatalf("stderr = %q, want %q", got, want)
 	}
-	if got := stdout.String(); !strings.Contains(got, "| Connected agents |      46 |") || !strings.Contains(got, "| Connected agents |     50 |      54 |") {
+	if got := stdout.String(); !strings.Contains(got, "Connected agents  46             50           54") {
 		t.Fatalf("stdout = %q", got)
 	}
 }

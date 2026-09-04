@@ -33,9 +33,6 @@ func (cmd *QueueConfigureCmd) Run(app *Context) error {
 	if _, err := app.Client.ConfigureQueueMigration(app.Context, cmd.Queue, cluster.ID); err != nil {
 		return fmt.Errorf("configure queue migration: %w", err)
 	}
-	change.Next = fmt.Sprintf(
-		"1. Scale the destination infrastructure.\n2. Once applied, begin routing:\n\n   cluster-migrator queue set-percent %s --to <percentage>",
-		cmd.Queue,
-	)
+	change.Next = queueRoutingNextSteps(cmd.Queue, cluster.Name, 0)
 	return app.Print(change)
 }

@@ -20,7 +20,7 @@ func TestPipelineMovePrintsResult(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := "RESULT\n\nDemo Pipeline (demo-pipeline) is now using the Production cluster\n"
+	want := "PIPELINE MOVE\nPipeline: Demo Pipeline (demo-pipeline)\nDestination: Production\n\nRESULT\n\nPipeline moved to the Production cluster.\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("stdout = %q, want %q", got, want)
 	}
@@ -59,7 +59,7 @@ func TestPipelineMoveFallsBackToSlugWhenNameMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "RESULT\n\ndemo-pipeline is now using the Production cluster\n"
+	want := "PIPELINE MOVE\nPipeline: demo-pipeline\nDestination: Production\n\nRESULT\n\nPipeline moved to the Production cluster.\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("stdout = %q, want %q", got, want)
 	}

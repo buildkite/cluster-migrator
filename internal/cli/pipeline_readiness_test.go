@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -40,7 +41,7 @@ func TestPipelineReadinessPrintsNoKnownBlockersWithoutClaimingReadiness(t *testi
 		t.Fatal(err)
 	}
 
-	want := "PIPELINE READINESS\nPipeline: monorepo\nDestination cluster: cluster-id\nStatus: NO KNOWN BLOCKERS — not proof of readiness\n\nQUEUE BLOCKERS\nNone\n\nCONCURRENCY-GROUP BLOCKERS\nNone\n\nOBSERVATIONS\nQueues: incomplete; 10-minute window; observation time unavailable\nQueue refresh eligible: in 12 seconds\nConcurrency groups: complete; window unavailable; observation time unavailable\nConcurrency-group refresh eligible: in 42 seconds\n\nIncomplete observations may omit blockers outside the observed window.\n"
+	want := "PIPELINE READINESS\nPipeline: monorepo\nDestination: cluster-id\n\nSTATUS\n\nNo known blockers. This is not proof of readiness.\n\nOBSERVATIONS\n\nQueues: incomplete; 10-minute window; observation time unavailable\nQueue refresh eligible: in 12 seconds\nConcurrency groups: complete; window unavailable; observation time unavailable\nConcurrency-group refresh eligible: in 42 seconds\n\nIncomplete observations may omit blockers outside the observed window.\n"
 	if got := output.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
@@ -81,7 +82,7 @@ func TestPipelineReadinessPrintsQueueBlockersAndActions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := "PIPELINE READINESS\nPipeline: monorepo\nDestination cluster: cluster-id\nStatus: BLOCKED — 2 known blockers\n\nQUEUE BLOCKERS (2)\n\nQUEUE    ROUTING  ACTIVE SOURCE JOBS\ndeploy   80%      2\nrelease  —        0\n\ndeploy\n  - Routing is below 100% (routing_incomplete)\n  - Active jobs remain on the source queue (active_source_jobs)\n\nrelease\n  - No queue migration is configured (migration_missing)\n\nCONCURRENCY-GROUP BLOCKERS\nNone\n\nOBSERVATIONS\nQueues: incomplete; 10-minute window ending 48 seconds ago; started 2026-09-01 06:50:00 UTC\nQueue refresh eligible: in 12 seconds\nConcurrency groups: incomplete; 10-minute window ending 48 seconds ago; started 2026-09-01 06:50:00 UTC\nConcurrency-group refresh eligible: in 12 seconds\n\nIncomplete observations may omit blockers outside the observed window.\n\nNEXT STEPS\n\n1. Review destination activity for deploy:\n\n   cluster-migrator queue metrics deploy\n\n2. Wait for active source jobs on deploy to finish, then reassess:\n\n   cluster-migrator pipeline readiness monorepo --destination-cluster cluster-id\n\n3. Configure the missing queue migration for release:\n\n   cluster-migrator queue configure release --destination-cluster cluster-id\n"
+	want := "PIPELINE READINESS\nPipeline: monorepo\nDestination: cluster-id\n\nSTATUS\n\nBlocked by 3 known conditions.\n\nQUEUE BLOCKERS\n\nQUEUE    ROUTING  ACTIVE SOURCE JOBS  BLOCKER\ndeploy   80%      2                   Routing is below 100%.\ndeploy   80%      2                   Active jobs remain on the source queue.\nrelease  —        0                   No queue migration is configured.\n\nOBSERVATIONS\n\nQueues: incomplete; 10-minute window ending 48 seconds ago; started 2026-09-01 06:50:00 UTC\nQueue refresh eligible: in 12 seconds\nConcurrency groups: incomplete; 10-minute window ending 48 seconds ago; started 2026-09-01 06:50:00 UTC\nConcurrency-group refresh eligible: in 12 seconds\n\nIncomplete observations may omit blockers outside the observed window.\n\nNEXT STEPS\n\n1. Review destination activity for deploy:\n\n   cluster-migrator queue metrics deploy\n\n2. Wait for active source jobs on deploy to finish, then reassess:\n\n   cluster-migrator pipeline readiness monorepo --destination-cluster cluster-id\n\n3. Configure the missing queue migration for release:\n\n   cluster-migrator queue configure release --destination-cluster cluster-id\n"
 	if got := output.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
@@ -110,7 +111,7 @@ func TestPipelineReadinessPrintsConcurrencyAndUnknownBlockers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := "PIPELINE READINESS\nPipeline: monorepo\nDestination cluster: cluster-id\nStatus: BLOCKED — 2 known blockers\n\nQUEUE BLOCKERS\nNone\n\nCONCURRENCY-GROUP BLOCKERS (2)\n\nSCOPE     KEY\npipeline  deploy\n—         shared/deploy\n\npipeline / deploy\n  - Migration is unavailable for this concurrency group (concurrency_group_migration_unavailable)\n\n— / shared/deploy\n  - Unknown blocker (future_concurrency_reason)\n\nOBSERVATIONS\nQueues: complete; window unavailable; observation time unavailable\nQueue refresh eligible: unavailable\nConcurrency groups: complete; window unavailable; observation time unavailable\nConcurrency-group refresh eligible: unavailable\n"
+	want := "PIPELINE READINESS\nPipeline: monorepo\nDestination: cluster-id\n\nSTATUS\n\nBlocked by 2 known conditions.\n\nCONCURRENCY-GROUP BLOCKERS\n\nSCOPE     KEY            BLOCKER\npipeline  deploy         Migration is unavailable for this concurrency group.\n—         shared/deploy  Unknown blocker (future_concurrency_reason).\n\nOBSERVATIONS\n\nQueues: complete; window unavailable; observation time unavailable\nQueue refresh eligible: unavailable\nConcurrency groups: complete; window unavailable; observation time unavailable\nConcurrency-group refresh eligible: unavailable\n"
 	if got := output.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
@@ -133,8 +134,28 @@ func TestPipelineReadinessActionsDeduplicateRepeatedReasons(t *testing.T) {
 	}
 }
 
+func TestPipelineReadinessActionsIncludeMetricsForEachIncompleteQueue(t *testing.T) {
+	readiness := &buildkite.PipelineReadiness{
+		QueueObservation: buildkite.PipelineQueueObservation{
+			BlockingQueues: []buildkite.PipelineBlockingQueue{
+				{Queue: "deploy", Reasons: []string{"routing_incomplete"}},
+				{Queue: "test", Reasons: []string{"routing_incomplete"}},
+			},
+		},
+	}
+
+	actions := pipelineReadinessActions(readiness)
+	want := []string{
+		"Review destination activity for deploy:\n\n   cluster-migrator queue metrics deploy",
+		"Review destination activity for test:\n\n   cluster-migrator queue metrics test",
+	}
+	if !reflect.DeepEqual(actions, want) {
+		t.Fatalf("actions = %#v, want %#v", actions, want)
+	}
+}
+
 func TestPipelineReadinessPreservesUnknownStatus(t *testing.T) {
-	if got, want := pipelineReadinessStatus("future_status", 0), "UNKNOWN (future_status)"; got != want {
+	if got, want := pipelineReadinessStatus("future_status", 0), "Unknown assessment status (future_status)."; got != want {
 		t.Fatalf("status = %q, want %q", got, want)
 	}
 }
@@ -258,7 +279,7 @@ func TestPipelineReadinessRetriesPendingObservationBeforePrinting(t *testing.T) 
 	if got, want := stderr.String(), "Pipeline assessment is still being prepared; retrying every 10 seconds…\n"; got != want {
 		t.Fatalf("stderr = %q, want %q", got, want)
 	}
-	if !strings.Contains(stdout.String(), "Status: NO KNOWN BLOCKERS — not proof of readiness") {
+	if !strings.Contains(stdout.String(), "No known blockers. This is not proof of readiness.") {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
 }
@@ -285,7 +306,7 @@ func TestPipelineReadinessPrintsBlockedAssessmentThenFails(t *testing.T) {
 	if err == nil || err.Error() != "pipeline has known blockers" {
 		t.Fatalf("error = %v", err)
 	}
-	if !strings.Contains(stdout.String(), "Status: BLOCKED — 1 known blocker") {
+	if !strings.Contains(stdout.String(), "Blocked by 1 known condition.") {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
 }
@@ -329,8 +350,9 @@ func TestPipelineMoveDryRunRequiresNoKnownBlockers(t *testing.T) {
 	if err := (&PipelineMoveCmd{Pipeline: "monorepo", DestinationCluster: "production"}).Run(&app); err != nil {
 		t.Fatal(err)
 	}
-	if got := stdout.String(); !strings.Contains(got, "move pipeline monorepo") {
-		t.Fatalf("stdout = %q", got)
+	want := "PIPELINE MOVE (DRY RUN)\nPipeline: monorepo\nDestination: production\n\nREADINESS\n\nNo known blockers. This is not proof of readiness.\n\nPROPOSED CHANGE\n\nThe pipeline would move to the production cluster.\n"
+	if got := stdout.String(); got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
 	}
 }
 
@@ -406,6 +428,29 @@ func TestPipelineMoveDryRunReportsQueueBlockers(t *testing.T) {
 	}
 	if got := assessment.QueueObservation.BlockingQueues; len(got) != 1 || got[0].Queue != "deploy" || len(got[0].Reasons) != 2 || got[0].RoutedPercent == nil || *got[0].RoutedPercent != 80 || got[0].ActiveSourceJobs != 2 {
 		t.Fatalf("blocking queues = %#v", got)
+	}
+}
+
+func TestPipelineMoveDryRunPrintsBlockedReadinessUnderMoveHeading(t *testing.T) {
+	readiness := &buildkite.PipelineReadiness{
+		Status: buildkite.PipelineReadinessBlocked,
+		QueueObservation: buildkite.PipelineQueueObservation{
+			BlockingQueues: []buildkite.PipelineBlockingQueue{
+				{Queue: "deploy", Reasons: []string{"routing_incomplete"}},
+			},
+		},
+	}
+
+	var stdout bytes.Buffer
+	app := Context{Output: &stdout}
+	if err := app.printBlockedPipelineMoveDryRun("monorepo", "production", readiness); err != nil {
+		t.Fatal(err)
+	}
+	if got := stdout.String(); !strings.HasPrefix(got, "PIPELINE MOVE (DRY RUN)\nPipeline: monorepo\nDestination: production\n\nREADINESS\n\nBlocked by 1 known condition.\n") {
+		t.Fatalf("stdout = %q", got)
+	}
+	if strings.Contains(stdout.String(), "PROPOSED CHANGE") {
+		t.Fatalf("blocked dry run should not print a proposed change: %q", stdout.String())
 	}
 }
 

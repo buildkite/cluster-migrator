@@ -6,14 +6,13 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"text/tabwriter"
 	"time"
-	"unicode/utf8"
 
 	"github.com/buildkite/cluster-migrator/internal/buildkite"
 )
 
 const queueMetricsTimeout = time.Minute
-const queueMetricsDisplayWidth = 80
 
 type QueueMetricsCmd struct {
 	Queue string `arg:"" help:"Source queue key."`
@@ -89,39 +88,24 @@ func (c *Context) printQueueMetrics(metrics *buildkite.QueueMetrics) error {
 		return err
 	}
 
-	sourceTable := renderASCIITable(
-		[]string{"Metric", "Current"},
-		[][]string{
-			{"Waiting jobs", metricValue(metrics.Source.Activity.WaitingJobs.Current)},
-			{"Running jobs", metricValue(metrics.Source.Activity.RunningJobs.Current)},
-			{"Connected agents", metricValue(metrics.Source.Activity.ConnectedAgents.Current)},
-		},
-		[]bool{false, true},
-	)
-	destinationTable := renderASCIITable(
-		[]string{"Metric", "Latest", metricsWindowHeading(metrics.Destination.WindowSeconds)},
-		[][]string{
-			{"Waiting jobs", metricValue(metrics.Destination.Activity.WaitingJobs.Current), metricValue(metrics.Destination.Activity.WaitingJobs.Peak)},
-			{"Running jobs", metricValue(metrics.Destination.Activity.RunningJobs.Current), metricValue(metrics.Destination.Activity.RunningJobs.Peak)},
-			{"Connected agents", metricValue(metrics.Destination.Activity.ConnectedAgents.Current), metricValue(metrics.Destination.Activity.ConnectedAgents.Peak)},
-			{"Wait time (p95)", metricDuration(metrics.Destination.Activity.WaitTimeP95Seconds.Current), metricDuration(metrics.Destination.Activity.WaitTimeP95Seconds.Peak)},
-		},
-		[]bool{false, true, true},
-	)
-
-	summary := fmt.Sprintf("Queue: %s    Routing: %s", displayValue(metrics.Queue), metricPercent(metrics.RoutedPercent))
-	if utf8.RuneCountInString(summary) > queueMetricsDisplayWidth {
-		summary = fmt.Sprintf("Queue: %s\nRouting: %s", displayValue(metrics.Queue), metricPercent(metrics.RoutedPercent))
+	if _, err := fmt.Fprintf(c.Output, "QUEUE METRICS\nQueue: %s\nRouting: %s\nDestination: %s\n\nACTIVITY\n\n",
+		displayValue(metrics.Queue),
+		metricPercent(metrics.RoutedPercent),
+		displayValue(metrics.Destination.ClusterID),
+	); err != nil {
+		return err
 	}
-	comparison := renderMetricPanels(
-		"SOURCE - Unclustered",
-		sourceTable,
-		fmt.Sprintf("DESTINATION - Cluster %s", displayValue(metrics.Destination.ClusterID)),
-		destinationTable,
-	)
-	_, err = fmt.Fprintf(c.Output, "QUEUE METRICS\n\n%s\n\n%s\nSource observed: %s\nSource refresh eligible: %s\nDestination refreshed: %s\nDestination refresh eligible: %s\n",
-		summary,
-		comparison,
+	writer := tabwriter.NewWriter(c.Output, 0, 4, 2, ' ', 0)
+	_, _ = fmt.Fprintf(writer, "METRIC\tSOURCE LATEST\tDEST LATEST\tDEST %s\n", metricsWindowHeading(metrics.Destination.WindowSeconds))
+	_, _ = fmt.Fprintf(writer, "Waiting jobs\t%s\t%s\t%s\n", metricValue(metrics.Source.Activity.WaitingJobs.Current), metricValue(metrics.Destination.Activity.WaitingJobs.Current), metricValue(metrics.Destination.Activity.WaitingJobs.Peak))
+	_, _ = fmt.Fprintf(writer, "Running jobs\t%s\t%s\t%s\n", metricValue(metrics.Source.Activity.RunningJobs.Current), metricValue(metrics.Destination.Activity.RunningJobs.Current), metricValue(metrics.Destination.Activity.RunningJobs.Peak))
+	_, _ = fmt.Fprintf(writer, "Connected agents\t%s\t%s\t%s\n", metricValue(metrics.Source.Activity.ConnectedAgents.Current), metricValue(metrics.Destination.Activity.ConnectedAgents.Current), metricValue(metrics.Destination.Activity.ConnectedAgents.Peak))
+	_, _ = fmt.Fprintf(writer, "Wait time (p95)\t—\t%s\t%s\n", metricDuration(metrics.Destination.Activity.WaitTimeP95Seconds.Current), metricDuration(metrics.Destination.Activity.WaitTimeP95Seconds.Peak))
+	if err := writer.Flush(); err != nil {
+		return err
+	}
+
+	_, err = fmt.Fprintf(c.Output, "\nOBSERVATIONS\n\nSource observed: %s\nSource refresh eligible: %s\nDestination observed: %s\nDestination refresh eligible: %s\n",
 		sourceFreshness,
 		sourceRefreshDue,
 		destinationFreshness,
@@ -130,79 +114,11 @@ func (c *Context) printQueueMetrics(metrics *buildkite.QueueMetrics) error {
 	return err
 }
 
-func renderASCIITable(headers []string, rows [][]string, rightAligned []bool) []string {
-	widths := make([]int, len(headers))
-	for column, header := range headers {
-		widths[column] = utf8.RuneCountInString(header)
-	}
-	for _, row := range rows {
-		for column, value := range row {
-			widths[column] = max(widths[column], utf8.RuneCountInString(value))
-		}
-	}
-
-	border := "+"
-	for _, width := range widths {
-		border += strings.Repeat("-", width+2) + "+"
-	}
-	lines := []string{border, renderASCIIRow(headers, widths, nil), border}
-	for _, row := range rows {
-		lines = append(lines, renderASCIIRow(row, widths, rightAligned))
-	}
-	return append(lines, border)
-}
-
-func renderASCIIRow(values []string, widths []int, rightAligned []bool) string {
-	var line strings.Builder
-	line.WriteByte('|')
-	for column, value := range values {
-		padding := widths[column] - utf8.RuneCountInString(value)
-		line.WriteByte(' ')
-		if column < len(rightAligned) && rightAligned[column] {
-			line.WriteString(strings.Repeat(" ", padding))
-		}
-		line.WriteString(value)
-		if column >= len(rightAligned) || !rightAligned[column] {
-			line.WriteString(strings.Repeat(" ", padding))
-		}
-		line.WriteString(" |")
-	}
-	return line.String()
-}
-
-func renderMetricPanels(sourceTitle string, sourceTable []string, destinationTitle string, destinationTable []string) string {
-	sourceWidth := max(utf8.RuneCountInString(sourceTitle), utf8.RuneCountInString(sourceTable[0]))
-	destinationWidth := max(utf8.RuneCountInString(destinationTitle), utf8.RuneCountInString(destinationTable[0]))
-	if sourceWidth+3+destinationWidth > queueMetricsDisplayWidth {
-		return sourceTitle + "\n" + strings.Join(sourceTable, "\n") + "\n\n" + destinationTitle + "\n" + strings.Join(destinationTable, "\n") + "\n"
-	}
-
-	lineCount := max(len(sourceTable), len(destinationTable))
-	lines := make([]string, 0, lineCount+1)
-	lines = append(lines, padRight(sourceTitle, sourceWidth)+"   "+destinationTitle)
-	for index := range lineCount {
-		sourceLine := ""
-		if index < len(sourceTable) {
-			sourceLine = sourceTable[index]
-		}
-		destinationLine := ""
-		if index < len(destinationTable) {
-			destinationLine = destinationTable[index]
-		}
-		lines = append(lines, padRight(sourceLine, sourceWidth)+"   "+destinationLine)
-	}
-	return strings.Join(lines, "\n") + "\n"
-}
-
-func padRight(value string, width int) string {
-	return value + strings.Repeat(" ", width-utf8.RuneCountInString(value))
-}
-
 func metricsWindowHeading(windowSeconds int) string {
 	if windowSeconds > 0 && windowSeconds%60 == 0 {
-		return fmt.Sprintf("%dm max", windowSeconds/60)
+		return fmt.Sprintf("%dM MAX", windowSeconds/60)
 	}
-	return fmt.Sprintf("%ds max", windowSeconds)
+	return fmt.Sprintf("%dS MAX", windowSeconds)
 }
 
 func displayValue(value string) string {

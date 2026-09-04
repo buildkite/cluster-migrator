@@ -42,7 +42,7 @@ func TestQueueConfigureDryRunDoesNotMutate(t *testing.T) {
 	if requests != 2 {
 		t.Fatalf("requests = %d, want 2", requests)
 	}
-	want := "RESULT (dry run)\n\nA migration for the 'test' queue would be created in the cluster 'production'\n"
+	want := "QUEUE CONFIGURE (DRY RUN)\nQueue: test\nDestination: production\n\nPROPOSED CHANGE\n\nA migration would be created with 0% routing.\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
@@ -75,7 +75,7 @@ func TestQueueConfigurePrintsNextStep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "RESULT\n\nA migration for the 'test' queue was successfully created in the cluster 'production'\n\nNEXT STEPS\n\n1. Scale the destination infrastructure.\n2. Once applied, begin routing:\n\n   cluster-migrator queue set-percent test --to <percentage>\n"
+	want := "QUEUE CONFIGURE\nQueue: test\nDestination: production\n\nRESULT\n\nMigration created with 0% routing.\n\nNEXT STEPS\n\n1. Scale the destination infrastructure.\n\n2. Once ready, begin routing:\n\n   cluster-migrator queue set-percent test --to <percentage>\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}

@@ -95,15 +95,20 @@ func pipelineReadinessDeadlineError(parent context.Context) error {
 }
 
 func (c *Context) printPipelineReadiness(readiness *buildkite.PipelineReadiness) error {
-	blockerCount := len(readiness.QueueObservation.BlockingQueues) + len(readiness.ConcurrencyGroupObservation.BlockingConcurrencyGroups)
-	if _, err := fmt.Fprintf(c.Output, "PIPELINE READINESS\nPipeline: %s\nDestination cluster: %s\nStatus: %s\n\n",
+	if _, err := fmt.Fprintf(c.Output, "PIPELINE READINESS\nPipeline: %s\nDestination: %s\n\n",
 		displayValue(readiness.Pipeline),
 		displayValue(readiness.DestinationClusterID),
-		pipelineReadinessStatus(readiness.Status, blockerCount),
 	); err != nil {
 		return err
 	}
+	return c.printPipelineReadinessAssessment(readiness, "STATUS")
+}
 
+func (c *Context) printPipelineReadinessAssessment(readiness *buildkite.PipelineReadiness, statusHeading string) error {
+	blockerCount := pipelineBlockerConditionCount(readiness)
+	if _, err := fmt.Fprintf(c.Output, "%s\n\n%s\n", statusHeading, pipelineReadinessStatus(readiness.Status, blockerCount)); err != nil {
+		return err
+	}
 	if err := c.printPipelineQueueBlockers(readiness.QueueObservation.BlockingQueues); err != nil {
 		return err
 	}
@@ -120,7 +125,7 @@ func (c *Context) printPipelineReadiness(readiness *buildkite.PipelineReadiness)
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(c.Output, "OBSERVATIONS\nQueues: %s\nQueue refresh eligible: %s\nConcurrency groups: %s\nConcurrency-group refresh eligible: %s\n",
+	if _, err := fmt.Fprintf(c.Output, "\nOBSERVATIONS\n\nQueues: %s\nQueue refresh eligible: %s\nConcurrency groups: %s\nConcurrency-group refresh eligible: %s\n",
 		c.pipelineObservationSummary(readiness.QueueObservation.Complete, readiness.QueueObservation.WindowSeconds, readiness.QueueObservation.ObservedAt, readiness.QueueObservation.WindowStartedAt),
 		queueRefresh,
 		c.pipelineObservationSummary(readiness.ConcurrencyGroupObservation.Complete, readiness.ConcurrencyGroupObservation.WindowSeconds, readiness.ConcurrencyGroupObservation.ObservedAt, readiness.ConcurrencyGroupObservation.WindowStartedAt),
@@ -137,103 +142,84 @@ func (c *Context) printPipelineReadiness(readiness *buildkite.PipelineReadiness)
 	return c.printPipelineReadinessActions(readiness)
 }
 
+func pipelineBlockerConditionCount(readiness *buildkite.PipelineReadiness) int {
+	count := len(readiness.ConcurrencyGroupObservation.BlockingConcurrencyGroups)
+	for _, blocker := range readiness.QueueObservation.BlockingQueues {
+		count += max(1, len(blocker.Reasons))
+	}
+	return count
+}
+
 func pipelineReadinessStatus(status string, blockerCount int) string {
 	switch status {
 	case buildkite.PipelineReadinessBlocked:
-		return fmt.Sprintf("BLOCKED — %d known %s", blockerCount, pluralize(blockerCount, "blocker"))
+		return fmt.Sprintf("Blocked by %d known %s.", blockerCount, pluralize(blockerCount, "condition"))
 	case buildkite.PipelineReadinessNoKnownBlockers:
-		return "NO KNOWN BLOCKERS — not proof of readiness"
+		return "No known blockers. This is not proof of readiness."
 	default:
-		return fmt.Sprintf("UNKNOWN (%s)", displayValue(status))
+		return fmt.Sprintf("Unknown assessment status (%s).", displayValue(status))
 	}
 }
 
 func (c *Context) printPipelineQueueBlockers(blockers []buildkite.PipelineBlockingQueue) error {
 	if len(blockers) == 0 {
-		_, err := fmt.Fprint(c.Output, "QUEUE BLOCKERS\nNone\n\n")
-		return err
+		return nil
 	}
 
-	if _, err := fmt.Fprintf(c.Output, "QUEUE BLOCKERS (%d)\n\n", len(blockers)); err != nil {
+	if _, err := fmt.Fprint(c.Output, "\nQUEUE BLOCKERS\n\n"); err != nil {
 		return err
 	}
 	writer := tabwriter.NewWriter(c.Output, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintln(writer, "QUEUE\tROUTING\tACTIVE SOURCE JOBS")
+	_, _ = fmt.Fprintln(writer, "QUEUE\tROUTING\tACTIVE SOURCE JOBS\tBLOCKER")
 	for _, blocker := range blockers {
-		_, _ = fmt.Fprintf(writer, "%s\t%s\t%d\n", displayValue(blocker.Queue), metricPercent(blocker.RoutedPercent), blocker.ActiveSourceJobs)
-	}
-	if err := writer.Flush(); err != nil {
-		return err
-	}
-
-	for _, blocker := range blockers {
-		if _, err := fmt.Fprintf(c.Output, "\n%s\n", displayValue(blocker.Queue)); err != nil {
-			return err
-		}
 		if len(blocker.Reasons) == 0 {
-			if _, err := fmt.Fprintln(c.Output, "  - Unknown blocker (reason unavailable)"); err != nil {
-				return err
-			}
+			_, _ = fmt.Fprintf(writer, "%s\t%s\t%d\t%s\n", displayValue(blocker.Queue), metricPercent(blocker.RoutedPercent), blocker.ActiveSourceJobs, pipelineBlockerReason(""))
 			continue
 		}
 		for _, reason := range blocker.Reasons {
-			if _, err := fmt.Fprintf(c.Output, "  - %s\n", pipelineBlockerReason(reason)); err != nil {
-				return err
-			}
+			_, _ = fmt.Fprintf(writer, "%s\t%s\t%d\t%s\n", displayValue(blocker.Queue), metricPercent(blocker.RoutedPercent), blocker.ActiveSourceJobs, pipelineBlockerReason(reason))
 		}
 	}
-	_, err := fmt.Fprintln(c.Output)
-	return err
+	return writer.Flush()
 }
 
 func (c *Context) printPipelineConcurrencyGroupBlockers(blockers []buildkite.BlockingConcurrencyGroup) error {
 	if len(blockers) == 0 {
-		_, err := fmt.Fprint(c.Output, "CONCURRENCY-GROUP BLOCKERS\nNone\n\n")
-		return err
+		return nil
 	}
 
-	if _, err := fmt.Fprintf(c.Output, "CONCURRENCY-GROUP BLOCKERS (%d)\n\n", len(blockers)); err != nil {
+	if _, err := fmt.Fprint(c.Output, "\nCONCURRENCY-GROUP BLOCKERS\n\n"); err != nil {
 		return err
 	}
 	writer := tabwriter.NewWriter(c.Output, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintln(writer, "SCOPE\tKEY")
+	_, _ = fmt.Fprintln(writer, "SCOPE\tKEY\tBLOCKER")
 	for _, blocker := range blockers {
-		_, _ = fmt.Fprintf(writer, "%s\t%s\n", displayValue(blocker.Scope), displayValue(blocker.Key))
+		_, _ = fmt.Fprintf(writer, "%s\t%s\t%s\n", displayValue(blocker.Scope), displayValue(blocker.Key), pipelineBlockerReason(blocker.Reason))
 	}
-	if err := writer.Flush(); err != nil {
-		return err
-	}
-	for _, blocker := range blockers {
-		if _, err := fmt.Fprintf(c.Output, "\n%s / %s\n  - %s\n",
-			displayValue(blocker.Scope),
-			displayValue(blocker.Key),
-			pipelineBlockerReason(blocker.Reason),
-		); err != nil {
-			return err
-		}
-	}
-	_, err := fmt.Fprintln(c.Output)
-	return err
+	return writer.Flush()
 }
 
 func pipelineBlockerReason(reason string) string {
 	var description string
 	switch reason {
 	case "routing_incomplete":
-		description = "Routing is below 100%"
+		description = "Routing is below 100%."
 	case "migration_missing":
-		description = "No queue migration is configured"
+		description = "No queue migration is configured."
 	case "active_source_jobs":
-		description = "Active jobs remain on the source queue"
+		description = "Active jobs remain on the source queue."
 	case "concurrency_group_migration_unavailable":
-		description = "Migration is unavailable for this concurrency group"
+		description = "Migration is unavailable for this concurrency group."
 	default:
 		description = "Unknown blocker"
 	}
 	if reason == "" {
-		return description + " (reason unavailable)"
+		return description + " (reason unavailable)."
 	}
-	return fmt.Sprintf("%s (%s)", description, reason)
+	if description == "Unknown blocker" {
+		return fmt.Sprintf("%s (%s).", description, reason)
+	}
+	return description
 }
 
 func (c *Context) pipelineObservationSummary(complete bool, windowSeconds int, observedAt, windowStartedAt *string) string {
