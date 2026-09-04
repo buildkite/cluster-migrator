@@ -82,7 +82,7 @@ QUEUE ACTIVITY
 Source: default (unclustered)
 Destination: default (cluster cluster-id)
 Routing: 30%
-Observed: 48 seconds ago
+Observed: 1 minute 52 seconds ago
 
 METRIC            LATEST  10M MAX
 Connected agents  50      54
