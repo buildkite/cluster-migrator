@@ -1,9 +1,43 @@
 # Cluster Migrator
 
-`cluster-migrator` safely moves Buildkite workloads from unclustered queues to a cluster. It configures queue routing, assesses known pipeline blockers, and permanently moves pipelines.
+`cluster-migrator` moves Buildkite workloads from unclustered queues to a cluster without an all-at-once cutover. It gradually routes new jobs to cluster queues, compares source and destination activity, checks known pipeline blockers, and permanently assigns pipelines to the destination cluster.
 
 > [!IMPORTANT]
-> Queue migration APIs are implemented behind a Buildkite feature flag. The pipeline-readiness contract is provisional until its server API ships. Do not use this CLI for a production migration until that contract and its operational safety gates are complete.
+> The queue migration APIs require a Buildkite feature flag. The pipeline migration contract remains provisional. Do not use this tool for a production migration until Buildkite has enabled the APIs and confirmed the operational safety gates for your organization.
+
+## How it works
+
+A migration has two stages:
+
+1. **Route queues.** Map each unclustered source queue to an existing queue with the same key in the destination cluster, then increase the percentage of new jobs sent there from 0% to 100%.
+2. **Move pipelines.** Once every queue used by a pipeline is fully routed and active source jobs have drained, assess its queue and concurrency-group blockers before permanently assigning it to the cluster.
+
+Routing changes affect new jobs only. Jobs already created remain on the queue selected when they were created.
+
+The CLI does not yet migrate concurrency groups. You can route queues used by pipelines with concurrency groups, but do not move those pipelines until their concurrency groups have also moved to the cluster. Pipeline readiness reports unmigrated concurrency groups as blockers.
+
+## Prerequisites
+
+Before starting:
+
+- Ask Buildkite to enable the queue migration APIs for the organization.
+- Create the destination cluster and its queues. Each destination queue must have the same exact, case-sensitive key as its source queue.
+- Prepare enough agent capacity in the destination cluster for the traffic you will route.
+- Create an API token that can access exactly one Buildkite organization with these scopes:
+
+  - `read_organizations`
+  - `read_clusters`
+  - `write_clusters`
+  - `read_pipelines`
+  - `write_pipelines`
+
+  Export the token:
+
+  ```shell
+  export BUILDKITE_API_TOKEN=<token>
+  ```
+
+The CLI discovers the organization from the token and caches the slug locally. It refreshes a stale cache entry automatically.
 
 ## Install
 
@@ -13,88 +47,153 @@ Install the latest release with [mise](https://mise.jdx.dev/):
 mise use --global github:buildkite/cluster-migrator
 ```
 
-Prebuilt releases support macOS and Linux on x86-64 and ARM64.
+Alternatively, download a binary from [GitHub Releases](https://github.com/buildkite/cluster-migrator/releases). Releases support macOS and Linux on x86-64 and ARM64.
 
-## Build and test
+## Migrate a workload
 
-Install the development tools, build the executable, and run the tests with mise:
+The examples below migrate the `test` queue and the `monorepo` pipeline to the `production` cluster. Use a cluster name or ID and a pipeline slug, exact name, or ID.
+
+### 1. Inspect current migrations
 
 ```shell
-mise install
-mise run build
-mise run test
+cluster-migrator queue status
 ```
 
-The build task creates `./cluster-migrator`.
-
-Configure an organization-scoped API token through the environment:
+Pass a queue key to inspect one migration:
 
 ```shell
-export BUILDKITE_API_TOKEN=<token>
+cluster-migrator queue status test
 ```
 
-The CLI discovers the organization slug from the token and caches it locally. If the cached organization is no longer available, the CLI refreshes it automatically.
+### 2. Configure the queue at 0%
 
-## Migration sequence
-
-Scale destination capacity before increasing queue traffic.
+Preview the change, then create the mapping:
 
 ```shell
-# 1. Map a source queue to an existing cluster queue at 0%.
+cluster-migrator --dry-run queue configure test \
+  --destination-cluster production
+
 cluster-migrator queue configure test \
   --destination-cluster production
+```
 
-# 2. Gradually route new jobs.
+Configuration does not route traffic. Scale the destination agents before raising the percentage.
+
+### 3. Increase routing gradually
+
+Percentages are absolute, not relative increments:
+
+```shell
 cluster-migrator queue set-percent test --to 10
-cluster-migrator queue set-percent test --to 30
-cluster-migrator queue set-percent test --to 100
-
-# 3. Check recent destination activity for operational context.
 cluster-migrator queue metrics test
 
-# Before increasing traffic, also inspect dispatch and queue latency plus
-# stranded-job alerts in your observability tools.
+cluster-migrator queue set-percent test --to 30
+cluster-migrator queue metrics test
 
-# 4. Assess known blockers using the pipeline ID, name, or slug.
+cluster-migrator queue set-percent test --to 100
+```
+
+Before each increase, confirm the destination has enough connected agents, waiting jobs remain controlled, and p95 wait time is acceptable. `queue metrics` compares the latest source activity with the latest and peak destination activity over the reported observation window. It provides context, not proof that a queue is safe to increase; also check your normal dispatch, queue-latency, and stranded-job observability.
+
+Routing changes take effect when jobs are created, so observed traffic may take time to reflect the new percentage. For an infrequently used queue, trigger a representative build before continuing. Once the destination is healthy, safely reduce the corresponding source-agent capacity before provisioning and routing the next increment.
+
+To stop sending new jobs to the cluster queue:
+
+```shell
+cluster-migrator queue rollback test
+```
+
+Rollback sets routing to 0%. It does not move existing jobs or remove the queue mapping.
+
+### 4. Assess each pipeline
+
+After all queues used by a pipeline reach 100%, check its known blockers:
+
+```shell
 cluster-migrator pipeline readiness monorepo \
   --destination-cluster production
+```
 
-# 5. Permanently assign the pipeline to the cluster.
+The assessment reports queue blockers, active source jobs, concurrency-group blockers, observation windows, and when the observations can refresh. A `no_known_blockers` result is not proof of readiness: incomplete observation windows may omit dependencies.
+
+A blocked assessment prints corrective next steps and exits non-zero.
+
+After a pipeline moves, step uploads that target a queue missing from the destination cluster will fail. Check static and dynamically generated pipeline steps for queue keys that may not appear in the readiness observation window.
+
+### 5. Move the pipeline
+
+Previewing a move runs the readiness assessment without changing the pipeline:
+
+```shell
+cluster-migrator --dry-run pipeline move monorepo \
+  --destination-cluster production
+```
+
+Move the pipeline only after reviewing the assessment and your operational signals:
+
+```shell
 cluster-migrator pipeline move monorepo \
   --destination-cluster production
 ```
 
-Use `cluster-migrator queue rollback test` to return newly created jobs to the unclustered queue. Existing jobs remain where they were originally routed.
+The CLI has no pipeline rollback command. The server revalidates authoritative migration invariants when applying a move; an earlier `no_known_blockers` result is not authorization by itself.
 
-Every mutation runs non-interactively and supports `--dry-run`. Use `--json` for machine-readable output. Percentages are absolute, not relative increments.
+Repeat the queue stages for every source queue and the pipeline stages for every pipeline in the workload.
 
-## Commands
+## Command reference
 
-```text
-cluster-migrator queue configure
-cluster-migrator queue set-percent
-cluster-migrator queue rollback
-cluster-migrator queue status
-cluster-migrator queue metrics
+| Command | Purpose |
+| --- | --- |
+| `queue configure <queue> --destination-cluster <cluster>` | Map a source queue to an existing destination queue at 0%. |
+| `queue status [queue]` | Show one queue migration or list all migrations. |
+| `queue set-percent <queue> --to <0-100>` | Set the absolute percentage of new jobs routed to the cluster queue. |
+| `queue metrics <queue>` | Compare recent source and destination activity. |
+| `queue rollback <queue>` | Set routing to 0% for new jobs. |
+| `pipeline readiness <pipeline> --destination-cluster <cluster>` | Assess known queue and concurrency-group blockers. |
+| `pipeline move <pipeline> --destination-cluster <cluster>` | Permanently assign a pipeline to the cluster. |
 
-cluster-migrator pipeline readiness
-cluster-migrator pipeline move
+Run `cluster-migrator <command> --help` for full usage.
+
+### Global flags
+
+| Flag | Purpose |
+| --- | --- |
+| `--dry-run` | Validate and display a mutation without applying it. |
+| `--json` | Write machine-readable JSON instead of terminal output. |
+| `--timeout <duration>` | Set the maximum command duration; defaults to `10m`. |
+| `--endpoint <url>` | Override the Buildkite REST API endpoint. Also available as `BUILDKITE_API_ENDPOINT`. |
+| `--api-token <token>` | Supply the API token. Prefer `BUILDKITE_API_TOKEN` to keep it out of shell history and process listings. |
+
+All mutations are non-interactive. The CLI reads fresh server state before applying routing changes.
+
+## Output and automation
+
+Human-readable output includes current state, results, observation freshness, and suggested next steps. Missing metric values appear as `—`, not zero.
+
+Use `--json` in scripts:
+
+```shell
+cluster-migrator --json queue status
+cluster-migrator --json queue metrics test
+cluster-migrator --json pipeline readiness monorepo \
+  --destination-cluster production
 ```
 
-Queue migrations are addressed by their exact, case-sensitive source queue key. The CLI resolves destination cluster names to IDs and reads fresh server state before every mutation.
+JSON preserves the API's `null` metric and observation values. Terminal-only guidance is omitted.
 
-The CLI calls these queue migration endpoints:
+Queue metrics and pipeline readiness may initially be unavailable while Buildkite prepares an observation. The CLI follows the server's retry interval for up to one minute, writes prolonged-wait progress to stderr, and keeps stdout clean for the final human-readable or JSON result.
 
-```text
-GET    /v2/organizations/{org}/cluster-queue-migrations
-POST   /v2/organizations/{org}/cluster-queue-migrations
-GET    /v2/organizations/{org}/cluster-queue-migrations/{queue_key}
-GET    /v2/organizations/{org}/cluster-queue-migrations/{queue_key}/metrics
-PATCH  /v2/organizations/{org}/cluster-queue-migrations/{queue_key}
-DELETE /v2/organizations/{org}/cluster-queue-migrations/{queue_key}
+## Development
 
-GET    /v2/organizations/{org}/cluster-queue-migrations/pipelines/{pipeline}/readiness
-POST   /v2/organizations/{org}/cluster-queue-migrations/pipelines/{pipeline}/move
+Install the pinned tools, build the binary, and run the development checks with [mise](https://mise.jdx.dev/):
+
+```shell
+mise install
+mise run build
+mise run format
+mise run lint
+mise run test
+mise run vet
 ```
 
-Percentage changes through the queue migration `PATCH` endpoint must atomically enforce capacity and dependency gates. The future `move` endpoint must atomically validate authoritative invariants on the writer before changing a pipeline's cluster; a prior `no_known_blockers` assessment is not authorization to move. These guarded endpoints and the pipeline contracts are provisional until their server implementations ship. They are isolated in `internal/buildkite` so they can change without affecting command parsing.
+The build task creates `./cluster-migrator`. Run `mise run release-check` when changing the release configuration. The pre-commit hook runs formatting, linting, tests, and `go vet` in parallel.
