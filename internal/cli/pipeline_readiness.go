@@ -111,9 +111,20 @@ func (c *Context) printPipelineReadiness(readiness *buildkite.PipelineReadiness)
 		return err
 	}
 
-	if _, err := fmt.Fprintf(c.Output, "OBSERVATIONS\nQueues: %s\nConcurrency groups: %s\n",
+	now := c.now()
+	queueRefresh, err := formatPipelineRefreshDue(readiness.QueueObservation.NextRefreshAt, now)
+	if err != nil {
+		return err
+	}
+	concurrencyGroupRefresh, err := formatPipelineRefreshDue(readiness.ConcurrencyGroupObservation.NextRefreshAt, now)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(c.Output, "OBSERVATIONS\nQueues: %s\nQueue refresh eligible: %s\nConcurrency groups: %s\nConcurrency-group refresh eligible: %s\n",
 		c.pipelineObservationSummary(readiness.QueueObservation.Complete, readiness.QueueObservation.WindowSeconds, readiness.QueueObservation.ObservedAt, readiness.QueueObservation.WindowStartedAt),
+		queueRefresh,
 		c.pipelineObservationSummary(readiness.ConcurrencyGroupObservation.Complete, readiness.ConcurrencyGroupObservation.WindowSeconds, readiness.ConcurrencyGroupObservation.ObservedAt, readiness.ConcurrencyGroupObservation.WindowStartedAt),
+		concurrencyGroupRefresh,
 	); err != nil {
 		return err
 	}
@@ -261,6 +272,17 @@ func pipelineObservationTimestamp(value string) string {
 		return value
 	}
 	return timestamp.UTC().Format("2006-01-02 15:04:05 UTC")
+}
+
+func formatPipelineRefreshDue(nextRefreshAt *string, now time.Time) (string, error) {
+	if nextRefreshAt == nil || *nextRefreshAt == "" {
+		return "unavailable", nil
+	}
+	refreshAt, err := time.Parse(time.RFC3339Nano, *nextRefreshAt)
+	if err != nil {
+		return "", fmt.Errorf("parse pipeline readiness next_refresh_at: %w", err)
+	}
+	return formatRefreshDue(refreshAt, now), nil
 }
 
 func (c *Context) printPipelineReadinessActions(readiness *buildkite.PipelineReadiness) error {

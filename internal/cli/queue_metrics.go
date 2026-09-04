@@ -310,23 +310,27 @@ func formatMetricsRefreshDue(nextRefreshAt string, now time.Time) (string, error
 	if err != nil {
 		return "", fmt.Errorf("parse queue metrics next_refresh_at: %w", err)
 	}
+	return formatRefreshDue(refreshAt, now), nil
+}
+
+func formatRefreshDue(refreshAt, now time.Time) string {
 	if !refreshAt.After(now) {
-		return "now", nil
+		return "now"
 	}
 
 	remainingSeconds := int(refreshAt.Sub(now) / time.Second)
 	if remainingSeconds == 0 {
-		return "in less than 1 second", nil
+		return "in less than 1 second"
 	}
 	minutes := remainingSeconds / 60
 	seconds := remainingSeconds % 60
 	if minutes == 0 {
-		return fmt.Sprintf("in %d %s", seconds, pluralize(seconds, "second")), nil
+		return fmt.Sprintf("in %d %s", seconds, pluralize(seconds, "second"))
 	}
 	if seconds == 0 {
-		return fmt.Sprintf("in %d %s", minutes, pluralize(minutes, "minute")), nil
+		return fmt.Sprintf("in %d %s", minutes, pluralize(minutes, "minute"))
 	}
-	return fmt.Sprintf("in %d %s %d %s", minutes, pluralize(minutes, "minute"), seconds, pluralize(seconds, "second")), nil
+	return fmt.Sprintf("in %d %s %d %s", minutes, pluralize(minutes, "minute"), seconds, pluralize(seconds, "second"))
 }
 
 func pluralize(value int, unit string) string {
