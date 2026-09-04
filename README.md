@@ -148,7 +148,21 @@ When metrics are still being prepared, the command waits for the server's reques
 
 Deploy [buildkite/buildkite#33783](https://github.com/buildkite/buildkite/pull/33783) before releasing this client. Missing nested destination/source objects, activity objects, or required source observation and source/destination refresh timestamps are contract errors and produce no command output. Rolling the backend back to the flattened contract after this client is released requires rolling back this client first.
 
-`pipeline readiness` separates queue blockers from concurrency-group blockers, shows observation coverage and freshness, and suggests a next command only when a blocker has a supported CLI action. Missing routing percentages and timestamps are shown as `—` or unavailable rather than zero. Machine reason identifiers remain visible beside their operator-readable descriptions:
+`pipeline readiness` separates queue blockers from concurrency-group blockers, shows observation coverage and freshness, and suggests a next command only when a blocker has a supported CLI action. Missing routing percentages and optional observation timestamps are shown as `—` or unavailable rather than zero. Machine reason identifiers remain visible beside their operator-readable descriptions:
+
+Readiness observations become refresh-eligible one minute after their own `observed_at`. Cached timestamps remain unchanged through 59 seconds and advance after the normal refresh at 60 seconds. Queue and concurrency-group observations expose separate `next_refresh_at` values; they are equal today because one cache entry owns both observations, but clients treat them independently. The 600-second `window_seconds` is dependency history, not refresh cadence.
+
+During `observation_pending`, `retry_after_seconds: 10` remains the authoritative retry instruction and both `next_refresh_at` values are explicitly `null`; the API does not expose an authoritative absolute expiry for the stale-race extension. Final available assessments require valid RFC3339 refresh timestamps for both observations.
+
+Before:
+
+```text
+OBSERVATIONS
+Queues: incomplete; 10-minute window ending 48 seconds ago; started 2026-09-01 06:50:00 UTC
+Concurrency groups: incomplete; 10-minute window ending 48 seconds ago; started 2026-09-01 06:50:00 UTC
+```
+
+After:
 
 ```text
 PIPELINE READINESS
@@ -175,7 +189,9 @@ pipeline / deploy
 
 OBSERVATIONS
 Queues: incomplete; 10-minute window ending 48 seconds ago; started 2026-09-01 06:50:00 UTC
+Queue refresh eligible: in 12 seconds
 Concurrency groups: incomplete; 10-minute window ending 48 seconds ago; started 2026-09-01 06:50:00 UTC
+Concurrency-group refresh eligible: in 12 seconds
 
 Incomplete observations may omit blockers outside the observed window.
 
@@ -193,6 +209,8 @@ NEXT STEPS
 A blocked assessment is printed to stdout and still exits non-zero. `NO KNOWN BLOCKERS` means only that no blocker was found in the reported observations; it is not proof that the pipeline is ready to move or authorization to move it. Dependency discovery covers the reported recent window and may be incomplete. Current queue migration state is evaluated against a cached observation, while the assessment itself is never cached.
 
 With `--json`, `pipeline readiness` returns the unchanged API-shaped object, including raw statuses and reasons, `null` values, observation timestamps, and the API URL. Terminal descriptions and next-step guidance are not added to JSON.
+
+Deploy [buildkite/buildkite#33789](https://github.com/buildkite/buildkite/pull/33789) before releasing the client with this refresh contract. If the backend must be rolled back after that client release, roll back the client first; otherwise final assessments no longer contain its required refresh timestamps.
 
 If an observation is being refreshed, the CLI waits without writing to stdout, reports prolonged preparation on stderr, and retries for up to one minute.
 
