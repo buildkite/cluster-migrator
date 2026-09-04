@@ -214,11 +214,36 @@ func TestQueueMetricsPreservesParentDeadline(t *testing.T) {
 func TestFormatMetricsFreshness(t *testing.T) {
 	now := time.Date(2026, time.September, 1, 7, 0, 48, 0, time.UTC)
 
-	got, err := formatMetricsFreshness("2026-09-01T07:00:00Z", now)
-	if err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name    string
+		elapsed time.Duration
+		want    string
+	}{
+		{name: "just now", elapsed: 0, want: "just now"},
+		{name: "less than one second", elapsed: 999 * time.Millisecond, want: "just now"},
+		{name: "one second", elapsed: time.Second, want: "1 second ago"},
+		{name: "seconds", elapsed: 59 * time.Second, want: "59 seconds ago"},
+		{name: "exactly one minute", elapsed: time.Minute, want: "1 minute ago"},
+		{name: "singular minute and second", elapsed: time.Minute + time.Second, want: "1 minute 1 second ago"},
+		{name: "singular minute and plural seconds", elapsed: time.Minute + 2*time.Second, want: "1 minute 2 seconds ago"},
+		{name: "plural minutes and singular second", elapsed: 2*time.Minute + time.Second, want: "2 minutes 1 second ago"},
+		{name: "plural minutes and seconds", elapsed: 2*time.Minute + 2*time.Second, want: "2 minutes 2 seconds ago"},
+		{name: "exact whole minutes", elapsed: 2 * time.Minute, want: "2 minutes ago"},
+		{name: "last second before one hour", elapsed: 59*time.Minute + 59*time.Second, want: "59 minutes 59 seconds ago"},
+		{name: "exactly one hour", elapsed: time.Hour, want: "1 hour ago"},
+		{name: "whole hours", elapsed: 2 * time.Hour, want: "2 hours ago"},
 	}
-	if got != "48 seconds ago" {
-		t.Fatalf("freshness = %q, want %q", got, "48 seconds ago")
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			observedAt := now.Add(-test.elapsed).Format(time.RFC3339Nano)
+			got, err := formatMetricsFreshness(observedAt, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != test.want {
+				t.Fatalf("freshness = %q, want %q", got, test.want)
+			}
+		})
 	}
 }
