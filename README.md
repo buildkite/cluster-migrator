@@ -144,7 +144,15 @@ If an observation is being refreshed, the CLI waits without writing to stdout, r
 
 When `pipeline move --dry-run` is blocked, it prints the readiness assessment, including queue and concurrency-group blockers, and exits non-zero without printing a proposed move. With `--json`, stdout contains exactly one readiness assessment object.
 
-A successful `pipeline move` completes when the synchronous move response returns. The command verifies that the response reports the requested destination cluster and, with `--json`, prints that API response without a confirmation request.
+A successful `pipeline move` completes when the synchronous move response returns and identifies the pipeline and destination cluster by name:
+
+```text
+RESULT
+
+Demo Pipeline (demo-pipeline) is now using the Production cluster
+```
+
+The command verifies that the response reports the requested destination cluster. If the API omits the pipeline name, the slug is displayed instead. With `--json`, it prints the API-shaped response without a confirmation request. Dry runs retain the proposed-change output and do not report a completed move.
 
 With `--json`, percentage changes and rollbacks return:
 

@@ -55,8 +55,16 @@ type QueueStatus struct {
 	Next           string           `json:"-"`
 }
 
+type PipelineMoveResult struct {
+	Pipeline    *buildkite.Pipeline
+	Destination string
+}
+
 func (c *Context) Print(value any) error {
 	if c.JSON {
+		if result, ok := value.(PipelineMoveResult); ok {
+			value = result.Pipeline
+		}
 		encoder := json.NewEncoder(c.Output)
 		encoder.SetIndent("", "  ")
 		return encoder.Encode(value)
@@ -102,6 +110,15 @@ func (c *Context) Print(value any) error {
 		return c.printQueueMetrics(value)
 	case *buildkite.PipelineReadiness:
 		return c.printPipelineReadiness(value)
+	case PipelineMoveResult:
+		pipeline := value.Pipeline.Name
+		if pipeline == "" {
+			pipeline = value.Pipeline.Slug
+		} else {
+			pipeline = fmt.Sprintf("%s (%s)", pipeline, value.Pipeline.Slug)
+		}
+		_, err := fmt.Fprintf(c.Output, "RESULT\n\n%s is now using the %s cluster\n", pipeline, value.Destination)
+		return err
 	case Change:
 		var line strings.Builder
 		_, _ = fmt.Fprintf(&line, "%s %s", value.Action, value.Resource)
