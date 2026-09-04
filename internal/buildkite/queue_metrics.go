@@ -20,9 +20,10 @@ type QueueMetrics struct {
 }
 
 type QueueActivity struct {
-	ConnectedAgents MetricValues `json:"connected_agents"`
-	WaitingJobs     MetricValues `json:"waiting_jobs"`
-	RunningJobs     MetricValues `json:"running_jobs"`
+	ConnectedAgents    MetricValues        `json:"connected_agents"`
+	WaitingJobs        MetricValues        `json:"waiting_jobs"`
+	RunningJobs        MetricValues        `json:"running_jobs"`
+	WaitTimeP95Seconds DecimalMetricValues `json:"wait_time_p95_seconds"`
 }
 
 type QueueSource struct {
@@ -32,13 +33,19 @@ type QueueSource struct {
 }
 
 type QueueSourceActivity struct {
-	WaitingJobs MetricValues `json:"waiting_jobs"`
-	RunningJobs MetricValues `json:"running_jobs"`
+	ConnectedAgents MetricValues `json:"connected_agents"`
+	WaitingJobs     MetricValues `json:"waiting_jobs"`
+	RunningJobs     MetricValues `json:"running_jobs"`
 }
 
 type MetricValues struct {
 	Current *int `json:"current"`
 	Peak    *int `json:"peak"`
+}
+
+type DecimalMetricValues struct {
+	Current *float64 `json:"current"`
+	Peak    *float64 `json:"peak"`
 }
 
 func (c *Client) GetQueueMetrics(ctx context.Context, queue string) (*QueueMetrics, error) {

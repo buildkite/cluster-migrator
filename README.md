@@ -74,35 +74,35 @@ Queue mutations display the previous and resulting routing percentages. Successf
 
 When no queue migrations are configured, human-readable `queue status` points to `queue configure`; with `--json`, it returns `[]`.
 
-`queue metrics` displays current source activity separately from the latest and maximum destination activity. These counts are workload context, not required-agent estimates or a pipeline readiness assessment. Before increasing traffic, also inspect dispatch and queue latency and stranded-job alerts in observability. When the API provides `next_refresh_at`, the refresh countdown shows when the cached destination snapshot becomes eligible for request-driven replacement, not when a newer observation is guaranteed to be complete. Missing values are shown as `—`, not zero:
+`queue metrics` compares current source activity with the latest and maximum destination activity. These values are workload context, not required-agent estimates or a pipeline readiness assessment. Before increasing traffic, also inspect dispatch and queue latency and stranded-job alerts in observability. Missing or stale destination values are shown as `—`, not zero:
 
 ```text
 QUEUE METRICS
-Queue: default
-Routing: 30%
 
-SOURCE ACTIVITY (Unclustered)
-Observed: just now
+Queue: default    Routing: 30%
 
-METRIC        CURRENT
-Waiting jobs  16
-Running jobs  31
+SOURCE - Unclustered             DESTINATION - Cluster cluster-id
++------------------+---------+   +------------------+--------+---------+
+| Metric           | Current |   | Metric           | Latest | 10m max |
++------------------+---------+   +------------------+--------+---------+
+| Waiting jobs     |      16 |   | Waiting jobs     |      4 |      12 |
+| Running jobs     |      31 |   | Running jobs     |     38 |      46 |
+| Connected agents |      46 |   | Connected agents |     50 |      54 |
++------------------+---------+   | Wait time (p95)  |     3s |    6.5s |
+                                 +------------------+--------+---------+
 
-DESTINATION ACTIVITY (Cluster cluster-id)
-Observed: 1 minute 52 seconds ago
-Refresh due: in 8 seconds
-
-METRIC            LATEST  10M MAX
-Connected agents  50      54
-Waiting jobs      4       12
-Running jobs      38      46
+Source observed: just now
+Destination refreshed: 1m 52s ago
+Next refresh eligible: in 8s
 ```
 
-Destination activity comes from the existing metrics window; its observation time shows when that window ended. Source activity is queried separately for each request from the Pipelines replica, so its observation time and freshness can differ and replica lag can delay its counts. Source waiting jobs are active unclustered script jobs in `scheduled`, `reserved`, `assigned`, and `accepted`; source running jobs are those in `running`, `canceling`, and `timing_out`. The counts include active jobs created before migration and jobs left unclustered by routing when they were created, but exclude destroyed and already-routed jobs. Changing the routing percentage does not move existing jobs.
+The source and destination tables are shown side by side when they fit within 80 columns and stacked otherwise. Queue and cluster identifiers are never truncated. The destination heading uses the authoritative cluster ID because this response does not provide its name.
 
-Historical source peaks and throughput are unavailable, so the source table shows only current workload and the API returns `null` source peaks. With `--json`, the command preserves the API response shape, including the required `source` object, those `null` values, routing percentage, refresh time, and both observation timestamps. A missing or `null` `source` is an API contract error and produces no command output.
+Destination activity comes from the cached metrics window; `Destination refreshed` shows when that observation ended. `Next refresh eligible` shows when a request may replace the cached snapshot, not when newer data is guaranteed. Source activity is queried separately for each request from the Pipelines replica, so `Source observed` has independent freshness and replica lag can delay its counts. Source waiting jobs are active unclustered script jobs in `scheduled`, `reserved`, `assigned`, and `accepted`; source running jobs are those in `running`, `canceling`, and `timing_out`. Source connected agents are registered, non-destroyed unclustered agents matching the source queue. Changing the routing percentage does not move existing jobs.
 
-Complete the backend rollout that provides `source` before releasing this client. Rolling the backend back to a version without `source` after this client is released is unsupported and produces the contract error rather than degraded destination-only output. The optional `next_refresh_at` may still be absent; human-readable output then omits the refresh line.
+Historical source peaks and source wait-time percentiles are unavailable, so the source table shows only current values and the API returns `null` source peaks. Destination wait time is the p95 for the latest completed minute and the maximum minute-level p95 over the displayed window; either value may be `null` when the destination observation is unavailable or stale. With `--json`, the command preserves the API response shape and fractional wait times, including the required `source` object, `null` values, routing percentage, refresh time, and both observation timestamps. A missing or `null` `source` is an API contract error and produces no command output.
+
+The optional `next_refresh_at` may be absent; human-readable output then omits the eligibility line.
 
 When metrics are still being prepared, the command waits for the server's requested retry interval without writing to stdout. If preparation takes longer than the first retry, it reports progress on stderr and keeps retrying for up to one minute.
 

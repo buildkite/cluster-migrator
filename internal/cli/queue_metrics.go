@@ -4,13 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"text/tabwriter"
+	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/buildkite/cluster-migrator/internal/buildkite"
 )
 
 const queueMetricsTimeout = time.Minute
+const queueMetricsDisplayWidth = 80
 
 type QueueMetricsCmd struct {
 	Queue string `arg:"" help:"Source queue key."`
@@ -63,60 +66,144 @@ func queueMetricsDeadlineError(parent context.Context) error {
 
 func (c *Context) printQueueMetrics(metrics *buildkite.QueueMetrics) error {
 	now := c.now()
-	freshness := "—"
+	destinationFreshness := "—"
 	if metrics.ObservedAt != nil {
 		var err error
-		freshness, err = formatMetricsFreshness(*metrics.ObservedAt, now)
+		destinationFreshness, err = formatCompactMetricsFreshness(*metrics.ObservedAt, now)
 		if err != nil {
 			return err
 		}
 	}
 
-	refreshDueLine := ""
+	nextRefreshLine := ""
 	if metrics.NextRefreshAt != nil {
-		refreshDue, err := formatMetricsRefreshDue(*metrics.NextRefreshAt, now)
+		refreshDue, err := formatCompactMetricsRefreshDue(*metrics.NextRefreshAt, now)
 		if err != nil {
 			return err
 		}
-		refreshDueLine = fmt.Sprintf("Refresh due: %s\n", refreshDue)
+		nextRefreshLine = fmt.Sprintf("Next refresh eligible: %s\n", refreshDue)
 	}
 
 	sourceFreshness := "—"
 	if metrics.Source.ObservedAt != nil {
 		var err error
-		sourceFreshness, err = formatMetricsFreshness(*metrics.Source.ObservedAt, now)
+		sourceFreshness, err = formatCompactMetricsFreshness(*metrics.Source.ObservedAt, now)
 		if err != nil {
 			return err
 		}
 	}
-	if _, err := fmt.Fprintf(c.Output, "QUEUE METRICS\nQueue: %s\nRouting: %s\n\nSOURCE ACTIVITY (Unclustered)\nObserved: %s\n\n",
-		displayValue(metrics.Queue),
-		metricPercent(metrics.RoutedPercent),
+
+	sourceTable := renderASCIITable(
+		[]string{"Metric", "Current"},
+		[][]string{
+			{"Waiting jobs", metricValue(metrics.Source.Activity.WaitingJobs.Current)},
+			{"Running jobs", metricValue(metrics.Source.Activity.RunningJobs.Current)},
+			{"Connected agents", metricValue(metrics.Source.Activity.ConnectedAgents.Current)},
+		},
+	)
+	destinationTable := renderASCIITable(
+		[]string{"Metric", "Latest", metricsWindowHeading(metrics.WindowSeconds)},
+		[][]string{
+			{"Waiting jobs", metricValue(metrics.Activity.WaitingJobs.Current), metricValue(metrics.Activity.WaitingJobs.Peak)},
+			{"Running jobs", metricValue(metrics.Activity.RunningJobs.Current), metricValue(metrics.Activity.RunningJobs.Peak)},
+			{"Connected agents", metricValue(metrics.Activity.ConnectedAgents.Current), metricValue(metrics.Activity.ConnectedAgents.Peak)},
+			{"Wait time (p95)", metricDuration(metrics.Activity.WaitTimeP95Seconds.Current), metricDuration(metrics.Activity.WaitTimeP95Seconds.Peak)},
+		},
+	)
+
+	summary := fmt.Sprintf("Queue: %s    Routing: %s", displayValue(metrics.Queue), metricPercent(metrics.RoutedPercent))
+	if utf8.RuneCountInString(summary) > queueMetricsDisplayWidth {
+		summary = fmt.Sprintf("Queue: %s\nRouting: %s", displayValue(metrics.Queue), metricPercent(metrics.RoutedPercent))
+	}
+	comparison := renderMetricPanels(
+		"SOURCE - Unclustered",
+		sourceTable,
+		fmt.Sprintf("DESTINATION - Cluster %s", displayValue(metrics.Destination.ClusterID)),
+		destinationTable,
+	)
+	_, err := fmt.Fprintf(c.Output, "QUEUE METRICS\n\n%s\n\n%s\nSource observed: %s\nDestination refreshed: %s\n%s",
+		summary,
+		comparison,
 		sourceFreshness,
-	); err != nil {
-		return err
+		destinationFreshness,
+		nextRefreshLine,
+	)
+	return err
+}
+
+func renderASCIITable(headers []string, rows [][]string) []string {
+	widths := make([]int, len(headers))
+	for column, header := range headers {
+		widths[column] = utf8.RuneCountInString(header)
 	}
-	writer := tabwriter.NewWriter(c.Output, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintln(writer, "METRIC\tCURRENT")
-	_, _ = fmt.Fprintf(writer, "Waiting jobs\t%s\n", metricValue(metrics.Source.Activity.WaitingJobs.Current))
-	_, _ = fmt.Fprintf(writer, "Running jobs\t%s\n", metricValue(metrics.Source.Activity.RunningJobs.Current))
-	if err := writer.Flush(); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(c.Output, "\nDESTINATION ACTIVITY (Cluster %s)\nObserved: %s\n%s\n",
-		displayValue(metrics.Destination.ClusterID),
-		freshness,
-		refreshDueLine,
-	); err != nil {
-		return err
+	for _, row := range rows {
+		for column, value := range row {
+			widths[column] = max(widths[column], utf8.RuneCountInString(value))
+		}
 	}
 
-	writer = tabwriter.NewWriter(c.Output, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintf(writer, "METRIC\tLATEST\t%dM MAX\n", metrics.WindowSeconds/60)
-	_, _ = fmt.Fprintf(writer, "Connected agents\t%s\t%s\n", metricValue(metrics.Activity.ConnectedAgents.Current), metricValue(metrics.Activity.ConnectedAgents.Peak))
-	_, _ = fmt.Fprintf(writer, "Waiting jobs\t%s\t%s\n", metricValue(metrics.Activity.WaitingJobs.Current), metricValue(metrics.Activity.WaitingJobs.Peak))
-	_, _ = fmt.Fprintf(writer, "Running jobs\t%s\t%s\n", metricValue(metrics.Activity.RunningJobs.Current), metricValue(metrics.Activity.RunningJobs.Peak))
-	return writer.Flush()
+	border := "+"
+	for _, width := range widths {
+		border += strings.Repeat("-", width+2) + "+"
+	}
+	lines := []string{border, renderASCIIRow(headers, widths, false), border}
+	for _, row := range rows {
+		lines = append(lines, renderASCIIRow(row, widths, true))
+	}
+	return append(lines, border)
+}
+
+func renderASCIIRow(values []string, widths []int, rightAlignValues bool) string {
+	var line strings.Builder
+	line.WriteByte('|')
+	for column, value := range values {
+		padding := widths[column] - utf8.RuneCountInString(value)
+		line.WriteByte(' ')
+		if rightAlignValues && column > 0 {
+			line.WriteString(strings.Repeat(" ", padding))
+		}
+		line.WriteString(value)
+		if !rightAlignValues || column == 0 {
+			line.WriteString(strings.Repeat(" ", padding))
+		}
+		line.WriteString(" |")
+	}
+	return line.String()
+}
+
+func renderMetricPanels(sourceTitle string, sourceTable []string, destinationTitle string, destinationTable []string) string {
+	sourceWidth := max(utf8.RuneCountInString(sourceTitle), utf8.RuneCountInString(sourceTable[0]))
+	destinationWidth := max(utf8.RuneCountInString(destinationTitle), utf8.RuneCountInString(destinationTable[0]))
+	if sourceWidth+3+destinationWidth > queueMetricsDisplayWidth {
+		return sourceTitle + "\n" + strings.Join(sourceTable, "\n") + "\n\n" + destinationTitle + "\n" + strings.Join(destinationTable, "\n") + "\n"
+	}
+
+	lineCount := max(len(sourceTable), len(destinationTable))
+	lines := make([]string, 0, lineCount+1)
+	lines = append(lines, padRight(sourceTitle, sourceWidth)+"   "+destinationTitle)
+	for index := range lineCount {
+		sourceLine := ""
+		if index < len(sourceTable) {
+			sourceLine = sourceTable[index]
+		}
+		destinationLine := ""
+		if index < len(destinationTable) {
+			destinationLine = destinationTable[index]
+		}
+		lines = append(lines, padRight(sourceLine, sourceWidth)+"   "+destinationLine)
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func padRight(value string, width int) string {
+	return value + strings.Repeat(" ", width-utf8.RuneCountInString(value))
+}
+
+func metricsWindowHeading(windowSeconds int) string {
+	if windowSeconds > 0 && windowSeconds%60 == 0 {
+		return fmt.Sprintf("%dm max", windowSeconds/60)
+	}
+	return fmt.Sprintf("%ds max", windowSeconds)
 }
 
 func displayValue(value string) string {
@@ -138,6 +225,58 @@ func metricValue(value *int) string {
 		return "—"
 	}
 	return fmt.Sprintf("%d", *value)
+}
+
+func metricDuration(value *float64) string {
+	if value == nil {
+		return "—"
+	}
+	return strconv.FormatFloat(*value, 'f', -1, 64) + "s"
+}
+
+func formatCompactMetricsFreshness(observedAt string, now time.Time) (string, error) {
+	observed, err := time.Parse(time.RFC3339Nano, observedAt)
+	if err != nil {
+		return "", fmt.Errorf("parse queue metrics observed_at: %w", err)
+	}
+	elapsed := now.Sub(observed)
+	if elapsed < time.Second {
+		return "just now", nil
+	}
+	return formatCompactDuration(elapsed) + " ago", nil
+}
+
+func formatCompactMetricsRefreshDue(nextRefreshAt string, now time.Time) (string, error) {
+	refreshAt, err := time.Parse(time.RFC3339Nano, nextRefreshAt)
+	if err != nil {
+		return "", fmt.Errorf("parse queue metrics next_refresh_at: %w", err)
+	}
+	remaining := refreshAt.Sub(now)
+	if remaining <= 0 {
+		return "now", nil
+	}
+	if remaining < time.Second {
+		return "in <1s", nil
+	}
+	return "in " + formatCompactDuration(remaining), nil
+}
+
+func formatCompactDuration(duration time.Duration) string {
+	totalSeconds := int(duration / time.Second)
+	hours := totalSeconds / 3600
+	minutes := totalSeconds / 60 % 60
+	seconds := totalSeconds % 60
+	parts := make([]string, 0, 3)
+	if hours > 0 {
+		parts = append(parts, fmt.Sprintf("%dh", hours))
+	}
+	if minutes > 0 {
+		parts = append(parts, fmt.Sprintf("%dm", minutes))
+	}
+	if seconds > 0 || len(parts) == 0 {
+		parts = append(parts, fmt.Sprintf("%ds", seconds))
+	}
+	return strings.Join(parts, " ")
 }
 
 func formatMetricsFreshness(observedAt string, now time.Time) (string, error) {

@@ -5,11 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
-	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,55 +16,73 @@ import (
 )
 
 func TestQueueMetricsPrintsSourceActivitySeparately(t *testing.T) {
-	t.Setenv("BUILDKITE_API_TOKEN", "secret")
-	destinationObservedAt := time.Now().Add(-48 * time.Second).UTC().Format(time.RFC3339Nano)
-	sourceObservedAt := time.Now().Add(-2 * time.Minute).UTC().Format(time.RFC3339Nano)
-	nextRefreshAt := time.Now().Add(2 * time.Minute).UTC().Format(time.RFC3339Nano)
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprintf(w, `{
-			"queue":"default",
-			"destination":{"cluster_id":"cluster-id","queue_id":"queue-id","queue_key":"cluster-default"},
-			"routed_percent":30,
-			"window_started_at":"2026-09-01T06:50:00Z",
-			"observed_at":%q,
-			"next_refresh_at":%q,
-			"window_seconds":600,
-			"activity":{
-				"connected_agents":{"current":50,"peak":54},
-				"waiting_jobs":{"current":4,"peak":12},
-				"running_jobs":{"current":38,"peak":46}
-			},
-			"source":{
-				"queue_key":"default",
-				"observed_at":%q,
-				"activity":{
-					"waiting_jobs":{"current":0,"peak":null},
-					"running_jobs":{"current":0,"peak":null}
-				}
-			}
-		}`, destinationObservedAt, nextRefreshAt, sourceObservedAt)
-	}))
-	defer server.Close()
-
+	now := time.Date(2026, time.September, 1, 7, 2, 0, 0, time.UTC)
+	destinationObservedAt := "2026-09-01T07:00:08Z"
+	sourceObservedAt := "2026-09-01T07:02:00Z"
+	nextRefreshAt := "2026-09-01T07:02:08Z"
+	routing, sourceAgents, sourceWaiting, sourceRunning := 30, 46, 16, 31
+	destinationAgents, peakDestinationAgents := 50, 54
+	destinationWaiting, peakDestinationWaiting := 4, 12
+	destinationRunning, peakDestinationRunning := 38, 46
+	currentWait, peakWait := 3.0, 6.5
 	var stdout bytes.Buffer
-	err := Run(context.Background(), []string{
-		"--endpoint", server.URL,
-		"queue", "metrics", "default",
-	}, &stdout, &bytes.Buffer{}, organizationClient(server.Client()))
+	app := Context{Output: &stdout, Now: func() time.Time { return now }}
+	err := app.printQueueMetrics(&buildkite.QueueMetrics{
+		Queue:         "default",
+		Destination:   buildkite.QueueDestination{ClusterID: "cluster-id"},
+		RoutedPercent: &routing,
+		ObservedAt:    &destinationObservedAt,
+		NextRefreshAt: &nextRefreshAt,
+		WindowSeconds: 600,
+		Activity: buildkite.QueueActivity{
+			ConnectedAgents:    buildkite.MetricValues{Current: &destinationAgents, Peak: &peakDestinationAgents},
+			WaitingJobs:        buildkite.MetricValues{Current: &destinationWaiting, Peak: &peakDestinationWaiting},
+			RunningJobs:        buildkite.MetricValues{Current: &destinationRunning, Peak: &peakDestinationRunning},
+			WaitTimeP95Seconds: buildkite.DecimalMetricValues{Current: &currentWait, Peak: &peakWait},
+		},
+		Source: &buildkite.QueueSource{
+			ObservedAt: &sourceObservedAt,
+			Activity: buildkite.QueueSourceActivity{
+				ConnectedAgents: buildkite.MetricValues{Current: &sourceAgents},
+				WaitingJobs:     buildkite.MetricValues{Current: &sourceWaiting},
+				RunningJobs:     buildkite.MetricValues{Current: &sourceRunning},
+			},
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	sourceObservation := regexp.MustCompile(`SOURCE ACTIVITY \(Unclustered\)\nObserved: \d+ minutes ago`)
-	destinationObservation := regexp.MustCompile(`DESTINATION ACTIVITY \(Cluster cluster-id\)\nObserved: \d+ seconds ago`)
-	refreshDue := regexp.MustCompile(`Refresh due: in \d+ minute(?:s)?(?: \d+ seconds)?`)
-	got := sourceObservation.ReplaceAllString(stdout.String(), "SOURCE ACTIVITY (Unclustered)\nObserved: <source age>")
-	got = destinationObservation.ReplaceAllString(got, "DESTINATION ACTIVITY (Cluster cluster-id)\nObserved: <destination age>")
-	got = refreshDue.ReplaceAllString(got, "Refresh due: <refresh due>")
-	want := "QUEUE METRICS\nQueue: default\nRouting: 30%\n\nSOURCE ACTIVITY (Unclustered)\nObserved: <source age>\n\nMETRIC        CURRENT\nWaiting jobs  0\nRunning jobs  0\n\nDESTINATION ACTIVITY (Cluster cluster-id)\nObserved: <destination age>\nRefresh due: <refresh due>\n\nMETRIC            LATEST  10M MAX\nConnected agents  50      54\nWaiting jobs      4       12\nRunning jobs      38      46\n"
-	if got != want {
+	want := "QUEUE METRICS\n\nQueue: default    Routing: 30%\n\nSOURCE - Unclustered             DESTINATION - Cluster cluster-id\n+------------------+---------+   +------------------+--------+---------+\n| Metric           | Current |   | Metric           | Latest | 10m max |\n+------------------+---------+   +------------------+--------+---------+\n| Waiting jobs     |      16 |   | Waiting jobs     |      4 |      12 |\n| Running jobs     |      31 |   | Running jobs     |     38 |      46 |\n| Connected agents |      46 |   | Connected agents |     50 |      54 |\n+------------------+---------+   | Wait time (p95)  |     3s |    6.5s |\n                                 +------------------+--------+---------+\n\nSource observed: just now\nDestination refreshed: 1m 52s ago\nNext refresh eligible: in 8s\n"
+	if got := stdout.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
+	}
+}
+
+func TestQueueMetricsStacksLongIdentityWithoutTruncatingIt(t *testing.T) {
+	clusterID := strings.Repeat("destination-cluster-", 5)
+	queue := strings.Repeat("source-queue-", 7)
+	sourceAgents := 46
+	var stdout bytes.Buffer
+	app := Context{Output: &stdout}
+
+	err := app.printQueueMetrics(&buildkite.QueueMetrics{
+		Queue:         queue,
+		Destination:   buildkite.QueueDestination{ClusterID: clusterID},
+		WindowSeconds: 600,
+		Source: &buildkite.QueueSource{Activity: buildkite.QueueSourceActivity{
+			ConnectedAgents: buildkite.MetricValues{Current: &sourceAgents},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := stdout.String()
+	if !strings.Contains(got, "Queue: "+queue+"\nRouting: —\n") {
+		t.Fatalf("long summary was not stacked intact: %q", got)
+	}
+	if !strings.Contains(got, "SOURCE - Unclustered\n+") || !strings.Contains(got, "\n\nDESTINATION - Cluster "+clusterID+"\n+") {
+		t.Fatalf("long destination identity was not stacked intact: %q", got)
 	}
 }
 
@@ -82,12 +99,14 @@ func TestQueueMetricsPreservesSourceJSON(t *testing.T) {
 		"activity":{
 			"connected_agents":{"current":50,"peak":54},
 			"waiting_jobs":{"current":4,"peak":12},
-			"running_jobs":{"current":38,"peak":46}
+			"running_jobs":{"current":38,"peak":46},
+			"wait_time_p95_seconds":{"current":3,"peak":6.5}
 		},
 		"source":{
 			"queue_key":"default",
 			"observed_at":"2026-09-01T07:00:48Z",
 			"activity":{
+				"connected_agents":{"current":46,"peak":null},
 				"waiting_jobs":{"current":16,"peak":null},
 				"running_jobs":{"current":31,"peak":null}
 			}
@@ -169,12 +188,14 @@ func TestQueueMetricsPrintsJSONWithMissingValues(t *testing.T) {
 			"activity":{
 				"connected_agents":{"current":50,"peak":54},
 				"waiting_jobs":{"current":4,"peak":null},
-				"running_jobs":{"current":38,"peak":46}
+				"running_jobs":{"current":38,"peak":46},
+				"wait_time_p95_seconds":{"current":null,"peak":null}
 			},
 			"source":{
 				"queue_key":"default",
 				"observed_at":"2026-09-01T07:00:48Z",
 				"activity":{
+					"connected_agents":{"current":46,"peak":null},
 					"waiting_jobs":{"current":0,"peak":null},
 					"running_jobs":{"current":0,"peak":null}
 				}
@@ -209,13 +230,21 @@ func TestQueueMetricsPrintsJSONWithMissingValues(t *testing.T) {
 	if got["routed_percent"] != float64(30) {
 		t.Fatalf("routed_percent = %v", got["routed_percent"])
 	}
+	waitTime := got["activity"].(map[string]any)["wait_time_p95_seconds"].(map[string]any)
+	if waitTime["current"] != nil || waitTime["peak"] != nil {
+		t.Fatalf("wait_time_p95_seconds = %v, want null values", waitTime)
+	}
+	sourceAgents := got["source"].(map[string]any)["activity"].(map[string]any)["connected_agents"].(map[string]any)
+	if sourceAgents["current"] != float64(46) || sourceAgents["peak"] != nil {
+		t.Fatalf("source connected_agents = %v", sourceAgents)
+	}
 }
 
 func TestQueueMetricsPrintsUnknownObservationWithoutError(t *testing.T) {
 	t.Setenv("BUILDKITE_API_TOKEN", "secret")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"queue":"default","destination":{"cluster_id":"cluster-id","queue_key":"default"},"routed_percent":30,"window_started_at":null,"observed_at":null,"window_seconds":600,"activity":{},"source":{"queue_key":"default","observed_at":"2026-09-01T07:00:00Z","activity":{"waiting_jobs":{"current":0,"peak":null},"running_jobs":{"current":0,"peak":null}}}}`))
+		_, _ = w.Write([]byte(`{"queue":"default","destination":{"cluster_id":"cluster-id","queue_key":"default"},"routed_percent":30,"window_started_at":null,"observed_at":null,"window_seconds":600,"activity":{"connected_agents":{"current":null,"peak":null},"waiting_jobs":{"current":null,"peak":null},"running_jobs":{"current":null,"peak":null},"wait_time_p95_seconds":{"current":null,"peak":null}},"source":{"queue_key":"default","observed_at":"2026-09-01T07:00:00Z","activity":{"connected_agents":{"current":46,"peak":null},"waiting_jobs":{"current":0,"peak":null},"running_jobs":{"current":0,"peak":null}}}}`))
 	}))
 	defer server.Close()
 
@@ -224,13 +253,13 @@ func TestQueueMetricsPrintsUnknownObservationWithoutError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := stdout.String(); !bytes.Contains([]byte(got), []byte("Observed: —\n")) {
+	if got := stdout.String(); !strings.Contains(got, "Destination refreshed: —\n") {
 		t.Fatalf("output = %q", got)
 	}
-	if got := stdout.String(); !bytes.Contains([]byte(got), []byte("Waiting jobs  0\nRunning jobs  0\n")) {
+	if got := stdout.String(); !strings.Contains(got, "| Connected agents |      46 |") || !strings.Contains(got, "| Wait time (p95)  |      — |       — |") {
 		t.Fatalf("source activity missing from stale destination output: %q", got)
 	}
-	if got := stdout.String(); bytes.Contains([]byte(got), []byte("Refresh due:")) {
+	if got := stdout.String(); strings.Contains(got, "Next refresh eligible:") {
 		t.Fatalf("output contains refresh due without next_refresh_at: %q", got)
 	}
 }
@@ -272,7 +301,7 @@ func TestQueueMetricsPrintsRefreshDue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := stdout.String(); !bytes.Contains([]byte(got), []byte("Observed: 48 seconds ago\nRefresh due: in 1 minute 8 seconds\n")) {
+	if got := stdout.String(); !strings.Contains(got, "Destination refreshed: 48s ago\nNext refresh eligible: in 1m 8s\n") {
 		t.Fatalf("output = %q", got)
 	}
 }
@@ -296,7 +325,7 @@ func TestQueueMetricsRetriesBeforePrinting(t *testing.T) {
 		requestCount++
 		w.Header().Set("Content-Type", "application/json")
 		if requestCount < 3 {
-			_, _ = w.Write([]byte(`{"retry_after_seconds":10,"source":{"queue_key":"default","observed_at":"2026-09-01T07:00:48Z","activity":{"waiting_jobs":{"current":0,"peak":null},"running_jobs":{"current":0,"peak":null}}}}`))
+			_, _ = w.Write([]byte(`{"retry_after_seconds":10,"source":{"queue_key":"default","observed_at":"2026-09-01T07:00:48Z","activity":{"connected_agents":{"current":46,"peak":null},"waiting_jobs":{"current":0,"peak":null},"running_jobs":{"current":0,"peak":null}}}}`))
 			return
 		}
 		_, _ = w.Write([]byte(`{
@@ -308,12 +337,14 @@ func TestQueueMetricsRetriesBeforePrinting(t *testing.T) {
 			"activity":{
 				"connected_agents":{"current":50,"peak":54},
 				"waiting_jobs":{"current":4,"peak":12},
-				"running_jobs":{"current":38,"peak":46}
+				"running_jobs":{"current":38,"peak":46},
+				"wait_time_p95_seconds":{"current":3,"peak":6.5}
 			},
 			"source":{
 				"queue_key":"default",
 				"observed_at":"2026-09-01T07:00:48Z",
 				"activity":{
+					"connected_agents":{"current":46,"peak":null},
 					"waiting_jobs":{"current":0,"peak":null},
 					"running_jobs":{"current":0,"peak":null}
 				}
@@ -359,7 +390,7 @@ func TestQueueMetricsRetriesBeforePrinting(t *testing.T) {
 	if got, want := stderr.String(), "Queue metrics are still being prepared; retrying every 10 seconds…\n"; got != want {
 		t.Fatalf("stderr = %q, want %q", got, want)
 	}
-	if got := stdout.String(); !bytes.Contains([]byte(got), []byte("Waiting jobs  0\nRunning jobs  0\n")) || !bytes.Contains([]byte(got), []byte("Connected agents  50      54\n")) {
+	if got := stdout.String(); !strings.Contains(got, "| Connected agents |      46 |") || !strings.Contains(got, "| Connected agents |     50 |      54 |") {
 		t.Fatalf("stdout = %q", got)
 	}
 }
@@ -386,6 +417,79 @@ func TestQueueMetricsPreservesParentDeadline(t *testing.T) {
 	err = (&QueueMetricsCmd{Queue: "default"}).Run(&app)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("error = %v, want parent deadline exceeded", err)
+	}
+}
+
+func TestMetricDuration(t *testing.T) {
+	zero := 0.0
+	whole := 3.0
+	fractional := 6.5
+	precise := 0.125
+	tests := []struct {
+		name  string
+		value *float64
+		want  string
+	}{
+		{name: "unavailable", value: nil, want: "—"},
+		{name: "zero", value: &zero, want: "0s"},
+		{name: "whole", value: &whole, want: "3s"},
+		{name: "fractional", value: &fractional, want: "6.5s"},
+		{name: "precise fractional", value: &precise, want: "0.125s"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := metricDuration(test.value); got != test.want {
+				t.Fatalf("duration = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestCompactMetricsTimes(t *testing.T) {
+	now := time.Date(2026, time.September, 1, 7, 2, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name    string
+		elapsed time.Duration
+		want    string
+	}{
+		{name: "future", elapsed: -time.Second, want: "just now"},
+		{name: "subsecond", elapsed: 999 * time.Millisecond, want: "just now"},
+		{name: "seconds", elapsed: 8 * time.Second, want: "8s ago"},
+		{name: "minutes and seconds", elapsed: time.Minute + 52*time.Second, want: "1m 52s ago"},
+		{name: "hours minutes seconds", elapsed: time.Hour + 2*time.Minute + 3*time.Second, want: "1h 2m 3s ago"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			observedAt := now.Add(-test.elapsed).Format(time.RFC3339Nano)
+			got, err := formatCompactMetricsFreshness(observedAt, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != test.want {
+				t.Fatalf("freshness = %q, want %q", got, test.want)
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name      string
+		remaining time.Duration
+		want      string
+	}{
+		{name: "past", remaining: -time.Second, want: "now"},
+		{name: "subsecond", remaining: 999 * time.Millisecond, want: "in <1s"},
+		{name: "seconds", remaining: 8 * time.Second, want: "in 8s"},
+		{name: "minutes and seconds", remaining: time.Minute + 8*time.Second, want: "in 1m 8s"},
+	} {
+		t.Run("refresh "+test.name, func(t *testing.T) {
+			nextRefreshAt := now.Add(test.remaining).Format(time.RFC3339Nano)
+			got, err := formatCompactMetricsRefreshDue(nextRefreshAt, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != test.want {
+				t.Fatalf("refresh due = %q, want %q", got, test.want)
+			}
+		})
 	}
 }
 
