@@ -24,9 +24,9 @@ func TestResolvePipelineIdentifierRequiresUniqueExactNameMatch(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`[
-			{"name":"Demo Pipeline Extra","slug":"demo-pipeline-extra"},
-			{"name":"demo pipeline","slug":"lowercase-demo-pipeline"},
-			{"name":"Demo Pipeline","slug":"demo-pipeline"}
+			{"id":"11111111-1111-1111-1111-111111111111","name":"Demo Pipeline Extra","slug":"demo-pipeline-extra"},
+			{"id":"22222222-2222-2222-2222-222222222222","name":"demo pipeline","slug":"lowercase-demo-pipeline"},
+			{"id":"849411f9-9e6d-4739-a0d8-e247088e9b52","name":"Demo Pipeline","slug":"demo-pipeline"}
 		]`))
 	}))
 	defer server.Close()
@@ -51,7 +51,7 @@ func TestResolvePipelineIdentifierFollowsPagination(t *testing.T) {
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Query().Get("page") == "2" {
-			_, _ = w.Write([]byte(`[{"name":"Demo Pipeline","slug":"demo-pipeline"}]`))
+			_, _ = w.Write([]byte(`[{"id":"849411f9-9e6d-4739-a0d8-e247088e9b52","name":"Demo Pipeline","slug":"demo-pipeline"}]`))
 			return
 		}
 		w.Header().Set("Link", fmt.Sprintf("<%s/v2/organizations/acme/pipelines?name=Demo+Pipeline&page=2&per_page=100>; rel=%cnext%c", server.URL, '"', '"'))
@@ -107,8 +107,8 @@ func TestResolvePipelineIdentifierRejectsAmbiguousName(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`[
-			{"name":"Demo Pipeline","slug":"demo-two"},
-			{"name":"Demo Pipeline","slug":"demo-one"}
+			{"id":"11111111-1111-1111-1111-111111111111","name":"Demo Pipeline","slug":"demo-two"},
+			{"id":"22222222-2222-2222-2222-222222222222","name":"Demo Pipeline","slug":"demo-one"}
 		]`))
 	}))
 	defer server.Close()

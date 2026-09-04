@@ -12,6 +12,8 @@ import (
 	"github.com/buildkite/cluster-migrator/internal/buildkite"
 )
 
+const testPipelineID = "849411f9-9e6d-4739-a0d8-e247088e9b52"
+
 func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -51,24 +53,24 @@ func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 		},
 		{
 			name:       "readiness ID",
-			identifier: "849411f9-9e6d-4739-a0d8-e247088e9b52",
+			identifier: testPipelineID,
 			method:     http.MethodGet,
 			pathSuffix: "/readiness",
 			response:   `{"status":"no_known_blockers"}`,
 			run: func(app *Context) error {
-				return (&PipelineReadinessCmd{Pipeline: "849411f9-9e6d-4739-a0d8-e247088e9b52", DestinationCluster: "production"}).Run(app)
+				return (&PipelineReadinessCmd{Pipeline: testPipelineID, DestinationCluster: "production"}).Run(app)
 			},
 			wantLookups: 1,
 			wantRuns:    2,
 		},
 		{
 			name:       "move ID",
-			identifier: "849411f9-9e6d-4739-a0d8-e247088e9b52",
+			identifier: testPipelineID,
 			method:     http.MethodPost,
 			pathSuffix: "/move",
-			response:   `{"name":"Demo Pipeline","slug":"demo-pipeline","cluster_id":"cluster-id"}`,
+			response:   `{"id":"849411f9-9e6d-4739-a0d8-e247088e9b52","name":"Demo Pipeline","slug":"demo-pipeline","cluster_id":"cluster-id"}`,
 			run: func(app *Context) error {
-				return (&PipelineMoveCmd{Pipeline: "849411f9-9e6d-4739-a0d8-e247088e9b52", DestinationCluster: "production"}).Run(app)
+				return (&PipelineMoveCmd{Pipeline: testPipelineID, DestinationCluster: "production"}).Run(app)
 			},
 			wantLookups: 1,
 			wantRuns:    2,
@@ -78,7 +80,7 @@ func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 			identifier: "demo-pipeline",
 			method:     http.MethodPost,
 			pathSuffix: "/move",
-			response:   `{"name":"Demo Pipeline","slug":"demo-pipeline","cluster_id":"cluster-id"}`,
+			response:   `{"id":"849411f9-9e6d-4739-a0d8-e247088e9b52","name":"Demo Pipeline","slug":"demo-pipeline","cluster_id":"cluster-id"}`,
 			run: func(app *Context) error {
 				return (&PipelineMoveCmd{Pipeline: "demo-pipeline", DestinationCluster: "production"}).Run(app)
 			},
@@ -89,7 +91,7 @@ func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 			identifier: "Demo/Pipeline",
 			method:     http.MethodPost,
 			pathSuffix: "/move",
-			response:   `{"name":"Demo/Pipeline","slug":"demo-pipeline","cluster_id":"cluster-id"}`,
+			response:   `{"id":"849411f9-9e6d-4739-a0d8-e247088e9b52","name":"Demo/Pipeline","slug":"demo-pipeline","cluster_id":"cluster-id"}`,
 			run: func(app *Context) error {
 				return (&PipelineMoveCmd{Pipeline: "Demo/Pipeline", DestinationCluster: "production", Wait: true}).Run(app)
 			},
@@ -119,10 +121,10 @@ func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 					if got := r.URL.Query().Get("name"); got != test.wantName {
 						t.Fatalf("pipeline name query = %q, want %q", got, test.wantName)
 					}
-					_, _ = fmt.Fprintf(w, `[{"id":%q,"name":%q,"slug":"demo-pipeline"}]`, test.identifier, test.identifier)
+					_, _ = fmt.Fprintf(w, `[{"id":%q,"name":%q,"slug":"demo-pipeline"}]`, testPipelineID, test.identifier)
 				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/pipelines/demo-pipeline":
 					polls++
-					_, _ = w.Write([]byte(`{"slug":"demo-pipeline","cluster_id":"cluster-id"}`))
+					_, _ = w.Write([]byte(`{"id":"849411f9-9e6d-4739-a0d8-e247088e9b52","slug":"demo-pipeline","cluster_id":"cluster-id"}`))
 				case r.URL.EscapedPath() == directPath || r.URL.EscapedPath() == resolvedPath:
 					operationRuns++
 					if r.Method != test.method {

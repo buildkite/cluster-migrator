@@ -18,7 +18,7 @@ func TestMovePipeline(t *testing.T) {
 			t.Fatalf("path = %q", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"slug":"monorepo","cluster_id":"cluster-id"}`))
+		_, _ = w.Write([]byte(`{"id":"849411f9-9e6d-4739-a0d8-e247088e9b52","slug":"monorepo","cluster_id":"cluster-id"}`))
 	}))
 	defer server.Close()
 
@@ -31,7 +31,7 @@ func TestMovePipeline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pipeline.ClusterID != "cluster-id" {
+	if pipeline.ID != "849411f9-9e6d-4739-a0d8-e247088e9b52" || pipeline.ClusterID != "cluster-id" {
 		t.Fatalf("pipeline = %#v", pipeline)
 	}
 }
