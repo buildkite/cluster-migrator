@@ -196,22 +196,24 @@ Initial configuration uses the same shape without `from_percent`. Queue status r
 
 Status for all queues returns an array of these objects. Terminal-only guidance is never included in JSON.
 
-Human-readable queue mutations keep queue and destination identity outside the result, then show the routing transition on one line. Dry runs use the same layout with `RESULT (dry run)` and still make no mutation. For example:
+Successful queue configuration identifies the created migration in one sentence. Its dry run uses `would be created` instead and does not show next-step guidance because no infrastructure changed:
 
 ```text
-QUEUE CONFIGURE
-Queue: default
-Destination: Cluster Migrator Demo
-
 RESULT
 
-Routing: — → 0%
+A migration for the 'default' queue was successfully created in the cluster 'Cluster Migrator Demo'
 
 NEXT
 
 Scale the destination infrastructure. When ready, begin routing:
 
   cluster-migrator queue set-percent default --to <percentage>
+```
+
+```text
+RESULT (dry run)
+
+A migration for the 'default' queue would be created in the cluster 'Cluster Migrator Demo'
 ```
 
 ```text

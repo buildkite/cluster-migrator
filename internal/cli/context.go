@@ -72,19 +72,29 @@ func (c *Context) Print(value any) error {
 
 	switch value := value.(type) {
 	case QueueChange:
-		if _, err := fmt.Fprintf(c.Output, "QUEUE %s\nQueue: %s\nDestination: %s\n\n", value.Command, value.Queue, value.Destination.ClusterName); err != nil {
-			return err
-		}
 		heading := "RESULT"
 		if value.DryRun {
 			heading += " (dry run)"
 		}
-		from := "—"
-		if value.FromPercent != nil {
-			from = fmt.Sprintf("%d%%", *value.FromPercent)
-		}
-		if _, err := fmt.Fprintf(c.Output, "%s\n\nRouting: %s → %d%%\n", heading, from, value.ToPercent); err != nil {
-			return err
+		if value.Command == "CONFIGURE" {
+			result := fmt.Sprintf("A migration for the '%s' queue was successfully created in the cluster '%s'", value.Queue, value.Destination.ClusterName)
+			if value.DryRun {
+				result = fmt.Sprintf("A migration for the '%s' queue would be created in the cluster '%s'", value.Queue, value.Destination.ClusterName)
+			}
+			if _, err := fmt.Fprintf(c.Output, "%s\n\n%s\n", heading, result); err != nil {
+				return err
+			}
+		} else {
+			if _, err := fmt.Fprintf(c.Output, "QUEUE %s\nQueue: %s\nDestination: %s\n\n", value.Command, value.Queue, value.Destination.ClusterName); err != nil {
+				return err
+			}
+			from := "—"
+			if value.FromPercent != nil {
+				from = fmt.Sprintf("%d%%", *value.FromPercent)
+			}
+			if _, err := fmt.Fprintf(c.Output, "%s\n\nRouting: %s → %d%%\n", heading, from, value.ToPercent); err != nil {
+				return err
+			}
 		}
 		if value.Next != "" {
 			_, err := fmt.Fprintf(c.Output, "\nNEXT\n\n%s\n", value.Next)
