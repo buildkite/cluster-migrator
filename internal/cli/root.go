@@ -16,7 +16,7 @@ var version = "dev"
 
 type rootCommand struct {
 	Version  kong.VersionFlag `help:"Print version information and quit."`
-	APIToken string           `help:"Buildkite API token." env:"BUILDKITE_API_TOKEN" required:""`
+	APIToken string           `help:"Buildkite API token." env:"BUILDKITE_API_TOKEN"`
 	Endpoint string           `help:"Buildkite REST API endpoint." env:"BUILDKITE_API_ENDPOINT" default:"https://api.buildkite.com/"`
 	JSON     bool             `help:"Write machine-readable JSON." global:""`
 	DryRun   bool             `help:"Validate and display a mutation without applying it." global:""`
@@ -53,6 +53,9 @@ func Run(
 			_, _ = fmt.Fprintln(stderr)
 		}
 		return err
+	}
+	if root.APIToken == "" {
+		return fmt.Errorf("--api-token or BUILDKITE_API_TOKEN is required")
 	}
 
 	commandContext, cancel := context.WithTimeout(ctx, root.Timeout)
