@@ -7,7 +7,7 @@ import (
 )
 
 type PipelineMoveCmd struct {
-	Pipeline           string `arg:"" help:"Pipeline slug."`
+	Pipeline           string `arg:"" help:"Pipeline ID, name, or slug."`
 	DestinationCluster string `name:"destination-cluster" required:"" help:"Destination cluster name or ID."`
 	Wait               bool   `help:"Wait until the pipeline reports the destination cluster."`
 }
@@ -25,7 +25,7 @@ func (cmd *PipelineMoveCmd) Run(app *Context) error {
 		DryRun:             app.DryRun,
 	}
 	if app.DryRun {
-		readiness, err := getPipelineReadiness(app, cmd.Pipeline, cluster.ID)
+		readiness, err := getPipelineReadinessForPipeline(app, cmd.Pipeline, cluster.ID)
 		if err != nil {
 			return fmt.Errorf("check pipeline readiness: %w", err)
 		}
@@ -38,7 +38,11 @@ func (cmd *PipelineMoveCmd) Run(app *Context) error {
 		return app.Print(change)
 	}
 
-	pipeline, err := app.Client.MovePipeline(app.Context, cmd.Pipeline, cluster.ID)
+	pipelineIdentifier := cmd.Pipeline
+	pipeline, err := runWithPipelineIdentifierFallback(app.Context, app.Client, cmd.Pipeline, func(identifier string) (*buildkite.Pipeline, error) {
+		pipelineIdentifier = identifier
+		return app.Client.MovePipeline(app.Context, identifier, cluster.ID)
+	})
 	if err != nil {
 		return fmt.Errorf("move pipeline: %w", err)
 	}
@@ -50,7 +54,7 @@ func (cmd *PipelineMoveCmd) Run(app *Context) error {
 	}
 
 	err = app.Poll(func() (bool, error) {
-		pipeline, err = app.Client.GetPipeline(app.Context, cmd.Pipeline)
+		pipeline, err = app.Client.GetPipeline(app.Context, pipelineIdentifier)
 		if err != nil {
 			return false, err
 		}

@@ -17,9 +17,9 @@ func TestPipelineMoveWaitReportsProgressOnStderr(t *testing.T) {
 		case "/v2/organizations/acme/clusters":
 			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
 		case "/v2/organizations/acme/cluster-queue-migrations/pipelines/monorepo/move":
-			_, _ = w.Write([]byte(`{"slug":"monorepo","cluster_id":"old-cluster-id"}`))
+			_, _ = w.Write([]byte(`{"id":"849411f9-9e6d-4739-a0d8-e247088e9b52","slug":"monorepo","cluster_id":"old-cluster-id"}`))
 		case "/v2/organizations/acme/pipelines/monorepo":
-			_, _ = w.Write([]byte(`{"slug":"monorepo","name":"Monorepo","cluster_id":"cluster-id"}`))
+			_, _ = w.Write([]byte(`{"id":"849411f9-9e6d-4739-a0d8-e247088e9b52","slug":"monorepo","name":"Monorepo","cluster_id":"cluster-id"}`))
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
