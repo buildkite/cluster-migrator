@@ -195,6 +195,11 @@ mise run format
 mise run lint
 mise run test
 mise run vet
+mise run vulnerability
 ```
 
 The build task creates `./cluster-migrator`. Run `mise run release-check` when changing the release configuration. The pre-commit hook runs formatting, linting, tests, and `go vet` in parallel.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

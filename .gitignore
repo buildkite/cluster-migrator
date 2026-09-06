@@ -1,2 +1,5 @@
 /cluster-migrator
 /dist/
+.env
+.env.*
+!.env.example
