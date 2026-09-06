@@ -28,6 +28,9 @@ archives:
       {{- else }}{{ .Arch }}{{ end }}
     builds_info:
       mtime: "{{ .CommitDate }}"
+    files:
+      - LICENSE
+      - README.md
 
 checksum:
   name_template: checksums.txt

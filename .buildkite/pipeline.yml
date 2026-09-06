@@ -1,5 +1,6 @@
 env:
   MISE_JOBS: "1"
+  MISE_LOCKED: "1"
 
 agents:
   queue: "hosted"
@@ -23,6 +24,11 @@ steps:
     key: "vet"
     plugins: *use-go-with-mise
     command: "mise run vet"
+
+  - label: ":shield: Check vulnerabilities"
+    key: "vulnerability"
+    plugins: *use-go-with-mise
+    command: "mise run vulnerability"
 
   - label: ":golangci-lint: Run linters"
     key: "lint"

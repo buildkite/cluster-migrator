@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"runtime/debug"
 	"time"
 
 	"github.com/alecthomas/kong"
@@ -13,6 +14,16 @@ import (
 )
 
 var version = "dev"
+
+func currentVersion() string {
+	if version != "dev" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return version
+}
 
 type rootCommand struct {
 	Version  kong.VersionFlag `help:"Print version information and quit."`
@@ -37,7 +48,7 @@ func Run(
 		&root,
 		kong.Name("cluster-migrator"),
 		kong.Description("Safely migrate Buildkite workloads from unclustered queues to clusters."),
-		kong.Vars{"version": "cluster-migrator " + version},
+		kong.Vars{"version": "cluster-migrator " + currentVersion()},
 		kong.Writers(stdout, stderr),
 	)
 	if err != nil {
