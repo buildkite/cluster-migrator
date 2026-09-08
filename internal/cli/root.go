@@ -34,7 +34,7 @@ type rootCommand struct {
 	Timeout  time.Duration    `help:"Maximum command duration." default:"10m" global:""`
 
 	Queue    QueueCmd    `cmd:"" help:"Configure and inspect queue migrations."`
-	Pipeline PipelineCmd `cmd:"" help:"Check and move pipelines."`
+	Pipeline PipelineCmd `cmd:"" help:"Check, move, and roll back pipelines."`
 }
 
 func Run(
