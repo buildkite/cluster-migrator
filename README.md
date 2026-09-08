@@ -1,20 +1,21 @@
 # Cluster Migrator
 
-`cluster-migrator` moves Buildkite workloads from unclustered queues to a cluster without an all-at-once cutover. It gradually routes new jobs to cluster queues, compares source and destination activity, checks known pipeline blockers, and permanently assigns pipelines to the destination cluster.
+`cluster-migrator` moves Buildkite workloads from unclustered queues to a cluster without an all-at-once cutover. It gradually routes new jobs to cluster queues, compares source and destination activity, cuts over concurrency groups, checks known pipeline blockers, and permanently assigns pipelines to the destination cluster.
 
 > [!IMPORTANT]
-> The queue migration APIs require a Buildkite feature flag. The pipeline migration contract remains provisional. Do not use this tool for a production migration until Buildkite has enabled the APIs and confirmed the operational safety gates for your organization.
+> The queue migration APIs require a Buildkite feature flag. The concurrency-group cutover and pipeline migration contracts remain provisional. Do not use this tool for a production migration until Buildkite has enabled the APIs and confirmed the operational safety gates for your organization.
 
 ## How it works
 
-A migration has two stages:
+A migration has three stages:
 
 1. **Route queues.** Map each unclustered source queue to an existing queue with the same key in the destination cluster, then increase the percentage of new jobs sent there from 0% to 100%.
-2. **Move pipelines.** Once every queue used by a pipeline is fully routed and active source jobs have drained, assess its queue and concurrency-group blockers before permanently assigning it to the cluster.
+2. **Cut over concurrency groups.** Hold, drain, and move each concurrency group once its queue blockers are cleared.
+3. **Move pipelines.** Once every queue used by a pipeline is fully routed and active source jobs have drained, assess its queue and concurrency-group blockers before permanently assigning it to the cluster.
 
 Routing changes affect new jobs only. Jobs already created remain on the queue selected when they were created.
 
-The CLI does not yet migrate concurrency groups. You can route queues used by pipelines with concurrency groups, but do not move those pipelines until their concurrency groups have also moved to the cluster. Pipeline readiness reports unmigrated concurrency groups as blockers.
+You can route queues used by pipelines with concurrency groups, but do not move those pipelines until their concurrency groups have also moved to the cluster. Pipeline readiness reports unmigrated concurrency groups as blockers.
 
 ## Prerequisites
 
@@ -106,7 +107,42 @@ cluster-migrator queue rollback test
 
 Rollback sets routing to 0%. It does not move existing jobs or remove the queue mapping.
 
-### 4. Assess each pipeline
+### 4. Cut over concurrency groups
+
+For workloads using concurrency groups, hold, drain, and move each group after its queue blockers are cleared:
+
+```shell
+cluster-migrator concurrency-group cutover deploy-production \
+  --destination-cluster production \
+  --wait
+```
+
+Use `concurrency-group status [group]` to inspect one group or list all groups. These commands require the provisional server-side concurrency-group APIs.
+
+Without `--wait`, cutover reports an accepted request, not completion. With `--wait`, it polls until the server reports `clustered` or `succeeded`; `failed`, `cancelled`, or a timeout exits non-zero. Stopping the CLI's wait does not cancel the server-side cutover.
+
+Preview the request with `--dry-run`. This resolves the destination and reads the group's queue blockers without starting a cutover. For example, an unblocked fixture prints:
+
+```text
+$ cluster-migrator concurrency-group cutover deploy --destination-cluster production --dry-run
+CONCURRENCY-GROUP CUTOVER (DRY RUN)
+Group: deploy
+Destination: production
+
+READINESS
+
+No known queue blockers. This is not proof of readiness.
+
+PROPOSED CHANGE
+
+A cutover to the production cluster would be requested.
+```
+
+A blocked dry run lists blocking queues, omits the proposed change, and exits non-zero. `--json` preserves machine-readable results and leaves diagnostics on stderr.
+
+The provisional commands identify groups by key only; they cannot distinguish equal keys in different scopes. Scope-aware identification and the server contract must be resolved before production use.
+
+### 5. Assess each pipeline
 
 After all queues used by a pipeline reach 100%, check its known blockers:
 
@@ -121,7 +157,7 @@ A blocked assessment prints corrective next steps and exits non-zero.
 
 After a pipeline moves, step uploads that target a queue missing from the destination cluster will fail. Check static and dynamically generated pipeline steps for queue keys that may not appear in the readiness observation window.
 
-### 5. Move the pipeline
+### 6. Move the pipeline
 
 Previewing a move runs the readiness assessment without changing the pipeline:
 
@@ -150,6 +186,8 @@ Repeat the queue stages for every source queue and the pipeline stages for every
 | `queue set-percent <queue> --to <0-100>` | Set the absolute percentage of new jobs routed to the cluster queue. |
 | `queue metrics <queue>` | Compare recent source and destination activity. |
 | `queue rollback <queue>` | Set routing to 0% for new jobs. |
+| `concurrency-group cutover <group> --destination-cluster <cluster> [--wait]` | Hold, drain, and move a concurrency group; optionally wait for completion. |
+| `concurrency-group status [group]` | Show one concurrency group or list all groups. |
 | `pipeline readiness <pipeline> --destination-cluster <cluster>` | Assess known queue and concurrency-group blockers. |
 | `pipeline move <pipeline> --destination-cluster <cluster>` | Permanently assign a pipeline to the cluster. |
 
