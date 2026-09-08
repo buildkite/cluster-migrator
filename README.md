@@ -151,6 +151,25 @@ cluster-migrator pipeline rollback monorepo --dry-run
 cluster-migrator pipeline rollback monorepo
 ```
 
+For example, a dry run with a `demo-pipeline` fixture prints:
+
+```text
+$ cluster-migrator pipeline rollback demo-pipeline --dry-run
+PIPELINE ROLLBACK (DRY RUN)
+Pipeline: demo-pipeline
+
+PROPOSED CHANGE
+
+The pipeline would be unclustered and eligible clustered builds considered for cancellation, even if already unclustered.
+
+CONTEXT
+
+The server would use a fixed cutoff of rollback start minus 2 hours, with two bounded best-effort passes.
+Targets are not previewed; rollback permissions are not checked. No changes made.
+Cancellable states: creating, scheduled, started, failing, blocked. Already canceling builds count as pending; terminal builds (including failed) are excluded.
+Queue routing percentages and concurrency-group migration state remain unchanged.
+```
+
 This is **pipeline assignment and best-effort cleanup only**. Queue routing percentages and concurrency-group migration state remain unchanged. New builds can be unclustered while their jobs still follow those migrations. No builds are rebuilt, and existing builds retain their cluster assignment.
 
 The server clears assignment first, then makes two immediate passes, selecting up to 100 previously unselected builds per pass. The inclusive cutoff is fixed at the start of the server rollback operation minus two hours; the upper bound advances through the final scan to catch some late stale creators. Cancellable clustered-build states are `creating`, `scheduled`, `started`, `failing`, and `blocked`. Already `canceling` builds count as pending but are not enqueued again. Terminal builds, including `failed`, are excluded.

@@ -43,7 +43,7 @@ func TestPipelineRollbackPartialResultProcess(t *testing.T) {
 				if !json.Valid([]byte(stdout)) || !strings.Contains(stdout, `"cluster_id": null`) || !strings.Contains(stdout, `"pending": 2`) {
 					t.Fatalf("invalid or incomplete JSON: %s", stdout)
 				}
-			} else if !strings.Contains(stdout, "Cancellation enqueued: 1") || !strings.Contains(stdout, "build-uuid: Enqueue failed") {
+			} else if !strings.Contains(stdout, "Cancellation enqueued: 1") || !strings.Contains(stdout, "build-uuid  Enqueue failed") {
 				t.Fatalf("incomplete result: %s", stdout)
 			}
 			t.Logf("exit=%d\nstdout:\n%sstderr:\n%s", exitCode, stdout, stderr)

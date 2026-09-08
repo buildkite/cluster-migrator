@@ -16,17 +16,38 @@ import (
 const testPipelineRollbackResponse = `{"pipeline":"demo-pipeline","cluster_id":null,"assignment_changed":true,"cutoff":"2026-09-08T01:00:00Z","scanned_through":"2026-09-08T03:00:01Z","passes":2,"selected":0,"cancellation_enqueued":0,"pending":0,"failures":[],"best_effort":true}`
 
 func TestPipelineRollbackResults(t *testing.T) {
+	const contextOutput = `
+CONTEXT
+
+Fixed 2-hour lookback; two best-effort passes select up to 100 builds each. Older builds and late stale creators may be missed.
+Cancellable states: creating, scheduled, started, failing, blocked. Already canceling builds count as pending; terminal builds (including failed) are excluded.
+Cancellation enqueued does not mean jobs have stopped or concurrency slots are released.
+Queue routing percentages and concurrency-group migration state remain unchanged.
+`
+	const nextSteps = `
+NEXT STEPS
+
+1. Inspect remaining builds and enqueue failures. Verify jobs and concurrency slots separately.
+2. If cleanup is still needed, rerun rollback, even when already unclustered. Each run uses a new 2-hour cutoff:
+
+   cluster-migrator pipeline rollback demo-pipeline
+`
 	for _, test := range []struct {
-		name     string
-		response string
-		wantText string
-		wantErr  bool
+		name         string
+		response     string
+		assignment   string
+		selected     int
+		enqueued     int
+		pending      int
+		failures     int
+		failureTable string
 	}{
-		{"clear", testPipelineRollbackResponse, "Pipeline cluster assignment cleared.", false},
-		{"already unclustered", strings.Replace(testPipelineRollbackResponse, `"assignment_changed":true`, `"assignment_changed":false`, 1), "Pipeline was already unclustered; residual cleanup attempted.", false},
-		{"pending", strings.Replace(testPipelineRollbackResponse, `"pending":0`, `"pending":250`, 1), "Still-live clustered builds in window: 250", true},
-		{"enqueued", strings.Replace(strings.Replace(testPipelineRollbackResponse, `"selected":0`, `"selected":1`, 1), `"cancellation_enqueued":0`, `"cancellation_enqueued":1`, 1), "Cancellation enqueued: 1", false},
-		{"failure", strings.Replace(strings.Replace(testPipelineRollbackResponse, `"selected":0`, `"selected":1`, 1), `"failures":[]`, `"failures":[{"build_uuid":"build-uuid","message":"Enqueue failed"}]`, 1), "build-uuid: Enqueue failed", true},
+		{name: "clear", response: testPipelineRollbackResponse, assignment: "Pipeline cluster assignment cleared."},
+		{name: "already unclustered", response: strings.Replace(testPipelineRollbackResponse, `"assignment_changed":true`, `"assignment_changed":false`, 1), assignment: "Pipeline was already unclustered; residual cleanup attempted."},
+		{name: "pending", response: strings.Replace(testPipelineRollbackResponse, `"pending":0`, `"pending":250`, 1), assignment: "Pipeline cluster assignment cleared.", pending: 250},
+		{name: "enqueued", response: strings.Replace(strings.Replace(testPipelineRollbackResponse, `"selected":0`, `"selected":1`, 1), `"cancellation_enqueued":0`, `"cancellation_enqueued":1`, 1), assignment: "Pipeline cluster assignment cleared.", selected: 1, enqueued: 1},
+		{name: "failure", response: strings.Replace(strings.Replace(testPipelineRollbackResponse, `"selected":0`, `"selected":1`, 1), `"failures":[]`, `"failures":[{"build_uuid":"build-uuid","message":"Enqueue failed"}]`, 1), assignment: "Pipeline cluster assignment cleared.", selected: 1, failures: 1, failureTable: "\nENQUEUE FAILURES\n\nBUILD       ERROR\nbuild-uuid  Enqueue failed\n"},
+		{name: "multiple failures", response: strings.Replace(strings.Replace(testPipelineRollbackResponse, `"selected":0`, `"selected":2`, 1), `"failures":[]`, `"failures":[{"build_uuid":"build-uuid","message":"Enqueue failed"},{"build_uuid":"longer-build-uuid","message":"Try again later"}]`, 1), assignment: "Pipeline cluster assignment cleared.", selected: 2, failures: 2, failureTable: "\nENQUEUE FAILURES\n\nBUILD              ERROR\nbuild-uuid         Enqueue failed\nlonger-build-uuid  Try again later\n"},
 	} {
 		for _, jsonOutput := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/json=%t", test.name, jsonOutput), func(t *testing.T) {
@@ -46,8 +67,9 @@ func TestPipelineRollbackResults(t *testing.T) {
 				}
 				var stdout, stderr bytes.Buffer
 				err := Run(context.Background(), args, &stdout, &stderr, organizationClient(server.Client()))
-				if (err != nil) != test.wantErr || (err != nil && !strings.Contains(err.Error(), "cleanup incomplete")) {
-					t.Fatalf("error = %v, wantErr = %t", err, test.wantErr)
+				wantErr := test.pending > 0 || test.failures > 0
+				if (err != nil) != wantErr || (err != nil && !strings.Contains(err.Error(), "cleanup incomplete")) {
+					t.Fatalf("error = %v, wantErr = %t", err, wantErr)
 				}
 				if requests != 1 || stderr.Len() != 0 {
 					t.Fatalf("requests=%d stderr=%q", requests, stderr.String())
@@ -64,14 +86,37 @@ func TestPipelineRollbackResults(t *testing.T) {
 						t.Fatalf("output = %s, want %s", &stdout, test.response)
 					}
 				} else {
-					for _, text := range []string{test.wantText, "PIPELINE ROLLBACK", "2026-09-08T01:00:00Z", "2026-09-08T03:00:01Z", "creating, scheduled, started, failing, blocked", "canceling", "best-effort", "2-hour", "does not mean jobs have stopped or concurrency slots are released", "Queue routing percentages and concurrency-group migration state remain unchanged"} {
-						if !strings.Contains(stdout.String(), text) {
-							t.Errorf("output missing %q: %s", text, &stdout)
-						}
+					want := fmt.Sprintf(`PIPELINE ROLLBACK
+Pipeline: demo-pipeline
+
+RESULT
+
+%s
+
+CLEANUP
+
+Cutoff (inclusive): 2026-09-08T01:00:00Z
+Scanned through: 2026-09-08T03:00:01Z
+Passes: 2
+Selected: %d
+Cancellation enqueued: %d
+Still-live clustered builds in window: %d
+Enqueue failures: %d
+`, test.assignment, test.selected, test.enqueued, test.pending, test.failures)
+					if test.selected == 0 {
+						want += "\nNo builds were selected for cancellation.\n"
 					}
-					if test.wantErr && !strings.Contains(stdout.String(), "Inspect") {
-						t.Errorf("missing next action: %s", &stdout)
+					if test.pending == 0 {
+						want += "\nNo pending builds observed in this window; this is not proof of complete cleanup.\n"
 					}
+					want += test.failureTable + contextOutput
+					if wantErr {
+						want += nextSteps
+					}
+					if stdout.String() != want {
+						t.Fatalf("output = %q, want %q", stdout.String(), want)
+					}
+					t.Logf("stdout:\n%s", &stdout)
 				}
 			})
 		}
@@ -121,11 +166,24 @@ func TestPipelineRollbackDryRun(t *testing.T) {
 						t.Fatalf("result = %#v", result)
 					}
 				} else {
-					for _, text := range []string{"PIPELINE ROLLBACK (DRY RUN)", "demo-pipeline", "would", "not previewed", "Queue routing percentages and concurrency-group migration state remain unchanged"} {
-						if !strings.Contains(stdout.String(), text) {
-							t.Errorf("output missing %q: %s", text, &stdout)
-						}
+					want := `PIPELINE ROLLBACK (DRY RUN)
+Pipeline: demo-pipeline
+
+PROPOSED CHANGE
+
+The pipeline would be unclustered and eligible clustered builds considered for cancellation, even if already unclustered.
+
+CONTEXT
+
+The server would use a fixed cutoff of rollback start minus 2 hours, with two bounded best-effort passes.
+Targets are not previewed; rollback permissions are not checked. No changes made.
+Cancellable states: creating, scheduled, started, failing, blocked. Already canceling builds count as pending; terminal builds (including failed) are excluded.
+Queue routing percentages and concurrency-group migration state remain unchanged.
+`
+					if stdout.String() != want {
+						t.Fatalf("output = %q, want %q", stdout.String(), want)
 					}
+					t.Logf("stdout:\n%s", &stdout)
 				}
 			})
 		}
