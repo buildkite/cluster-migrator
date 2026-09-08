@@ -100,6 +100,42 @@ func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 			wantName:    "Demo/Pipeline",
 			wantRuns:    2,
 		},
+		{
+			name:       "rollback slug",
+			identifier: "demo-pipeline",
+			method:     http.MethodPost,
+			pathSuffix: "/rollback",
+			response:   testPipelineRollbackResponse,
+			run: func(app *Context) error {
+				return (&PipelineRollbackCmd{Pipeline: "demo-pipeline"}).Run(app)
+			},
+			wantRuns: 1,
+		},
+		{
+			name:       "rollback name with slash",
+			identifier: "Demo/Pipeline",
+			method:     http.MethodPost,
+			pathSuffix: "/rollback",
+			response:   testPipelineRollbackResponse,
+			run: func(app *Context) error {
+				return (&PipelineRollbackCmd{Pipeline: "Demo/Pipeline"}).Run(app)
+			},
+			wantLookups: 1,
+			wantName:    "Demo/Pipeline",
+			wantRuns:    2,
+		},
+		{
+			name:       "rollback ID",
+			identifier: testPipelineID,
+			method:     http.MethodPost,
+			pathSuffix: "/rollback",
+			response:   testPipelineRollbackResponse,
+			run: func(app *Context) error {
+				return (&PipelineRollbackCmd{Pipeline: testPipelineID}).Run(app)
+			},
+			wantLookups: 1,
+			wantRuns:    2,
+		},
 	}
 
 	for _, test := range tests {

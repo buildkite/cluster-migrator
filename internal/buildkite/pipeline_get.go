@@ -3,10 +3,22 @@ package buildkite
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"sort"
 	"strings"
 )
+
+func (c *Client) GetPipeline(ctx context.Context, identifier string) (*Pipeline, error) {
+	var pipeline Pipeline
+	if err := c.do(ctx, http.MethodGet, c.path("pipelines", identifier), nil, &pipeline); err != nil {
+		return nil, err
+	}
+	if pipeline.Slug == "" {
+		return nil, fmt.Errorf("pipeline response missing slug")
+	}
+	return &pipeline, nil
+}
 
 type pipelineLookup struct {
 	ID   string `json:"id"`

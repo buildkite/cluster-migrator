@@ -1,6 +1,6 @@
 # Cluster Migrator
 
-`cluster-migrator` moves Buildkite workloads from unclustered queues to a cluster without an all-at-once cutover. It gradually routes new jobs to cluster queues, compares source and destination activity, checks known pipeline blockers, and permanently assigns pipelines to the destination cluster.
+`cluster-migrator` moves Buildkite workloads from unclustered queues to a cluster without an all-at-once cutover. It gradually routes new jobs to cluster queues, compares source and destination activity, checks known pipeline blockers, and assigns pipelines to the destination cluster.
 
 > [!IMPORTANT]
 > The queue migration APIs require a Buildkite feature flag. The pipeline migration contract remains provisional. Do not use this tool for a production migration until Buildkite has enabled the APIs and confirmed the operational safety gates for your organization.
@@ -10,7 +10,7 @@
 A migration has two stages:
 
 1. **Route queues.** Map each unclustered source queue to an existing queue with the same key in the destination cluster, then increase the percentage of new jobs sent there from 0% to 100%.
-2. **Move pipelines.** Once every queue used by a pipeline is fully routed and active source jobs have drained, assess its queue and concurrency-group blockers before permanently assigning it to the cluster.
+2. **Move pipelines.** Once every queue used by a pipeline is fully routed and active source jobs have drained, assess its queue and concurrency-group blockers before assigning it to the cluster.
 
 Routing changes affect new jobs only. Jobs already created remain on the queue selected when they were created.
 
@@ -31,6 +31,7 @@ Before starting:
   - `write_clusters`
   - `read_pipelines`
   - `write_pipelines`
+  - `write_builds` (pipeline rollback only)
 
   Export the token:
 
@@ -137,9 +138,47 @@ cluster-migrator pipeline move monorepo \
   --destination-cluster production
 ```
 
-The CLI has no pipeline rollback command. The server revalidates authoritative migration invariants when applying a move; an earlier `no_known_blockers` result is not authorization by itself.
+The server revalidates authoritative migration invariants when applying a move; an earlier `no_known_blockers` result is not authorization by itself.
 
 Repeat the queue stages for every source queue and the pipeline stages for every pipeline in the workload.
+
+### Emergency pipeline rollback
+
+Prefer fixing the underlying issue and rolling forward. If necessary, clear a pipeline's cluster assignment and request cancellation of its recent live clustered builds:
+
+```shell
+cluster-migrator pipeline rollback monorepo --dry-run
+cluster-migrator pipeline rollback monorepo
+```
+
+For example, a dry run with a `demo-pipeline` fixture prints:
+
+```text
+$ cluster-migrator pipeline rollback demo-pipeline --dry-run
+PIPELINE ROLLBACK (DRY RUN)
+Pipeline: demo-pipeline
+
+PROPOSED CHANGE
+
+The pipeline would be unclustered and eligible clustered builds considered for cancellation, even if already unclustered.
+
+CONTEXT
+
+The server would use a fixed cutoff of rollback start minus 2 hours, with two bounded best-effort passes.
+Targets are not previewed; rollback permissions are not checked. No changes made.
+Cancellable states: creating, scheduled, started, failing, blocked. Already canceling builds count as pending; terminal builds (including failed) are excluded.
+Queue routing percentages and concurrency-group migration state remain unchanged.
+```
+
+This is **pipeline assignment and best-effort cleanup only**. Queue routing percentages and concurrency-group migration state remain unchanged. New builds can be unclustered while their jobs still follow those migrations. No builds are rebuilt, and existing builds retain their cluster assignment.
+
+The server clears assignment first, then makes two immediate passes, selecting up to 100 previously unselected builds per pass. The inclusive cutoff is fixed at the start of the server rollback operation minus two hours; the upper bound advances through the final scan to catch some late stale creators. Cancellable clustered-build states are `creating`, `scheduled`, `started`, `failing`, and `blocked`. Already `canceling` builds count as pending but are not enqueued again. Terminal builds, including `failed`, are excluded.
+
+The result reports cutoff, scan upper bound, selected builds, cancellations enqueued, pending builds, and individual enqueue failures. `pending` counts still-live clustered builds across the whole observed window, not just the selected batch. **Enqueued cancellation does not mean jobs have stopped or concurrency slots have been released.** Older builds, builds beyond the batch limit, and stale creators arriving after the last scan require separate inspection. Even zero pending builds is only an observation, not proof of complete cleanup.
+
+Pending builds or enqueue failures produce a non-zero exit **after** printing the result, including with `--json`. Inspect failures and builds, then rerun if needed: already-unclustered pipelines still receive cleanup, but every invocation uses a new two-hour cutoff. Check jobs and concurrency slots separately. A timeout or lost response may occur after assignment changes; inspect state before retrying. There is no durable rollback operation or status endpoint.
+
+Dry run only reads the pipeline and displays intent. It does not preview build targets, check rollback permissions, or mutate anything. Rollback requires the migration and pipeline-move feature flags, token scopes `write_clusters`, `write_pipelines`, and `write_builds`, and permissions to change the organization, edit the pipeline, cancel its builds, and manage its source cluster while assigned. Organization discovery requires `read_organizations`; dry run and identifier fallback require `read_pipelines`.
 
 ## Command reference
 
@@ -151,7 +190,8 @@ Repeat the queue stages for every source queue and the pipeline stages for every
 | `queue metrics <queue>` | Compare recent source and destination activity. |
 | `queue rollback <queue>` | Set routing to 0% for new jobs. |
 | `pipeline readiness <pipeline> --destination-cluster <cluster>` | Assess known queue and concurrency-group blockers. |
-| `pipeline move <pipeline> --destination-cluster <cluster>` | Permanently assign a pipeline to the cluster. |
+| `pipeline move <pipeline> --destination-cluster <cluster>` | Assign a pipeline to the cluster. |
+| `pipeline rollback <pipeline>` | Clear pipeline assignment and attempt recent clustered-build cancellation. |
 
 Run `cluster-migrator <command> --help` for full usage.
 

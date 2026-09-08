@@ -152,6 +152,7 @@ func TestPipelineUsageAcceptsIDNameOrSlug(t *testing.T) {
 		{name: "pipeline", args: []string{"pipeline"}},
 		{name: "readiness", args: []string{"pipeline", "readiness"}},
 		{name: "move", args: []string{"pipeline", "move"}},
+		{name: "rollback", args: []string{"pipeline", "rollback"}},
 	}
 
 	for _, test := range tests {
@@ -189,6 +190,14 @@ func TestPipelineUsageAcceptsIDNameOrSlug(t *testing.T) {
 			}
 			if test.name == "move" && strings.Contains(output.String(), "--wait") {
 				t.Fatalf("move help includes removed --wait option:\n%s", output.String())
+			}
+			if test.name == "rollback" {
+				if !strings.Contains(output.String(), "Pipeline ID, name, or slug.") || !strings.Contains(output.String(), "--dry-run") || !strings.Contains(output.String(), "--json") {
+					t.Fatalf("rollback help missing identifiers or global flags:\n%s", output.String())
+				}
+				if strings.Contains(output.String(), "--destination-cluster") || strings.Contains(output.String(), "--rebuild") {
+					t.Fatalf("rollback help exposes unsupported options:\n%s", output.String())
+				}
 			}
 		})
 	}

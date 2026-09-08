@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -9,6 +11,45 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestPipelineRollbackPartialResultProcess(t *testing.T) {
+	for _, jsonOutput := range []bool{false, true} {
+		t.Run(fmt.Sprintf("json=%t", jsonOutput), func(t *testing.T) {
+			t.Setenv("XDG_CACHE_HOME", t.TempDir())
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Authorization") != "Bearer test" {
+					t.Error("missing authorization")
+				}
+				switch {
+				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations":
+					_, _ = fmt.Fprint(w, `[{"slug":"acme"}]`)
+				case r.Method == http.MethodPost && r.URL.Path == "/v2/organizations/acme/cluster-queue-migrations/pipelines/monorepo/rollback":
+					_, _ = fmt.Fprint(w, `{"pipeline":"monorepo","cluster_id":null,"assignment_changed":true,"cutoff":"2026-09-08T01:00:00Z","scanned_through":"2026-09-08T03:00:01Z","passes":2,"selected":2,"cancellation_enqueued":1,"pending":2,"failures":[{"build_uuid":"build-uuid","message":"Enqueue failed"}],"best_effort":true}`)
+				default:
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL)
+					w.WriteHeader(http.StatusBadRequest)
+				}
+			}))
+			defer server.Close()
+			args := []string{"--endpoint", server.URL, "pipeline", "rollback", "monorepo"}
+			if jsonOutput {
+				args = append(args, "--json")
+			}
+			stdout, stderr, exitCode := runCLI(t, args...)
+			if exitCode != 1 || !strings.Contains(stderr, "cleanup incomplete: 2 pending, 1 enqueue failures") || strings.Contains(stderr, "Usage:") {
+				t.Fatalf("exit=%d stderr=%s", exitCode, stderr)
+			}
+			if jsonOutput {
+				if !json.Valid([]byte(stdout)) || !strings.Contains(stdout, `"cluster_id": null`) || !strings.Contains(stdout, `"pending": 2`) {
+					t.Fatalf("invalid or incomplete JSON: %s", stdout)
+				}
+			} else if !strings.Contains(stdout, "Cancellation enqueued: 1") || !strings.Contains(stdout, "build-uuid  Enqueue failed") {
+				t.Fatalf("incomplete result: %s", stdout)
+			}
+			t.Logf("exit=%d\nstdout:\n%sstderr:\n%s", exitCode, stdout, stderr)
+		})
+	}
+}
 
 func TestParseErrorsPrintContextualUsage(t *testing.T) {
 	tests := []struct {

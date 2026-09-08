@@ -10,7 +10,8 @@ import (
 
 type PipelineCmd struct {
 	Readiness PipelineReadinessCmd `cmd:"" help:"Assess known pipeline move blockers."`
-	Move      PipelineMoveCmd      `cmd:"" help:"Permanently assign a pipeline to the cluster."`
+	Move      PipelineMoveCmd      `cmd:"" help:"Assign a pipeline to the cluster."`
+	Rollback  PipelineRollbackCmd  `cmd:"" help:"Clear pipeline assignment and attempt recent clustered-build cancellation."`
 }
 
 func runWithPipelineIdentifierFallback[T any](
