@@ -131,7 +131,7 @@ func (c *Context) Print(value any) error {
 	case *buildkite.QueueMetrics:
 		return c.printQueueMetrics(value)
 	case *buildkite.ConcurrencyGroup:
-		return c.printConcurrencyGroups([]buildkite.ConcurrencyGroup{*value})
+		return c.printConcurrencyGroupStatus(value)
 	case []buildkite.ConcurrencyGroup:
 		return c.printConcurrencyGroups(value)
 	case *buildkite.PipelineReadiness:

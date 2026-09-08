@@ -16,7 +16,24 @@ func TestConcurrencyGroupStatusOutput(t *testing.T) {
 	t.Parallel()
 
 	group := `{"key":"deploy","state":"blocked","destination_cluster_id":"cluster-id","blocking_queues":["test","release"],"running_source_jobs":2,"waiting_jobs":3,"url":"https://buildkite.com/acme"}`
-	wantGroup := "Group: deploy\nState: blocked\nDestination cluster: cluster-id\nRunning source jobs: 2\nWaiting jobs: 3\nBlocking queues: test, release\nURL: https://buildkite.com/acme\n"
+	other := `{"key":"release","state":"unclustered","destination_cluster_id":"","blocking_queues":[],"running_source_jobs":0,"waiting_jobs":0,"url":""}`
+	wantGroup := `CONCURRENCY-GROUP STATUS
+Group: deploy
+
+STATUS
+
+State: blocked
+Destination cluster: cluster-id
+Running source jobs: 2
+Waiting jobs: 3
+URL: https://buildkite.com/acme
+
+BLOCKING QUEUES
+
+QUEUE
+test
+release
+`
 	for _, test := range []struct {
 		name     string
 		key      string
@@ -24,9 +41,18 @@ func TestConcurrencyGroupStatusOutput(t *testing.T) {
 		wantJSON string
 		wantText string
 	}{
-		{name: "one", key: "deploy", response: group, wantJSON: group, wantText: "CONCURRENCY GROUP STATUS\nGroups: 1\n\n" + wantGroup},
-		{name: "all", response: `{"items":[` + group + `,` + group + `],"links":{}}`, wantJSON: `[` + group + `,` + group + `]`, wantText: "CONCURRENCY GROUP STATUS\nGroups: 2\n\n" + wantGroup + "\n" + wantGroup},
-		{name: "empty", response: `{"items":[],"links":{}}`, wantJSON: `[]`, wantText: "CONCURRENCY GROUP STATUS\nGroups: 0\n\nNo concurrency groups found.\n"},
+		{name: "one", key: "deploy", response: group, wantJSON: group, wantText: wantGroup},
+		{name: "no blockers", key: "release", response: other, wantJSON: other, wantText: "CONCURRENCY-GROUP STATUS\nGroup: release\n\nSTATUS\n\nState: unclustered\nDestination cluster: —\nRunning source jobs: 0\nWaiting jobs: 0\n"},
+		{name: "all", response: `{"items":[` + group + `,` + other + `],"links":{}}`, wantJSON: `[` + group + `,` + other + `]`, wantText: `CONCURRENCY-GROUP STATUS
+Groups: 2
+
+STATUS
+
+GROUP    STATE        DESTINATION  RUNNING SOURCE  WAITING  BLOCKING QUEUES  URL
+deploy   blocked      cluster-id   2               3        test, release    https://buildkite.com/acme
+release  unclustered  —            0               0        —                —
+`},
+		{name: "empty", response: `{"items":[],"links":{}}`, wantJSON: `[]`, wantText: "CONCURRENCY-GROUP STATUS\nGroups: 0\n\nSTATUS\n\nNo concurrency groups found.\n"},
 	} {
 		for _, jsonOutput := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/json=%t", test.name, jsonOutput), func(t *testing.T) {
@@ -66,6 +92,7 @@ func TestConcurrencyGroupStatusOutput(t *testing.T) {
 				if got := output.String(); got != want {
 					t.Fatalf("output = %q, want %q", got, want)
 				}
+				t.Logf("stdout:\n%s", &output)
 			})
 		}
 	}
