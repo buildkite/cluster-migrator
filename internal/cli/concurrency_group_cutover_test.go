@@ -20,6 +20,7 @@ func TestConcurrencyGroupCutover(t *testing.T) {
 	for _, test := range []struct {
 		name      string
 		dryRun    bool
+		json      bool
 		wait      bool
 		state     string
 		waitError error
@@ -28,9 +29,11 @@ func TestConcurrencyGroupCutover(t *testing.T) {
 		wantWaits int
 		wantText  string
 	}{
-		{name: "non-interactive", wantPosts: 1, wantText: `"state": "draining"`},
+		{name: "non-interactive", wantPosts: 1, wantText: "Group: deploy\nState: draining\n"},
+		{name: "JSON result", json: true, wantPosts: 1, wantText: `"state": "draining"`},
 		{name: "dry run", dryRun: true, wantText: "cut over concurrency group deploy in production (dry run)"},
-		{name: "wait for completion", wait: true, state: "clustered", wantPosts: 1, wantWaits: 1, wantText: `"state": "clustered"`},
+		{name: "wait for completion", wait: true, state: "clustered", wantPosts: 1, wantWaits: 1, wantText: "Group: deploy\nState: clustered\n"},
+		{name: "JSON completion", json: true, wait: true, state: "clustered", wantPosts: 1, wantWaits: 1, wantText: `"state": "clustered"`},
 		{name: "failed cutover", wait: true, state: "failed", wantPosts: 1, wantWaits: 1, wantError: "concurrency-group cutover ended in failed"},
 		{name: "cancelled wait", wait: true, waitError: context.Canceled, wantPosts: 1, wantWaits: 1, wantError: "context canceled"},
 	} {
@@ -63,7 +66,7 @@ func TestConcurrencyGroupCutover(t *testing.T) {
 			}
 			var output bytes.Buffer
 			app := &Context{
-				Context: context.Background(), Client: client, Output: &output, DryRun: test.dryRun,
+				Context: context.Background(), Client: client, Output: &output, DryRun: test.dryRun, JSON: test.json,
 				Wait: func(context.Context, time.Duration) error {
 					waits++
 					return test.waitError

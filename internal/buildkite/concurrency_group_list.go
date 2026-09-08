@@ -1,16 +1,17 @@
 package buildkite
 
-import (
-	"context"
-	"net/http"
-)
+import "context"
 
 func (c *Client) ListConcurrencyGroups(ctx context.Context) ([]ConcurrencyGroup, error) {
-	var response struct {
-		Items []ConcurrencyGroup `json:"items"`
+	path := c.path("cluster-queue-migrations", "concurrency-groups")
+	groups := []ConcurrencyGroup{}
+	for path != "" {
+		page, err := cursorPage[ConcurrencyGroup](ctx, c, path)
+		if err != nil {
+			return nil, err
+		}
+		groups = append(groups, page.Items...)
+		path = page.Links.Next
 	}
-	if err := c.do(ctx, http.MethodGet, c.path("cluster-queue-migrations", "concurrency-groups"), nil, &response); err != nil {
-		return nil, err
-	}
-	return response.Items, nil
+	return groups, nil
 }
