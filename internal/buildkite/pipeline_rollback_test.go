@@ -26,7 +26,7 @@ func TestRollbackPipeline(t *testing.T) {
 		if string(body) != "{}" || r.Header.Get("Content-Type") != "application/json" || r.Header.Get("Authorization") != "Bearer secret" {
 			t.Errorf("unexpected request body or headers: body=%q", body)
 		}
-		_, _ = fmt.Fprint(w, rollbackResponse)
+		_, _ = fmt.Fprint(w, strings.ReplaceAll(rollbackResponse, `Z"`, `.123456Z"`))
 	}))
 	defer server.Close()
 	client, err := NewClient(server.URL, "acme", "secret", server.Client())
@@ -39,6 +39,9 @@ func TestRollbackPipeline(t *testing.T) {
 	}
 	if result.Pipeline != "monorepo" || !result.AssignmentChanged || result.ClusterID != nil || result.CancellationEnqueued != 1 || result.Pending != 2 || len(result.Failures) != 1 {
 		t.Fatalf("result = %#v", result)
+	}
+	if result.Cutoff != "2026-09-08T01:00:00.123456Z" || result.ScannedThrough != "2026-09-08T03:00:01.123456Z" {
+		t.Fatalf("timestamp precision lost: %#v", result)
 	}
 }
 
@@ -91,7 +94,7 @@ func TestRollbackPipelineRejectsInvalidResponse(t *testing.T) {
 }
 
 func TestRollbackPipelineAPIErrors(t *testing.T) {
-	for _, status := range []int{403, 404, 422, 503} {
+	for _, status := range []int{400, 403, 404, 422, 503} {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(status)

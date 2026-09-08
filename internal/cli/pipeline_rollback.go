@@ -45,7 +45,7 @@ func (cmd *PipelineRollbackCmd) dryRun(app *Context) error {
 		return fmt.Errorf("get pipeline for rollback dry run: %w", err)
 	}
 	note := "The pipeline assignment would be cleared and eligible clustered builds considered for cancellation, even if already unclustered. " +
-		"The server uses a fixed cutoff of request start minus 2 hours, with two bounded best-effort passes. " +
+		"The server uses a fixed cutoff of rollback start minus 2 hours, with two bounded best-effort passes. " +
 		"Targets are not previewed; rollback permissions are not checked. No changes made. " + pipelineRollbackScope
 	if app.JSON {
 		return app.Print(struct {
