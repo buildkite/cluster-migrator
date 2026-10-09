@@ -24,10 +24,10 @@ func TestConcurrencyGroupProcess(t *testing.T) {
 	}{
 		{name: "status", args: []string{"status", "deploy"}, state: "draining", wantText: "CONCURRENCY-GROUP STATUS\nGroup: deploy\n"},
 		{name: "empty list", args: []string{"status"}, wantText: "No concurrency groups found.\n"},
-		{name: "accepted", args: []string{"cutover", "deploy", "--destination-cluster", "production"}, state: "draining", wantPosts: 1, wantText: "Cutover request accepted.\n"},
+		{name: "accepted", args: []string{"cutover", "deploy", "--destination-cluster", "production"}, state: "draining", wantPosts: 1, wantText: "Cutover to the production cluster was requested.\n"},
 		{name: "dry run", args: []string{"cutover", "deploy", "--destination-cluster", "production", "--dry-run"}, state: "unclustered", wantText: "CONCURRENCY-GROUP CUTOVER (DRY RUN)\n"},
-		{name: "blocked dry run", args: []string{"cutover", "deploy", "--destination-cluster", "production", "--dry-run"}, state: "blocked", blocked: true, wantText: "Cutover is blocked by queues.\n", wantError: "concurrency group is blocked by queues: [test release]"},
-		{name: "completed", args: []string{"cutover", "deploy", "--destination-cluster", "production", "--wait"}, state: "clustered", wantPosts: 1, wantText: "Cutover completed.\n"},
+		{name: "blocked dry run", args: []string{"cutover", "deploy", "--destination-cluster", "production", "--dry-run"}, state: "blocked", blocked: true, wantText: "Blocked by 2 queues.\n", wantError: "concurrency group is blocked by queues: test, release"},
+		{name: "completed", args: []string{"cutover", "deploy", "--destination-cluster", "production", "--wait"}, state: "clustered", wantPosts: 1, wantText: "Concurrency group moved to the production cluster.\n"},
 		{name: "failed", args: []string{"cutover", "deploy", "--destination-cluster", "production", "--wait"}, state: "failed", wantPosts: 1, wantError: "concurrency-group cutover ended in failed"},
 		{name: "cancelled", args: []string{"cutover", "deploy", "--destination-cluster", "production", "--wait"}, state: "cancelled", wantPosts: 1, wantError: "concurrency-group cutover ended in cancelled"},
 	} {

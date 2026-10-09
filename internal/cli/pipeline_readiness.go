@@ -288,20 +288,23 @@ func formatPipelineRefreshDue(nextRefreshAt *string, now time.Time) (string, err
 }
 
 func (c *Context) printPipelineReadinessActions(readiness *buildkite.PipelineReadiness) error {
-	actions := pipelineReadinessActions(readiness)
-	if len(actions) == 0 {
+	return c.printNextSteps(pipelineReadinessActions(readiness))
+}
+
+func (c *Context) printNextSteps(steps []string) error {
+	if len(steps) == 0 {
 		return nil
 	}
 	if _, err := fmt.Fprint(c.Output, "\nNEXT STEPS\n\n"); err != nil {
 		return err
 	}
-	for index, action := range actions {
+	for index, step := range steps {
 		if index > 0 {
 			if _, err := fmt.Fprintln(c.Output); err != nil {
 				return err
 			}
 		}
-		if _, err := fmt.Fprintf(c.Output, "%d. %s\n", index+1, action); err != nil {
+		if _, err := fmt.Fprintf(c.Output, "%d. %s\n", index+1, step); err != nil {
 			return err
 		}
 	}

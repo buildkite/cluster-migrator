@@ -20,9 +20,10 @@ func TestConcurrencyGroupCutover(t *testing.T) {
 
 	const heading = "CONCURRENCY-GROUP CUTOVER\nGroup: deploy\nDestination: production\n"
 	const dryHeading = "CONCURRENCY-GROUP CUTOVER (DRY RUN)\nGroup: deploy\nDestination: production\n"
-	const status = "\nSTATUS\n\nState: %s\nDestination cluster: cluster-id\nRunning source jobs: 0\nWaiting jobs: 0\n"
-	const next = "\nNEXT STEPS\n\n1. Inspect cutover status:\n\n   cluster-migrator concurrency-group status deploy\n"
-	const blocked = "\nREADINESS\n\nCutover is blocked by queues.\n\nBLOCKING QUEUES\n\nQUEUE\ntest\nrelease\n"
+	const status = "\nSTATUS\n\nState: %s\nRunning source jobs: 0\nWaiting jobs: 0\n"
+	const next = "\nNEXT STEPS\n\n1. Check cutover progress:\n\n   cluster-migrator concurrency-group status deploy\n"
+	const completedNext = "\nNEXT STEPS\n\n1. Assess each pipeline using this concurrency group:\n\n   cluster-migrator pipeline readiness <pipeline> --destination-cluster cluster-id\n"
+	const blocked = "\nREADINESS\n\nBlocked by 2 queues.\n\nBLOCKING QUEUES\n\nQUEUE\ntest\nrelease\n\nNEXT STEPS\n\n1. Review the migration for each blocking queue:\n\n   cluster-migrator queue status test\n   cluster-migrator queue status release\n\n2. If no queue blockers remain, preview the cutover:\n\n   cluster-migrator concurrency-group cutover deploy --destination-cluster cluster-id --dry-run\n"
 	const response = `{"key":"deploy","state":%q,"destination_cluster_id":"cluster-id","blocking_queues":[],"running_source_jobs":0,"waiting_jobs":0,"url":""}`
 	for _, test := range []struct {
 		name      string
@@ -37,15 +38,15 @@ func TestConcurrencyGroupCutover(t *testing.T) {
 		wantWaits int
 		wantText  string
 	}{
-		{name: "non-interactive", wantPosts: 1, wantText: heading + "\nRESULT\n\nCutover request accepted.\n" + fmt.Sprintf(status, "draining") + next},
+		{name: "non-interactive", wantPosts: 1, wantText: heading + "\nRESULT\n\nCutover to the production cluster was requested.\n" + fmt.Sprintf(status, "draining") + next},
 		{name: "JSON result", json: true, wantPosts: 1, wantText: fmt.Sprintf(response, "draining")},
 		{name: "dry run", dryRun: true, wantText: dryHeading + "\nREADINESS\n\nNo known queue blockers. This is not proof of readiness.\n\nPROPOSED CHANGE\n\nA cutover to the production cluster would be requested.\n"},
 		{name: "JSON dry run", json: true, dryRun: true, wantText: `{"action":"cut over","resource":"concurrency group deploy","destination_cluster":"production","dry_run":true}`},
-		{name: "blocked", blocked: true, wantError: "concurrency group is blocked by queues: [test release]", wantText: heading + blocked},
-		{name: "blocked dry run", dryRun: true, blocked: true, wantError: "concurrency group is blocked by queues: [test release]", wantText: dryHeading + blocked},
-		{name: "JSON blocked dry run", json: true, dryRun: true, blocked: true, wantError: "concurrency group is blocked by queues: [test release]"},
-		{name: "wait for completion", wait: true, state: "clustered", wantPosts: 1, wantWaits: 1, wantText: heading + "\nRESULT\n\nCutover completed.\n" + fmt.Sprintf(status, "clustered")},
-		{name: "succeeded completion", wait: true, state: "succeeded", wantPosts: 1, wantWaits: 1, wantText: heading + "\nRESULT\n\nCutover completed.\n" + fmt.Sprintf(status, "succeeded")},
+		{name: "blocked", blocked: true, wantError: "concurrency group is blocked by queues: test, release", wantText: heading + blocked},
+		{name: "blocked dry run", dryRun: true, blocked: true, wantError: "concurrency group is blocked by queues: test, release", wantText: dryHeading + blocked},
+		{name: "JSON blocked dry run", json: true, dryRun: true, blocked: true, wantError: "concurrency group is blocked by queues: test, release"},
+		{name: "wait for completion", wait: true, state: "clustered", wantPosts: 1, wantWaits: 1, wantText: heading + "\nRESULT\n\nConcurrency group moved to the production cluster.\n" + fmt.Sprintf(status, "clustered") + completedNext},
+		{name: "succeeded completion", wait: true, state: "succeeded", wantPosts: 1, wantWaits: 1, wantText: heading + "\nRESULT\n\nConcurrency group moved to the production cluster.\n" + fmt.Sprintf(status, "succeeded") + completedNext},
 		{name: "JSON completion", json: true, wait: true, state: "clustered", wantPosts: 1, wantWaits: 1, wantText: fmt.Sprintf(response, "clustered")},
 		{name: "failed cutover", wait: true, state: "failed", wantPosts: 1, wantWaits: 1, wantError: "concurrency-group cutover ended in failed"},
 		{name: "cancelled cutover", wait: true, state: "cancelled", wantPosts: 1, wantWaits: 1, wantError: "concurrency-group cutover ended in cancelled"},

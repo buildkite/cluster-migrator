@@ -138,7 +138,7 @@ PROPOSED CHANGE
 A cutover to the production cluster would be requested.
 ```
 
-A blocked dry run lists blocking queues, omits the proposed change, and exits non-zero. `--json` preserves machine-readable results and leaves diagnostics on stderr.
+A blocked dry run lists blocking queues and next steps to review their migrations, omits the proposed change, and exits non-zero. `--json` preserves machine-readable results and leaves diagnostics on stderr.
 
 The provisional commands identify groups by key only; they cannot distinguish equal keys in different scopes. Scope-aware identification and the server contract must be resolved before production use.
 

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/buildkite/cluster-migrator/internal/buildkite"
@@ -27,14 +28,18 @@ func (cmd *ConcurrencyGroupCutoverCmd) Run(app *Context) error {
 			if err := cmd.printHeading(app, cluster.Name); err != nil {
 				return err
 			}
-			if _, err := fmt.Fprint(app.Output, "\nREADINESS\n\nCutover is blocked by queues.\n"); err != nil {
+			count := len(group.BlockingQueues)
+			if _, err := fmt.Fprintf(app.Output, "\nREADINESS\n\nBlocked by %d %s.\n", count, pluralize(count, "queue")); err != nil {
 				return err
 			}
 			if err := app.printConcurrencyGroupBlockingQueues(group.BlockingQueues); err != nil {
 				return err
 			}
+			if err := app.printNextSteps(concurrencyGroupBlockedNextSteps(cmd.Group, group.BlockingQueues, cluster.ID)); err != nil {
+				return err
+			}
 		}
-		return fmt.Errorf("concurrency group is blocked by queues: %v", group.BlockingQueues)
+		return fmt.Errorf("concurrency group is blocked by queues: %s", strings.Join(group.BlockingQueues, ", "))
 	}
 
 	change := Change{
@@ -59,22 +64,22 @@ func (cmd *ConcurrencyGroupCutoverCmd) Run(app *Context) error {
 		return fmt.Errorf("start concurrency-group cutover: %w", err)
 	}
 	if !cmd.Wait {
-		return cmd.printResult(app, cluster.Name, group)
+		return cmd.printResult(app, cluster, group)
 	}
 
 	for {
 		group, err = app.Client.GetConcurrencyGroup(app.Context, cmd.Group)
 		if err != nil {
-			return err
+			return fmt.Errorf("get concurrency group: %w", err)
 		}
 		switch group.State {
 		case "clustered", "succeeded":
-			return cmd.printResult(app, cluster.Name, group)
+			return cmd.printResult(app, cluster, group)
 		case "failed", "cancelled":
 			return fmt.Errorf("concurrency-group cutover ended in %s", group.State)
 		}
 		if err := app.wait(app.Context, 2*time.Second); err != nil {
-			return err
+			return fmt.Errorf("wait for concurrency-group cutover: %w", err)
 		}
 	}
 }
@@ -88,16 +93,18 @@ func (cmd *ConcurrencyGroupCutoverCmd) printHeading(app *Context, destination st
 	return err
 }
 
-func (cmd *ConcurrencyGroupCutoverCmd) printResult(app *Context, destination string, group *buildkite.ConcurrencyGroup) error {
+func (cmd *ConcurrencyGroupCutoverCmd) printResult(app *Context, cluster *buildkite.Cluster, group *buildkite.ConcurrencyGroup) error {
 	if app.JSON {
 		return app.Print(group)
 	}
-	if err := cmd.printHeading(app, destination); err != nil {
+	if err := cmd.printHeading(app, cluster.Name); err != nil {
 		return err
 	}
-	result := "Cutover request accepted."
+	result := fmt.Sprintf("Cutover to the %s cluster was requested.", cluster.Name)
+	next := []string{fmt.Sprintf("Check cutover progress:\n\n   cluster-migrator concurrency-group status %s", cmd.Group)}
 	if cmd.Wait {
-		result = "Cutover completed."
+		result = fmt.Sprintf("Concurrency group moved to the %s cluster.", cluster.Name)
+		next = concurrencyGroupCompletedNextSteps(cluster.ID)
 	}
 	if _, err := fmt.Fprintf(app.Output, "\nRESULT\n\n%s\n", result); err != nil {
 		return err
@@ -105,9 +112,5 @@ func (cmd *ConcurrencyGroupCutoverCmd) printResult(app *Context, destination str
 	if err := app.printConcurrencyGroupState(group); err != nil {
 		return err
 	}
-	if !cmd.Wait {
-		_, err := fmt.Fprintf(app.Output, "\nNEXT STEPS\n\n1. Inspect cutover status:\n\n   cluster-migrator concurrency-group status %s\n", cmd.Group)
-		return err
-	}
-	return nil
+	return app.printNextSteps(next)
 }

@@ -17,13 +17,15 @@ func TestConcurrencyGroupStatusOutput(t *testing.T) {
 
 	group := `{"key":"deploy","state":"blocked","destination_cluster_id":"cluster-id","blocking_queues":["test","release"],"running_source_jobs":2,"waiting_jobs":3,"url":"https://buildkite.com/acme"}`
 	other := `{"key":"release","state":"unclustered","destination_cluster_id":"","blocking_queues":[],"running_source_jobs":0,"waiting_jobs":0,"url":""}`
+	clustered := `{"key":"deploy","state":"clustered","destination_cluster_id":"cluster-id","blocking_queues":[],"running_source_jobs":0,"waiting_jobs":0,"url":""}`
+	draining := `{"key":"deploy","state":"draining","destination_cluster_id":"cluster-id","blocking_queues":[],"running_source_jobs":1,"waiting_jobs":0,"url":""}`
 	wantGroup := `CONCURRENCY-GROUP STATUS
 Group: deploy
+Destination: production
 
 STATUS
 
 State: blocked
-Destination cluster: cluster-id
 Running source jobs: 2
 Waiting jobs: 3
 URL: https://buildkite.com/acme
@@ -33,6 +35,17 @@ BLOCKING QUEUES
 QUEUE
 test
 release
+
+NEXT STEPS
+
+1. Review the migration for each blocking queue:
+
+   cluster-migrator queue status test
+   cluster-migrator queue status release
+
+2. If no queue blockers remain, preview the cutover:
+
+   cluster-migrator concurrency-group cutover deploy --destination-cluster cluster-id --dry-run
 `
 	for _, test := range []struct {
 		name     string
@@ -41,16 +54,18 @@ release
 		wantJSON string
 		wantText string
 	}{
-		{name: "one", key: "deploy", response: group, wantJSON: group, wantText: wantGroup},
-		{name: "no blockers", key: "release", response: other, wantJSON: other, wantText: "CONCURRENCY-GROUP STATUS\nGroup: release\n\nSTATUS\n\nState: unclustered\nDestination cluster: —\nRunning source jobs: 0\nWaiting jobs: 0\n"},
+		{name: "blocked", key: "deploy", response: group, wantJSON: group, wantText: wantGroup},
+		{name: "unclustered", key: "release", response: other, wantJSON: other, wantText: "CONCURRENCY-GROUP STATUS\nGroup: release\nDestination: —\n\nSTATUS\n\nState: unclustered\nRunning source jobs: 0\nWaiting jobs: 0\n\nNEXT STEPS\n\n1. Preview the cutover:\n\n   cluster-migrator concurrency-group cutover release --destination-cluster <cluster> --dry-run\n"},
+		{name: "draining", key: "deploy", response: draining, wantJSON: draining, wantText: "CONCURRENCY-GROUP STATUS\nGroup: deploy\nDestination: production\n\nSTATUS\n\nState: draining\nRunning source jobs: 1\nWaiting jobs: 0\n"},
+		{name: "clustered", key: "deploy", response: clustered, wantJSON: clustered, wantText: "CONCURRENCY-GROUP STATUS\nGroup: deploy\nDestination: production\n\nSTATUS\n\nState: clustered\nRunning source jobs: 0\nWaiting jobs: 0\n\nNEXT STEPS\n\n1. Assess each pipeline using this concurrency group:\n\n   cluster-migrator pipeline readiness <pipeline> --destination-cluster cluster-id\n"},
 		{name: "all", response: `{"items":[` + group + `,` + other + `],"links":{}}`, wantJSON: `[` + group + `,` + other + `]`, wantText: `CONCURRENCY-GROUP STATUS
 Groups: 2
 
 STATUS
 
-GROUP    STATE        DESTINATION  RUNNING SOURCE  WAITING  BLOCKING QUEUES  URL
-deploy   blocked      cluster-id   2               3        test, release    https://buildkite.com/acme
-release  unclustered  —            0               0        —                —
+GROUP    STATE        DESTINATION  RUNNING SOURCE JOBS  WAITING JOBS  BLOCKING QUEUES  URL
+deploy   blocked      production   2                    3             test, release    https://buildkite.com/acme
+release  unclustered  —            0                    0             —                —
 `},
 		{name: "empty", response: `{"items":[],"links":{}}`, wantJSON: `[]`, wantText: "CONCURRENCY-GROUP STATUS\nGroups: 0\n\nSTATUS\n\nNo concurrency groups found.\n"},
 	} {
@@ -62,13 +77,16 @@ release  unclustered  —            0               0        —               
 					if test.key != "" {
 						path += "/" + test.key
 					}
-					if r.Method != http.MethodGet || r.URL.Path != path {
+					w.Header().Set("Content-Type", "application/json")
+					switch {
+					case r.Method == http.MethodGet && r.URL.Path == path:
+						_, _ = w.Write([]byte(test.response))
+					case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/clusters" && !jsonOutput:
+						_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
+					default:
 						t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 						w.WriteHeader(http.StatusNotFound)
-						return
 					}
-					w.Header().Set("Content-Type", "application/json")
-					_, _ = w.Write([]byte(test.response))
 				}))
 				defer server.Close()
 				client, err := buildkite.NewClient(server.URL, "acme", "secret", server.Client())
