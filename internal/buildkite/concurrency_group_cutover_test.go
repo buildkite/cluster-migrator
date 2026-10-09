@@ -14,13 +14,13 @@ func TestStartConcurrencyGroupCutover(t *testing.T) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("method = %q, want POST", r.Method)
 		}
-		if r.URL.Path != "/v2/organizations/acme/cluster-queue-migrations/concurrency-groups/deploy%2Fproduction/cutover" &&
-			r.URL.RawPath != "/v2/organizations/acme/cluster-queue-migrations/concurrency-groups/deploy%2Fproduction/cutover" {
+		if r.URL.Path != "/v2/organizations/acme/cluster-queue-migrations/concurrency-groups/custom/deploy%2Fproduction/cutover" &&
+			r.URL.RawPath != "/v2/organizations/acme/cluster-queue-migrations/concurrency-groups/custom/deploy%2Fproduction/cutover" {
 			t.Fatalf("path = %q, raw path = %q", r.URL.Path, r.URL.RawPath)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
-		_, _ = w.Write([]byte(`{"key":"deploy/production","state":"draining","destination_cluster_id":"cluster-id"}`))
+		_, _ = w.Write([]byte(`{"scope":"custom","key":"deploy/production","state":"draining","destination_cluster_id":"cluster-id"}`))
 	}))
 	defer server.Close()
 
@@ -29,7 +29,7 @@ func TestStartConcurrencyGroupCutover(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	group, err := client.StartConcurrencyGroupCutover(context.Background(), "deploy/production", "cluster-id")
+	group, err := client.StartConcurrencyGroupCutover(context.Background(), "custom", "deploy/production", "cluster-id")
 	if err != nil {
 		t.Fatal(err)
 	}

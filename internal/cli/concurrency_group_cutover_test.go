@@ -18,13 +18,13 @@ import (
 func TestConcurrencyGroupCutover(t *testing.T) {
 	t.Parallel()
 
-	const heading = "CONCURRENCY-GROUP CUTOVER\nGroup: deploy\nDestination: production\n"
-	const dryHeading = "CONCURRENCY-GROUP CUTOVER (DRY RUN)\nGroup: deploy\nDestination: production\n"
+	const heading = "CONCURRENCY-GROUP CUTOVER\nGroup: custom/deploy\nDestination: production\n"
+	const dryHeading = "CONCURRENCY-GROUP CUTOVER (DRY RUN)\nGroup: custom/deploy\nDestination: production\n"
 	const status = "\nSTATUS\n\nState: %s\nRunning source jobs: 0\nWaiting jobs: 0\n"
-	const next = "\nNEXT STEPS\n\n1. Check cutover progress:\n\n   cluster-migrator concurrency-group status deploy\n"
+	const next = "\nNEXT STEPS\n\n1. Check cutover progress:\n\n   cluster-migrator concurrency-group status custom/deploy\n"
 	const completedNext = "\nNEXT STEPS\n\n1. Assess each pipeline using this concurrency group:\n\n   cluster-migrator pipeline readiness <pipeline> --destination-cluster cluster-id\n"
-	const blocked = "\nREADINESS\n\nBlocked by 2 queues.\n\nBLOCKING QUEUES\n\nQUEUE\ntest\nrelease\n\nNEXT STEPS\n\n1. Review the migration for each blocking queue:\n\n   cluster-migrator queue status test\n   cluster-migrator queue status release\n\n2. If no queue blockers remain, preview the cutover:\n\n   cluster-migrator concurrency-group cutover deploy --destination-cluster cluster-id --dry-run\n"
-	const response = `{"key":"deploy","state":%q,"destination_cluster_id":"cluster-id","blocking_queues":[],"running_source_jobs":0,"waiting_jobs":0,"url":""}`
+	const blocked = "\nREADINESS\n\nBlocked by 2 queues.\n\nBLOCKING QUEUES\n\nQUEUE\ntest\nrelease\n\nNEXT STEPS\n\n1. Review the migration for each blocking queue:\n\n   cluster-migrator queue status test\n   cluster-migrator queue status release\n\n2. If no queue blockers remain, preview the cutover:\n\n   cluster-migrator concurrency-group cutover custom/deploy --destination-cluster cluster-id --dry-run\n"
+	const response = `{"scope":"custom","key":"deploy","state":%q,"destination_cluster_id":"cluster-id","blocking_queues":[],"running_source_jobs":0,"waiting_jobs":0,"url":""}`
 	for _, test := range []struct {
 		name      string
 		dryRun    bool
@@ -41,7 +41,7 @@ func TestConcurrencyGroupCutover(t *testing.T) {
 		{name: "non-interactive", wantPosts: 1, wantText: heading + "\nRESULT\n\nCutover to the production cluster was requested.\n" + fmt.Sprintf(status, "draining") + next},
 		{name: "JSON result", json: true, wantPosts: 1, wantText: fmt.Sprintf(response, "draining")},
 		{name: "dry run", dryRun: true, wantText: dryHeading + "\nREADINESS\n\nNo known queue blockers. This is not proof of readiness.\n\nPROPOSED CHANGE\n\nA cutover to the production cluster would be requested.\n"},
-		{name: "JSON dry run", json: true, dryRun: true, wantText: `{"action":"cut over","resource":"concurrency group deploy","destination_cluster":"production","dry_run":true}`},
+		{name: "JSON dry run", json: true, dryRun: true, wantText: `{"action":"cut over","resource":"concurrency group custom/deploy","destination_cluster":"production","dry_run":true}`},
 		{name: "blocked", blocked: true, wantError: "concurrency group is blocked by queues: test, release", wantText: heading + blocked},
 		{name: "blocked dry run", dryRun: true, blocked: true, wantError: "concurrency group is blocked by queues: test, release", wantText: dryHeading + blocked},
 		{name: "JSON blocked dry run", json: true, dryRun: true, blocked: true, wantError: "concurrency group is blocked by queues: test, release"},
@@ -60,7 +60,7 @@ func TestConcurrencyGroupCutover(t *testing.T) {
 				switch {
 				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/clusters":
 					_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
-				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/cluster-queue-migrations/concurrency-groups/deploy":
+				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/cluster-queue-migrations/concurrency-groups/custom/deploy":
 					state := "draining"
 					if waits > 0 {
 						state = test.state
@@ -70,7 +70,7 @@ func TestConcurrencyGroupCutover(t *testing.T) {
 						body = strings.Replace(body, `"blocking_queues":[]`, `"blocking_queues":["test","release"]`, 1)
 					}
 					_, _ = fmt.Fprint(w, body)
-				case r.Method == http.MethodPost && r.URL.Path == "/v2/organizations/acme/cluster-queue-migrations/concurrency-groups/deploy/cutover":
+				case r.Method == http.MethodPost && r.URL.Path == "/v2/organizations/acme/cluster-queue-migrations/concurrency-groups/custom/deploy/cutover":
 					posts++
 					_, _ = fmt.Fprintf(w, response, "draining")
 				default:
@@ -91,7 +91,7 @@ func TestConcurrencyGroupCutover(t *testing.T) {
 					return test.waitError
 				},
 			}
-			cmd := ConcurrencyGroupCutoverCmd{Group: "deploy", DestinationCluster: "production", Wait: test.wait}
+			cmd := ConcurrencyGroupCutoverCmd{Group: "custom/deploy", DestinationCluster: "production", Wait: test.wait}
 			err = cmd.Run(app)
 			if test.wantError != "" {
 				if err == nil || !strings.Contains(err.Error(), test.wantError) {

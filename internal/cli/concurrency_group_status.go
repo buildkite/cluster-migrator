@@ -9,7 +9,7 @@ import (
 )
 
 type ConcurrencyGroupStatusCmd struct {
-	Group string `arg:"" optional:"" help:"Concurrency group key. Omit to list every group."`
+	Group string `arg:"" optional:"" help:"Concurrency group as <scope>/<key>, such as custom/deploy. Omit to list every group."`
 }
 
 func (cmd *ConcurrencyGroupStatusCmd) Run(app *Context) error {
@@ -27,7 +27,11 @@ func (cmd *ConcurrencyGroupStatusCmd) Run(app *Context) error {
 		}
 		return app.printConcurrencyGroups(groups, clusterNames)
 	}
-	group, err := app.Client.GetConcurrencyGroup(app.Context, cmd.Group)
+	scope, key, err := parseConcurrencyGroup(cmd.Group)
+	if err != nil {
+		return err
+	}
+	group, err := app.Client.GetConcurrencyGroup(app.Context, scope, key)
 	if err != nil {
 		return fmt.Errorf("get concurrency group: %w", err)
 	}
@@ -73,7 +77,7 @@ func (app *Context) printConcurrencyGroups(groups []buildkite.ConcurrencyGroup, 
 	for i := range groups {
 		group := &groups[i]
 		_, _ = fmt.Fprintf(writer, "%s\t%s\t%s\t%d\t%d\t%s\t%s\n",
-			displayValue(group.Key),
+			displayValue(concurrencyGroupName(*group)),
 			displayValue(group.State),
 			concurrencyGroupDestination(group, clusterNames),
 			group.RunningSourceJobs,
@@ -86,7 +90,7 @@ func (app *Context) printConcurrencyGroups(groups []buildkite.ConcurrencyGroup, 
 }
 
 func (app *Context) printConcurrencyGroupStatus(group *buildkite.ConcurrencyGroup, clusterNames map[string]string) error {
-	if _, err := fmt.Fprintf(app.Output, "CONCURRENCY-GROUP STATUS\nGroup: %s\nDestination: %s\n", group.Key, concurrencyGroupDestination(group, clusterNames)); err != nil {
+	if _, err := fmt.Fprintf(app.Output, "CONCURRENCY-GROUP STATUS\nGroup: %s\nDestination: %s\n", concurrencyGroupName(*group), concurrencyGroupDestination(group, clusterNames)); err != nil {
 		return err
 	}
 	if err := app.printConcurrencyGroupState(group); err != nil {
@@ -121,11 +125,11 @@ func concurrencyGroupStatusNextSteps(group *buildkite.ConcurrencyGroup) []string
 		destination = "<cluster>"
 	}
 	if len(group.BlockingQueues) > 0 {
-		return concurrencyGroupBlockedNextSteps(group.Key, group.BlockingQueues, destination)
+		return concurrencyGroupBlockedNextSteps(concurrencyGroupName(*group), group.BlockingQueues, destination)
 	}
 	switch group.State {
 	case "unclustered", "blocked":
-		return []string{fmt.Sprintf("Preview the cutover:\n\n   cluster-migrator concurrency-group cutover %s --destination-cluster %s --dry-run", group.Key, destination)}
+		return []string{fmt.Sprintf("Preview the cutover:\n\n   cluster-migrator concurrency-group cutover %s --destination-cluster %s --dry-run", concurrencyGroupName(*group), destination)}
 	case "clustered", "succeeded":
 		return concurrencyGroupCompletedNextSteps(destination)
 	default:

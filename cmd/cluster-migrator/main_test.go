@@ -22,21 +22,22 @@ func TestConcurrencyGroupProcess(t *testing.T) {
 		wantText  string
 		wantError string
 	}{
-		{name: "status", args: []string{"status", "deploy"}, state: "draining", wantText: "CONCURRENCY-GROUP STATUS\nGroup: deploy\n"},
+		{name: "status", args: []string{"status", "custom/deploy"}, state: "draining", wantText: "CONCURRENCY-GROUP STATUS\nGroup: custom/deploy\n"},
 		{name: "empty list", args: []string{"status"}, wantText: "No concurrency groups found.\n"},
-		{name: "accepted", args: []string{"cutover", "deploy", "--destination-cluster", "production"}, state: "draining", wantPosts: 1, wantText: "Cutover to the production cluster was requested.\n"},
-		{name: "dry run", args: []string{"cutover", "deploy", "--destination-cluster", "production", "--dry-run"}, state: "unclustered", wantText: "CONCURRENCY-GROUP CUTOVER (DRY RUN)\n"},
-		{name: "blocked dry run", args: []string{"cutover", "deploy", "--destination-cluster", "production", "--dry-run"}, state: "blocked", blocked: true, wantText: "Blocked by 2 queues.\n", wantError: "concurrency group is blocked by queues: test, release"},
-		{name: "completed", args: []string{"cutover", "deploy", "--destination-cluster", "production", "--wait"}, state: "clustered", wantPosts: 1, wantText: "Concurrency group moved to the production cluster.\n"},
-		{name: "failed", args: []string{"cutover", "deploy", "--destination-cluster", "production", "--wait"}, state: "failed", wantPosts: 1, wantError: "concurrency-group cutover ended in failed"},
-		{name: "cancelled", args: []string{"cutover", "deploy", "--destination-cluster", "production", "--wait"}, state: "cancelled", wantPosts: 1, wantError: "concurrency-group cutover ended in cancelled"},
+		{name: "unscoped group", args: []string{"cutover", "deploy", "--destination-cluster", "production"}, wantError: `concurrency group "deploy" must be <scope>/<key>, where scope is custom or step`},
+		{name: "accepted", args: []string{"cutover", "custom/deploy", "--destination-cluster", "production"}, state: "draining", wantPosts: 1, wantText: "Cutover to the production cluster was requested.\n"},
+		{name: "dry run", args: []string{"cutover", "custom/deploy", "--destination-cluster", "production", "--dry-run"}, state: "unclustered", wantText: "CONCURRENCY-GROUP CUTOVER (DRY RUN)\n"},
+		{name: "blocked dry run", args: []string{"cutover", "custom/deploy", "--destination-cluster", "production", "--dry-run"}, state: "blocked", blocked: true, wantText: "Blocked by 2 queues.\n", wantError: "concurrency group is blocked by queues: test, release"},
+		{name: "completed", args: []string{"cutover", "custom/deploy", "--destination-cluster", "production", "--wait"}, state: "clustered", wantPosts: 1, wantText: "Concurrency group moved to the production cluster.\n"},
+		{name: "failed", args: []string{"cutover", "custom/deploy", "--destination-cluster", "production", "--wait"}, state: "failed", wantPosts: 1, wantError: "concurrency-group cutover ended in failed"},
+		{name: "cancelled", args: []string{"cutover", "custom/deploy", "--destination-cluster", "production", "--wait"}, state: "cancelled", wantPosts: 1, wantError: "concurrency-group cutover ended in cancelled"},
 	} {
 		for _, jsonOutput := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/json=%t", test.name, jsonOutput), func(t *testing.T) {
 				t.Setenv("XDG_CACHE_HOME", t.TempDir())
 				posts := 0
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					const groupPath = "/v2/organizations/acme/cluster-queue-migrations/concurrency-groups/deploy"
+					const groupPath = "/v2/organizations/acme/cluster-queue-migrations/concurrency-groups/custom/deploy"
 					switch {
 					case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations":
 						_, _ = fmt.Fprint(w, `[{"slug":"acme"}]`)
@@ -53,7 +54,7 @@ func TestConcurrencyGroupProcess(t *testing.T) {
 						if test.blocked {
 							queues = `["test","release"]`
 						}
-						_, _ = fmt.Fprintf(w, `{"key":"deploy","state":%q,"destination_cluster_id":"cluster-id","blocking_queues":%s,"running_source_jobs":0,"waiting_jobs":0,"url":""}`, test.state, queues)
+						_, _ = fmt.Fprintf(w, `{"scope":"custom","key":"deploy","state":%q,"destination_cluster_id":"cluster-id","blocking_queues":%s,"running_source_jobs":0,"waiting_jobs":0,"url":""}`, test.state, queues)
 					default:
 						t.Errorf("unexpected request: %s %s", r.Method, r.URL)
 						w.WriteHeader(http.StatusNotFound)

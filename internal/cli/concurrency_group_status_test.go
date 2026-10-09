@@ -15,12 +15,12 @@ import (
 func TestConcurrencyGroupStatusOutput(t *testing.T) {
 	t.Parallel()
 
-	group := `{"key":"deploy","state":"blocked","destination_cluster_id":"cluster-id","blocking_queues":["test","release"],"running_source_jobs":2,"waiting_jobs":3,"url":"https://buildkite.com/acme"}`
-	other := `{"key":"release","state":"unclustered","destination_cluster_id":"","blocking_queues":[],"running_source_jobs":0,"waiting_jobs":0,"url":""}`
-	clustered := `{"key":"deploy","state":"clustered","destination_cluster_id":"cluster-id","blocking_queues":[],"running_source_jobs":0,"waiting_jobs":0,"url":""}`
-	draining := `{"key":"deploy","state":"draining","destination_cluster_id":"cluster-id","blocking_queues":[],"running_source_jobs":1,"waiting_jobs":0,"url":""}`
+	group := `{"scope":"custom","key":"deploy","state":"blocked","destination_cluster_id":"cluster-id","blocking_queues":["test","release"],"running_source_jobs":2,"waiting_jobs":3,"url":"https://buildkite.com/acme"}`
+	other := `{"scope":"step","key":"deploy","state":"unclustered","destination_cluster_id":"","blocking_queues":[],"running_source_jobs":0,"waiting_jobs":0,"url":""}`
+	clustered := `{"scope":"custom","key":"deploy","state":"clustered","destination_cluster_id":"cluster-id","blocking_queues":[],"running_source_jobs":0,"waiting_jobs":0,"url":""}`
+	draining := `{"scope":"custom","key":"deploy","state":"draining","destination_cluster_id":"cluster-id","blocking_queues":[],"running_source_jobs":1,"waiting_jobs":0,"url":""}`
 	wantGroup := `CONCURRENCY-GROUP STATUS
-Group: deploy
+Group: custom/deploy
 Destination: production
 
 STATUS
@@ -45,7 +45,7 @@ NEXT STEPS
 
 2. If no queue blockers remain, preview the cutover:
 
-   cluster-migrator concurrency-group cutover deploy --destination-cluster cluster-id --dry-run
+   cluster-migrator concurrency-group cutover custom/deploy --destination-cluster cluster-id --dry-run
 `
 	for _, test := range []struct {
 		name     string
@@ -54,18 +54,18 @@ NEXT STEPS
 		wantJSON string
 		wantText string
 	}{
-		{name: "blocked", key: "deploy", response: group, wantJSON: group, wantText: wantGroup},
-		{name: "unclustered", key: "release", response: other, wantJSON: other, wantText: "CONCURRENCY-GROUP STATUS\nGroup: release\nDestination: —\n\nSTATUS\n\nState: unclustered\nRunning source jobs: 0\nWaiting jobs: 0\n\nNEXT STEPS\n\n1. Preview the cutover:\n\n   cluster-migrator concurrency-group cutover release --destination-cluster <cluster> --dry-run\n"},
-		{name: "draining", key: "deploy", response: draining, wantJSON: draining, wantText: "CONCURRENCY-GROUP STATUS\nGroup: deploy\nDestination: production\n\nSTATUS\n\nState: draining\nRunning source jobs: 1\nWaiting jobs: 0\n"},
-		{name: "clustered", key: "deploy", response: clustered, wantJSON: clustered, wantText: "CONCURRENCY-GROUP STATUS\nGroup: deploy\nDestination: production\n\nSTATUS\n\nState: clustered\nRunning source jobs: 0\nWaiting jobs: 0\n\nNEXT STEPS\n\n1. Assess each pipeline using this concurrency group:\n\n   cluster-migrator pipeline readiness <pipeline> --destination-cluster cluster-id\n"},
+		{name: "blocked", key: "custom/deploy", response: group, wantJSON: group, wantText: wantGroup},
+		{name: "unclustered", key: "step/deploy", response: other, wantJSON: other, wantText: "CONCURRENCY-GROUP STATUS\nGroup: step/deploy\nDestination: —\n\nSTATUS\n\nState: unclustered\nRunning source jobs: 0\nWaiting jobs: 0\n\nNEXT STEPS\n\n1. Preview the cutover:\n\n   cluster-migrator concurrency-group cutover step/deploy --destination-cluster <cluster> --dry-run\n"},
+		{name: "draining", key: "custom/deploy", response: draining, wantJSON: draining, wantText: "CONCURRENCY-GROUP STATUS\nGroup: custom/deploy\nDestination: production\n\nSTATUS\n\nState: draining\nRunning source jobs: 1\nWaiting jobs: 0\n"},
+		{name: "clustered", key: "custom/deploy", response: clustered, wantJSON: clustered, wantText: "CONCURRENCY-GROUP STATUS\nGroup: custom/deploy\nDestination: production\n\nSTATUS\n\nState: clustered\nRunning source jobs: 0\nWaiting jobs: 0\n\nNEXT STEPS\n\n1. Assess each pipeline using this concurrency group:\n\n   cluster-migrator pipeline readiness <pipeline> --destination-cluster cluster-id\n"},
 		{name: "all", response: `{"items":[` + group + `,` + other + `],"links":{}}`, wantJSON: `[` + group + `,` + other + `]`, wantText: `CONCURRENCY-GROUP STATUS
 Groups: 2
 
 STATUS
 
-GROUP    STATE        DESTINATION  RUNNING SOURCE JOBS  WAITING JOBS  BLOCKING QUEUES  URL
-deploy   blocked      production   2                    3             test, release    https://buildkite.com/acme
-release  unclustered  —            0                    0             —                —
+GROUP          STATE        DESTINATION  RUNNING SOURCE JOBS  WAITING JOBS  BLOCKING QUEUES  URL
+custom/deploy  blocked      production   2                    3             test, release    https://buildkite.com/acme
+step/deploy    unclustered  —            0                    0             —                —
 `},
 		{name: "empty", response: `{"items":[],"links":{}}`, wantJSON: `[]`, wantText: "CONCURRENCY-GROUP STATUS\nGroups: 0\n\nSTATUS\n\nNo concurrency groups found.\n"},
 	} {

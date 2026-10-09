@@ -9,17 +9,21 @@ import (
 )
 
 type ConcurrencyGroupCutoverCmd struct {
-	Group              string `arg:"" help:"Concurrency group key."`
+	Group              string `arg:"" help:"Concurrency group as <scope>/<key>, such as custom/deploy."`
 	DestinationCluster string `name:"destination-cluster" required:"" help:"Destination cluster name or ID."`
 	Wait               bool   `help:"Wait for the cutover to finish."`
 }
 
 func (cmd *ConcurrencyGroupCutoverCmd) Run(app *Context) error {
+	scope, key, err := parseConcurrencyGroup(cmd.Group)
+	if err != nil {
+		return err
+	}
 	cluster, err := app.Client.ResolveCluster(app.Context, cmd.DestinationCluster)
 	if err != nil {
 		return fmt.Errorf("resolve destination cluster: %w", err)
 	}
-	group, err := app.Client.GetConcurrencyGroup(app.Context, cmd.Group)
+	group, err := app.Client.GetConcurrencyGroup(app.Context, scope, key)
 	if err != nil {
 		return fmt.Errorf("get concurrency group: %w", err)
 	}
@@ -59,7 +63,7 @@ func (cmd *ConcurrencyGroupCutoverCmd) Run(app *Context) error {
 		return err
 	}
 
-	group, err = app.Client.StartConcurrencyGroupCutover(app.Context, cmd.Group, cluster.ID)
+	group, err = app.Client.StartConcurrencyGroupCutover(app.Context, scope, key, cluster.ID)
 	if err != nil {
 		return fmt.Errorf("start concurrency-group cutover: %w", err)
 	}
@@ -68,7 +72,7 @@ func (cmd *ConcurrencyGroupCutoverCmd) Run(app *Context) error {
 	}
 
 	for {
-		group, err = app.Client.GetConcurrencyGroup(app.Context, cmd.Group)
+		group, err = app.Client.GetConcurrencyGroup(app.Context, scope, key)
 		if err != nil {
 			return fmt.Errorf("get concurrency group: %w", err)
 		}

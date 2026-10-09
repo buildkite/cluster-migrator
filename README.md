@@ -112,10 +112,12 @@ Rollback sets routing to 0%. It does not move existing jobs or remove the queue 
 For workloads using concurrency groups, hold, drain, and move each group after its queue blockers are cleared:
 
 ```shell
-cluster-migrator concurrency-group cutover deploy-production \
+cluster-migrator concurrency-group cutover custom/deploy-production \
   --destination-cluster production \
   --wait
 ```
+
+Identify a group as `<scope>/<key>`, using the scope and key reported by pipeline readiness: `custom/<key>` for a `concurrency_group` set in pipeline YAML, or `step/<id>` for a group Buildkite created for a step. Equal keys in different scopes are different groups.
 
 Use `concurrency-group status [group]` to inspect one group or list all groups. These commands require the provisional server-side concurrency-group APIs.
 
@@ -124,9 +126,9 @@ Without `--wait`, cutover reports an accepted request, not completion. With `--w
 Preview the request with `--dry-run`. This resolves the destination and reads the group's queue blockers without starting a cutover. For example, an unblocked fixture prints:
 
 ```text
-$ cluster-migrator concurrency-group cutover deploy --destination-cluster production --dry-run
+$ cluster-migrator concurrency-group cutover custom/deploy --destination-cluster production --dry-run
 CONCURRENCY-GROUP CUTOVER (DRY RUN)
-Group: deploy
+Group: custom/deploy
 Destination: production
 
 READINESS
@@ -139,8 +141,6 @@ A cutover to the production cluster would be requested.
 ```
 
 A blocked dry run lists blocking queues and next steps to review their migrations, omits the proposed change, and exits non-zero. `--json` preserves machine-readable results and leaves diagnostics on stderr.
-
-The provisional commands identify groups by key only; they cannot distinguish equal keys in different scopes. Scope-aware identification and the server contract must be resolved before production use.
 
 ### 5. Assess each pipeline
 
@@ -186,8 +186,8 @@ Repeat the queue stages for every source queue and the pipeline stages for every
 | `queue set-percent <queue> --to <0-100>` | Set the absolute percentage of new jobs routed to the cluster queue. |
 | `queue metrics <queue>` | Compare recent source and destination activity. |
 | `queue rollback <queue>` | Set routing to 0% for new jobs. |
-| `concurrency-group cutover <group> --destination-cluster <cluster> [--wait]` | Hold, drain, and move a concurrency group; optionally wait for completion. |
-| `concurrency-group status [group]` | Show one concurrency group or list all groups. |
+| `concurrency-group cutover <scope>/<key> --destination-cluster <cluster> [--wait]` | Hold, drain, and move a concurrency group; optionally wait for completion. |
+| `concurrency-group status [<scope>/<key>]` | Show one concurrency group or list all groups. |
 | `pipeline readiness <pipeline> --destination-cluster <cluster>` | Assess known queue and concurrency-group blockers. |
 | `pipeline move <pipeline> --destination-cluster <cluster>` | Permanently assign a pipeline to the cluster. |
 
