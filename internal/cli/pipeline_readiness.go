@@ -143,7 +143,10 @@ func (c *Context) printPipelineReadinessAssessment(readiness *buildkite.Pipeline
 }
 
 func pipelineBlockerConditionCount(readiness *buildkite.PipelineReadiness) int {
-	count := len(readiness.ConcurrencyGroupObservation.BlockingConcurrencyGroups)
+	count := 0
+	for _, blocker := range readiness.ConcurrencyGroupObservation.BlockingConcurrencyGroups {
+		count += max(1, len(blocker.Reasons))
+	}
 	for _, blocker := range readiness.QueueObservation.BlockingQueues {
 		count += max(1, len(blocker.Reasons))
 	}
@@ -194,32 +197,41 @@ func (c *Context) printPipelineConcurrencyGroupBlockers(blockers []buildkite.Blo
 	writer := tabwriter.NewWriter(c.Output, 0, 4, 2, ' ', 0)
 	_, _ = fmt.Fprintln(writer, "SCOPE\tKEY\tBLOCKER")
 	for _, blocker := range blockers {
-		_, _ = fmt.Fprintf(writer, "%s\t%s\t%s\n", displayValue(blocker.Scope), displayValue(blocker.Key), pipelineBlockerReason(blocker.Reason))
+		reasons := blocker.Reasons
+		if len(reasons) == 0 {
+			reasons = []string{""}
+		}
+		for _, reason := range reasons {
+			_, _ = fmt.Fprintf(writer, "%s\t%s\t%s\n", displayValue(blocker.Scope), displayValue(blocker.Key), concurrencyGroupBlockerReason(reason))
+		}
 	}
 	return writer.Flush()
 }
 
 func pipelineBlockerReason(reason string) string {
-	var description string
-	switch reason {
-	case "routing_incomplete":
-		description = "Routing is below 100%."
-	case "migration_missing":
-		description = "No queue migration is configured."
-	case "active_source_jobs":
-		description = "Active jobs remain on the source queue."
-	case "concurrency_group_migration_unavailable":
-		description = "Migration is unavailable for this concurrency group."
-	default:
-		description = "Unknown blocker"
-	}
+	return describeBlocker(reason, map[string]string{
+		"routing_incomplete": "Routing is below 100%.",
+		"migration_missing":  "No queue migration is configured.",
+		"active_source_jobs": "Active jobs remain on the source queue.",
+	})
+}
+
+func concurrencyGroupBlockerReason(reason string) string {
+	return describeBlocker(reason, map[string]string{
+		"migration_missing":    "The concurrency group has not been cut over.",
+		"migration_incomplete": "The concurrency-group cutover has not finished.",
+		"wrong_destination":    "The concurrency group's migration targets another cluster.",
+	})
+}
+
+func describeBlocker(reason string, descriptions map[string]string) string {
 	if reason == "" {
-		return description + " (reason unavailable)."
+		return "Unknown blocker (reason unavailable)."
 	}
-	if description == "Unknown blocker" {
-		return fmt.Sprintf("%s (%s).", description, reason)
+	if description, ok := descriptions[reason]; ok {
+		return description
 	}
-	return description
+	return fmt.Sprintf("Unknown blocker (%s).", reason)
 }
 
 func (c *Context) pipelineObservationSummary(complete bool, windowSeconds int, observedAt, windowStartedAt *string) string {
