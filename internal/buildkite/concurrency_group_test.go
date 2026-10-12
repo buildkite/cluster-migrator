@@ -80,7 +80,7 @@ func TestGetConcurrencyGroupSendsScopeAndEscapedKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if group.State != ConcurrencyGroupForwardDraining || group.SourceJobs == nil || group.SourceJobs.Waiting != 3 || *group.DestinationClusterID != "cluster-id" {
+	if group.State != ConcurrencyGroupForwardDraining || group.SourceJobs == nil || group.SourceJobs.Waiting != 3 || group.DestinationClusterID != "cluster-id" {
 		t.Fatalf("group = %#v", group)
 	}
 }

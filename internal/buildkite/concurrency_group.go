@@ -14,14 +14,17 @@ const (
 	ConcurrencyGroupReverseReconciling = "reverse_reconciling"
 )
 
+// ConcurrencyGroup is a concurrency group's migration. One exists only once a cutover has started.
 type ConcurrencyGroup struct {
 	Scope                string                      `json:"scope"`
 	Key                  string                      `json:"key"`
 	State                string                      `json:"state"`
-	DestinationClusterID *string                     `json:"destination_cluster_id"`
+	DestinationClusterID string                      `json:"destination_cluster_id"`
 	HeldAt               *string                     `json:"held_at"`
 	SourceJobs           *ConcurrencyGroupSourceJobs `json:"source_jobs"`
 	URL                  string                      `json:"url"`
+	CreatedAt            string                      `json:"created_at"`
+	UpdatedAt            string                      `json:"updated_at"`
 }
 
 // ConcurrencyGroupSourceJobs counts a group's unfinished unclustered jobs. Collections omit it.
@@ -37,7 +40,7 @@ func (c *Client) concurrencyGroupPath(scope, key string, parts ...string) string
 	return c.path(segments...)
 }
 
-// ListConcurrencyGroups returns every concurrency group that has been used outside a cluster.
+// ListConcurrencyGroups returns every concurrency-group migration in the organization.
 func (c *Client) ListConcurrencyGroups(ctx context.Context) ([]ConcurrencyGroup, error) {
 	path := c.path("cluster-queue-migrations", "concurrency-groups") + "?per_page=100"
 	groups := []ConcurrencyGroup{}

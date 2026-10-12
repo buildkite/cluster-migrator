@@ -17,11 +17,11 @@ func TestConcurrencyGroupStatusOutput(t *testing.T) {
 	t.Parallel()
 
 	const (
-		draining    = `{"scope":"custom","key":"deploy/production","state":"forward_draining","destination_cluster_id":"cluster-id","held_at":"2026-10-09T07:00:00.000Z","source_jobs":{"running":2,"waiting":3},"url":"https://api.buildkite.com/x"}`
-		unclustered = `{"scope":"step","key":"deploy/production","state":"unclustered","destination_cluster_id":null,"held_at":null,"source_jobs":{"running":0,"waiting":1},"url":""}`
-		clustered   = `{"scope":"custom","key":"deploy/production","state":"clustered","destination_cluster_id":"cluster-id","held_at":null,"source_jobs":{"running":0,"waiting":0},"url":""}`
-		listed      = `{"scope":"custom","key":"deploy/production","state":"forward_draining","destination_cluster_id":"cluster-id","held_at":"2026-10-09T07:00:00.000Z","source_jobs":null,"url":""}`
-		listedStep  = `{"scope":"step","key":"deploy/production","state":"unclustered","destination_cluster_id":null,"held_at":null,"source_jobs":null,"url":""}`
+		draining    = `{"scope":"custom","key":"deploy/production","state":"forward_draining","destination_cluster_id":"cluster-id","held_at":"2026-10-09T07:00:00.000Z","source_jobs":{"running":2,"waiting":3},"url":"https://api.buildkite.com/x","created_at":"2026-10-09T06:59:00.000Z","updated_at":"2026-10-09T07:00:00.000Z"}`
+		unclustered = `{"scope":"step","key":"deploy/production","state":"unclustered","destination_cluster_id":"cluster-id","held_at":null,"source_jobs":{"running":0,"waiting":1},"url":"","created_at":"2026-10-09T06:59:00.000Z","updated_at":"2026-10-09T07:00:00.000Z"}`
+		clustered   = `{"scope":"custom","key":"deploy/production","state":"clustered","destination_cluster_id":"cluster-id","held_at":null,"source_jobs":{"running":0,"waiting":0},"url":"","created_at":"2026-10-09T06:59:00.000Z","updated_at":"2026-10-09T07:00:00.000Z"}`
+		listed      = `{"scope":"custom","key":"deploy/production","state":"forward_draining","destination_cluster_id":"cluster-id","held_at":"2026-10-09T07:00:00.000Z","source_jobs":null,"url":"","created_at":"2026-10-09T06:59:00.000Z","updated_at":"2026-10-09T07:00:00.000Z"}`
+		listedStep  = `{"scope":"step","key":"deploy/production","state":"unclustered","destination_cluster_id":"cluster-id","held_at":null,"source_jobs":null,"url":"","created_at":"2026-10-09T06:59:00.000Z","updated_at":"2026-10-09T07:00:00.000Z"}`
 	)
 	for _, test := range []struct {
 		name         string
@@ -36,8 +36,8 @@ func TestConcurrencyGroupStatusOutput(t *testing.T) {
 			wantText: "CONCURRENCY-GROUP STATUS\nGroup: custom/deploy/production\nDestination: production\n\nSTATUS\n\nState: forward_draining (cutover is waiting for running unclustered jobs to finish)\nHeld since: 2026-10-09 07:00:00 UTC\nRunning unclustered jobs: 2\nWaiting unclustered jobs: 3\n",
 		},
 		{
-			name: "unclustered", group: "step/deploy/production", response: unclustered, wantJSON: unclustered,
-			wantText: "CONCURRENCY-GROUP STATUS\nGroup: step/deploy/production\nDestination: —\n\nSTATUS\n\nState: unclustered\nRunning unclustered jobs: 0\nWaiting unclustered jobs: 1\n",
+			name: "reversed", group: "step/deploy/production", response: unclustered, wantJSON: unclustered, wantClusters: true,
+			wantText: "CONCURRENCY-GROUP STATUS\nGroup: step/deploy/production\nDestination: production\n\nSTATUS\n\nState: unclustered (moved back to unclustered queues)\nRunning unclustered jobs: 0\nWaiting unclustered jobs: 1\n",
 		},
 		{
 			name: "clustered", group: "custom/deploy/production", response: clustered, wantJSON: clustered, wantClusters: true,
@@ -51,13 +51,13 @@ Groups: 2
 STATUS
 
 GROUP                     STATE             DESTINATION  HELD SINCE
-step/deploy/production    unclustered       —            —
+step/deploy/production    unclustered       production   —
 custom/deploy/production  forward_draining  production   2026-10-09 07:00:00 UTC
 `,
 		},
 		{
 			name: "empty", response: `{"items":[],"links":{}}`, wantJSON: `[]`,
-			wantText: "CONCURRENCY-GROUP STATUS\nGroups: 0\n\nSTATUS\n\nNo unclustered concurrency groups found.\n",
+			wantText: "CONCURRENCY-GROUP STATUS\nGroups: 0\n\nSTATUS\n\nNo concurrency-group migrations found.\n",
 		},
 	} {
 		for _, jsonOutput := range []bool{false, true} {

@@ -14,7 +14,7 @@ A migration has two stages:
 
 Routing changes affect new jobs only. Jobs already created remain on the queue selected when they were created.
 
-The CLI does not yet cut over concurrency groups. You can route queues used by pipelines with concurrency groups, but do not move those pipelines until their concurrency groups have also moved to the cluster. Pipeline readiness reports unmigrated concurrency groups as blockers, and `concurrency-group status` shows each group's migration state.
+The CLI does not yet cut over concurrency groups. You can route queues used by pipelines with concurrency groups, but do not move those pipelines until their concurrency groups have also moved to the cluster. Pipeline readiness reports unmigrated concurrency groups as blockers, and `concurrency-group status` shows the state of each group whose migration has started.
 
 Concurrency groups are identified as `<scope>/<key>`: `custom/<key>` for a `concurrency_group` set in pipeline YAML, or `step/<id>` for a group Buildkite created for a step. Equal keys in different scopes are different groups. Keys may contain slashes, such as `custom/deploy/production`.
 
@@ -152,7 +152,7 @@ Repeat the queue stages for every source queue and the pipeline stages for every
 | `queue set-percent <queue> --to <0-100>` | Set the absolute percentage of new jobs routed to the cluster queue. |
 | `queue metrics <queue>` | Compare recent source and destination activity. |
 | `queue rollback <queue>` | Set routing to 0% for new jobs. |
-| `concurrency-group status [<scope>/<key>]` | Show one concurrency group's migration state and unclustered jobs, or list every group used outside a cluster. |
+| `concurrency-group status [<scope>/<key>]` | Show one concurrency-group migration's state and unclustered jobs, or list every migration. |
 | `pipeline readiness <pipeline> --destination-cluster <cluster>` | Assess known queue and concurrency-group blockers. |
 | `pipeline move <pipeline> --destination-cluster <cluster>` | Permanently assign a pipeline to the cluster. |
 

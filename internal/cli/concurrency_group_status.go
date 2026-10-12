@@ -8,7 +8,7 @@ import (
 )
 
 type ConcurrencyGroupStatusCmd struct {
-	Group string `arg:"" optional:"" help:"Concurrency group as <scope>/<key>, such as custom/deploy. Omit to list every unclustered group."`
+	Group string `arg:"" optional:"" help:"Concurrency group as <scope>/<key>, such as custom/deploy. Omit to list every migration."`
 }
 
 func (cmd *ConcurrencyGroupStatusCmd) Run(app *Context) error {
@@ -20,7 +20,7 @@ func (cmd *ConcurrencyGroupStatusCmd) Run(app *Context) error {
 		if app.JSON {
 			return app.Print(groups)
 		}
-		clusterNames, err := concurrencyGroupClusterNames(app, groups...)
+		clusterNames, err := concurrencyGroupClusterNames(app, len(groups) > 0)
 		if err != nil {
 			return err
 		}
@@ -38,19 +38,15 @@ func (cmd *ConcurrencyGroupStatusCmd) Run(app *Context) error {
 	if app.JSON {
 		return app.Print(group)
 	}
-	clusterNames, err := concurrencyGroupClusterNames(app, *group)
+	clusterNames, err := concurrencyGroupClusterNames(app, true)
 	if err != nil {
 		return err
 	}
 	return app.printConcurrencyGroupStatus(group, clusterNames)
 }
 
-// concurrencyGroupClusterNames resolves destination names, skipping the request when no group has one.
-func concurrencyGroupClusterNames(app *Context, groups ...buildkite.ConcurrencyGroup) (map[string]string, error) {
-	needed := false
-	for _, group := range groups {
-		needed = needed || group.DestinationClusterID != nil
-	}
+// concurrencyGroupClusterNames resolves destination names, skipping the request when there is nothing to show.
+func concurrencyGroupClusterNames(app *Context, needed bool) (map[string]string, error) {
 	if !needed {
 		return nil, nil
 	}
@@ -66,13 +62,10 @@ func concurrencyGroupClusterNames(app *Context, groups ...buildkite.ConcurrencyG
 }
 
 func concurrencyGroupDestination(group *buildkite.ConcurrencyGroup, clusterNames map[string]string) string {
-	if group.DestinationClusterID == nil {
-		return "—"
-	}
-	if name := clusterNames[*group.DestinationClusterID]; name != "" {
+	if name := clusterNames[group.DestinationClusterID]; name != "" {
 		return name
 	}
-	return displayValue(*group.DestinationClusterID)
+	return displayValue(group.DestinationClusterID)
 }
 
 func concurrencyGroupHeldSince(group *buildkite.ConcurrencyGroup) string {
@@ -86,8 +79,11 @@ func concurrencyGroupHeldSince(group *buildkite.ConcurrencyGroup) string {
 func concurrencyGroupState(state string) string {
 	description := ""
 	switch state {
-	case buildkite.ConcurrencyGroupUnclustered, buildkite.ConcurrencyGroupClustered:
+	case buildkite.ConcurrencyGroupClustered:
 		return state
+	case buildkite.ConcurrencyGroupUnclustered:
+		// Migrations start held, so an unheld unclustered migration has been reversed.
+		description = "moved back to unclustered queues"
 	case buildkite.ConcurrencyGroupForwardDraining:
 		description = "cutover is waiting for running unclustered jobs to finish"
 	case buildkite.ConcurrencyGroupForwardReconciling:
@@ -107,7 +103,7 @@ func (app *Context) printConcurrencyGroups(groups []buildkite.ConcurrencyGroup, 
 		return err
 	}
 	if len(groups) == 0 {
-		_, err := fmt.Fprintln(app.Output, "No unclustered concurrency groups found.")
+		_, err := fmt.Fprintln(app.Output, "No concurrency-group migrations found.")
 		return err
 	}
 	writer := tabwriter.NewWriter(app.Output, 0, 4, 2, ' ', 0)
@@ -155,8 +151,8 @@ func (app *Context) printConcurrencyGroupState(group *buildkite.ConcurrencyGroup
 }
 
 func concurrencyGroupStatusNextSteps(group *buildkite.ConcurrencyGroup) []string {
-	if group.State == buildkite.ConcurrencyGroupClustered && group.DestinationClusterID != nil {
-		return []string{fmt.Sprintf("Assess each pipeline using this concurrency group:\n\n   cluster-migrator pipeline readiness <pipeline> --destination-cluster %s", *group.DestinationClusterID)}
+	if group.State == buildkite.ConcurrencyGroupClustered {
+		return []string{fmt.Sprintf("Assess each pipeline using this concurrency group:\n\n   cluster-migrator pipeline readiness <pipeline> --destination-cluster %s", group.DestinationClusterID)}
 	}
 	return nil
 }
