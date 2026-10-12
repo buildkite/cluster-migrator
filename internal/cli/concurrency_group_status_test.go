@@ -65,7 +65,7 @@ custom/deploy/production  forward_draining  production   2026-10-09 07:00:00 UTC
 				t.Parallel()
 				clusterRequests := 0
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					path := "/v2/organizations/acme/cluster-queue-migrations/concurrency-groups"
+					path := "/v2/organizations/acme/concurrency-group-migrations"
 					if test.group != "" {
 						scope, key, _ := strings.Cut(test.group, "/")
 						path += "/" + scope + "/" + strings.ReplaceAll(key, "/", "%2F")

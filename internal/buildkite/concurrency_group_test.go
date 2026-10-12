@@ -14,7 +14,7 @@ func TestListConcurrencyGroupsFollowsNextLinks(t *testing.T) {
 	for _, failNextPage := range []bool{false, true} {
 		t.Run(fmt.Sprintf("failNextPage=%t", failNextPage), func(t *testing.T) {
 			t.Parallel()
-			const path = "/v2/organizations/acme/cluster-queue-migrations/concurrency-groups"
+			const path = "/v2/organizations/acme/concurrency-group-migrations"
 			var server *httptest.Server
 			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != http.MethodGet || r.URL.Path != path {
@@ -62,7 +62,7 @@ func TestListConcurrencyGroupsFollowsNextLinks(t *testing.T) {
 func TestGetConcurrencyGroupSendsScopeAndEscapedKey(t *testing.T) {
 	t.Parallel()
 
-	const want = "/v2/organizations/acme/cluster-queue-migrations/concurrency-groups/custom/deploy%2Fproduction"
+	const want = "/v2/organizations/acme/concurrency-group-migrations/custom/deploy%2Fproduction"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.EscapedPath() != want {
 			t.Errorf("request = %s %s, want GET %s", r.Method, r.URL.EscapedPath(), want)
