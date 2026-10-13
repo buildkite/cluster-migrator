@@ -48,9 +48,9 @@ func TestGetPipelineReadiness(t *testing.T) {
 				"window_seconds":600,
 				"complete":false,
 				"blocking_concurrency_groups":[{
-					"scope":"pipeline",
+					"scope":"custom",
 					"key":"deploy",
-					"reason":"concurrency_group_migration_unavailable"
+					"reasons":["migration_missing"]
 				}]
 			}
 		}`))
@@ -72,7 +72,7 @@ func TestGetPipelineReadiness(t *testing.T) {
 	if got := readiness.QueueObservation.BlockingQueues[0]; got.Queue != "deploy" || got.RoutedPercent == nil || *got.RoutedPercent != 80 || got.ActiveSourceJobs != 2 {
 		t.Fatalf("blocking queue = %#v", got)
 	}
-	if got := readiness.ConcurrencyGroupObservation.BlockingConcurrencyGroups[0]; got.Scope != "pipeline" || got.Key != "deploy" {
+	if got := readiness.ConcurrencyGroupObservation.BlockingConcurrencyGroups[0]; got.Scope != "custom" || got.Key != "deploy" || len(got.Reasons) != 1 || got.Reasons[0] != "migration_missing" {
 		t.Fatalf("blocking concurrency group = %#v", got)
 	}
 	if readiness.QueueObservation.Complete || readiness.ConcurrencyGroupObservation.Complete {

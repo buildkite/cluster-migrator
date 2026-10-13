@@ -99,8 +99,10 @@ func TestPipelineReadinessPrintsConcurrencyAndUnknownBlockers(t *testing.T) {
 		ConcurrencyGroupObservation: buildkite.PipelineConcurrencyGroupObservation{
 			Complete: true,
 			BlockingConcurrencyGroups: []buildkite.BlockingConcurrencyGroup{
-				{Scope: "pipeline", Key: "deploy", Reason: "concurrency_group_migration_unavailable"},
-				{Scope: "", Key: "shared/deploy", Reason: "future_concurrency_reason"},
+				{Scope: "custom", Key: "deploy", Reasons: []string{"wrong_destination", "migration_incomplete"}},
+				{Scope: "step", Key: "123", Reasons: []string{"migration_missing"}},
+				{Scope: "custom", Key: "shared/deploy", Reasons: []string{"future_concurrency_reason"}},
+				{Scope: "custom", Key: "legacy", Reasons: nil},
 			},
 		},
 	}
@@ -111,7 +113,7 @@ func TestPipelineReadinessPrintsConcurrencyAndUnknownBlockers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := "PIPELINE READINESS\nPipeline: monorepo\nDestination: cluster-id\n\nSTATUS\n\nBlocked by 2 known conditions.\n\nCONCURRENCY-GROUP BLOCKERS\n\nSCOPE     KEY            BLOCKER\npipeline  deploy         Migration is unavailable for this concurrency group.\n—         shared/deploy  Unknown blocker (future_concurrency_reason).\n\nOBSERVATIONS\n\nQueues: complete; window unavailable; observation time unavailable\nQueue refresh eligible: unavailable\nConcurrency groups: complete; window unavailable; observation time unavailable\nConcurrency-group refresh eligible: unavailable\n"
+	want := "PIPELINE READINESS\nPipeline: monorepo\nDestination: cluster-id\n\nSTATUS\n\nBlocked by 5 known conditions.\n\nCONCURRENCY-GROUP BLOCKERS\n\nSCOPE   KEY            BLOCKER\ncustom  deploy         The concurrency group's migration targets another cluster.\ncustom  deploy         The concurrency-group cutover has not finished.\nstep    123            The concurrency group has not been cut over.\ncustom  shared/deploy  Unknown blocker (future_concurrency_reason).\ncustom  legacy         Unknown blocker (reason unavailable).\n\nOBSERVATIONS\n\nQueues: complete; window unavailable; observation time unavailable\nQueue refresh eligible: unavailable\nConcurrency groups: complete; window unavailable; observation time unavailable\nConcurrency-group refresh eligible: unavailable\n"
 	if got := output.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
@@ -363,7 +365,7 @@ func TestPipelineMoveDryRunReportsConcurrencyGroupBlockers(t *testing.T) {
 		case "/v2/organizations/acme/clusters":
 			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
 		case "/v2/organizations/acme/cluster-queue-migrations/pipelines/monorepo/readiness":
-			_, _ = w.Write([]byte(`{"status":"blocked","queue_observation":{"next_refresh_at":"2026-09-01T07:01:00Z","blocking_queues":[]},"concurrency_group_observation":{"next_refresh_at":"2026-09-01T07:01:00Z","blocking_concurrency_groups":[{"scope":"pipeline","key":"deploy","reason":"active_source_jobs"}]}}`))
+			_, _ = w.Write([]byte(`{"status":"blocked","queue_observation":{"next_refresh_at":"2026-09-01T07:01:00Z","blocking_queues":[]},"concurrency_group_observation":{"next_refresh_at":"2026-09-01T07:01:00Z","blocking_concurrency_groups":[{"scope":"custom","key":"deploy","reasons":["migration_missing"]}]}}`))
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
@@ -392,7 +394,7 @@ func TestPipelineMoveDryRunReportsConcurrencyGroupBlockers(t *testing.T) {
 	if assessment.Status != buildkite.PipelineReadinessBlocked {
 		t.Fatalf("status = %q", assessment.Status)
 	}
-	if got := assessment.ConcurrencyGroupObservation.BlockingConcurrencyGroups; len(got) != 1 || got[0].Scope != "pipeline" || got[0].Key != "deploy" || got[0].Reason != "active_source_jobs" {
+	if got := assessment.ConcurrencyGroupObservation.BlockingConcurrencyGroups; len(got) != 1 || got[0].Scope != "custom" || got[0].Key != "deploy" || len(got[0].Reasons) != 1 || got[0].Reasons[0] != "migration_missing" {
 		t.Fatalf("blocking concurrency groups = %#v", got)
 	}
 }

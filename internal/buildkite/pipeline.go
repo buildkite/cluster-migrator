@@ -30,9 +30,9 @@ type PipelineBlockingQueue struct {
 }
 
 type BlockingConcurrencyGroup struct {
-	Scope  string `json:"scope"`
-	Key    string `json:"key"`
-	Reason string `json:"reason"`
+	Scope   string   `json:"scope"`
+	Key     string   `json:"key"`
+	Reasons []string `json:"reasons"`
 }
 
 type PipelineQueueObservation struct {
