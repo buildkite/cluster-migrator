@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
 	"text/tabwriter"
 
 	"github.com/buildkite/cluster-migrator/internal/buildkite"
@@ -32,6 +34,11 @@ func (cmd *ConcurrencyGroupStatusCmd) Run(app *Context) error {
 		return err
 	}
 	group, err := app.Client.GetConcurrencyGroup(app.Context, scope, key)
+	var apiError *buildkite.APIError
+	if errors.As(err, &apiError) && apiError.StatusCode == http.StatusNotFound {
+		// Migrations exist only once a cutover starts, so a missing group usually just hasn't been cut over.
+		return fmt.Errorf("no migration has started for concurrency group %s", cmd.Group)
+	}
 	if err != nil {
 		return fmt.Errorf("get concurrency group: %w", err)
 	}
@@ -99,7 +106,7 @@ func concurrencyGroupState(state string) string {
 }
 
 func (app *Context) printConcurrencyGroups(groups []buildkite.ConcurrencyGroup, clusterNames map[string]string) error {
-	if _, err := fmt.Fprintf(app.Output, "CONCURRENCY-GROUP STATUS\nGroups: %d\n\nSTATUS\n\n", len(groups)); err != nil {
+	if _, err := fmt.Fprintf(app.Output, "CONCURRENCY-GROUP STATUS\nMigrations: %d\n\nSTATUS\n\n", len(groups)); err != nil {
 		return err
 	}
 	if len(groups) == 0 {

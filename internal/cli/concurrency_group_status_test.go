@@ -46,7 +46,7 @@ func TestConcurrencyGroupStatusOutput(t *testing.T) {
 		{
 			name: "all", response: `{"items":[` + listedStep + `,` + listed + `],"links":{}}`, wantJSON: `[` + listedStep + `,` + listed + `]`, wantClusters: true,
 			wantText: `CONCURRENCY-GROUP STATUS
-Groups: 2
+Migrations: 2
 
 STATUS
 
@@ -57,7 +57,7 @@ custom/deploy/production  forward_draining  production   2026-10-09 07:00:00 UTC
 		},
 		{
 			name: "empty", response: `{"items":[],"links":{}}`, wantJSON: `[]`,
-			wantText: "CONCURRENCY-GROUP STATUS\nGroups: 0\n\nSTATUS\n\nNo concurrency-group migrations found.\n",
+			wantText: "CONCURRENCY-GROUP STATUS\nMigrations: 0\n\nSTATUS\n\nNo concurrency-group migrations found.\n",
 		},
 	} {
 		for _, jsonOutput := range []bool{false, true} {

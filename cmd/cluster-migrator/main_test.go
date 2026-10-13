@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -9,6 +11,73 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestConcurrencyGroupStatusProcess(t *testing.T) {
+	const collection = "/v2/organizations/acme/concurrency-group-migrations"
+	const migration = `{"scope":"custom","key":"deploy","state":"forward_draining","destination_cluster_id":"cluster-id","held_at":null,"source_jobs":{"running":1,"waiting":0},"url":""}`
+	for _, test := range []struct {
+		name         string
+		args         []string
+		wantStdout   string
+		wantJSON     bool
+		wantError    string
+		wantRequests []string
+	}{
+		{name: "show", args: []string{"custom/deploy"}, wantStdout: "Group: custom/deploy\nDestination: production\n", wantRequests: []string{collection + "/custom/deploy", "/v2/organizations/acme/clusters"}},
+		{name: "JSON show", args: []string{"custom/deploy", "--json"}, wantJSON: true, wantRequests: []string{collection + "/custom/deploy"}},
+		{name: "empty list", wantStdout: "No concurrency-group migrations found.\n", wantRequests: []string{collection}},
+		{name: "JSON empty list", args: []string{"--json"}, wantStdout: "[]\n", wantJSON: true, wantRequests: []string{collection}},
+		{name: "no migration", args: []string{"step/123"}, wantError: "no migration has started for concurrency group step/123", wantRequests: []string{collection + "/step/123"}},
+		{name: "unscoped group", args: []string{"deploy"}, wantError: `concurrency group "deploy" must be <scope>/<key>, where scope is custom or step`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("XDG_CACHE_HOME", t.TempDir())
+			var requests []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Path == "/v2/organizations" {
+					_, _ = fmt.Fprint(w, `[{"slug":"acme"}]`)
+					return
+				}
+				requests = append(requests, r.URL.Path)
+				switch r.URL.Path {
+				case collection:
+					_, _ = fmt.Fprint(w, `{"items":[],"links":{}}`)
+				case collection + "/custom/deploy":
+					_, _ = fmt.Fprint(w, migration)
+				case "/v2/organizations/acme/clusters":
+					_, _ = fmt.Fprint(w, `[{"id":"cluster-id","name":"production"}]`)
+				default:
+					w.WriteHeader(http.StatusNotFound)
+					_, _ = fmt.Fprint(w, `{"message":"No concurrency group migration found"}`)
+				}
+			}))
+			defer server.Close()
+
+			args := append([]string{"--endpoint", server.URL, "concurrency-group", "status"}, test.args...)
+			stdout, stderr, exitCode := runCLI(t, args...)
+
+			if test.wantError != "" {
+				if exitCode != 1 || stdout != "" || stderr != "cluster-migrator: "+test.wantError+"\n" {
+					t.Fatalf("exit=%d stdout=%q stderr=%q; want exit=1, empty stdout, stderr %q", exitCode, stdout, stderr, test.wantError)
+				}
+			} else {
+				if exitCode != 0 || stderr != "" {
+					t.Fatalf("exit=%d stderr=%q; want exit=0 and empty stderr", exitCode, stderr)
+				}
+				if test.wantJSON && !json.Valid([]byte(stdout)) {
+					t.Fatalf("invalid JSON stdout: %q", stdout)
+				}
+				if !strings.Contains(stdout, test.wantStdout) {
+					t.Fatalf("stdout = %q, want %q", stdout, test.wantStdout)
+				}
+			}
+			if strings.Join(requests, ",") != strings.Join(test.wantRequests, ",") {
+				t.Fatalf("requests = %v, want %v", requests, test.wantRequests)
+			}
+		})
+	}
+}
 
 func TestParseErrorsPrintContextualUsage(t *testing.T) {
 	tests := []struct {
@@ -185,7 +254,7 @@ func TestCLIProcess(_ *testing.T) {
 		if arg == "--" {
 			os.Args = append([]string{"cluster-migrator"}, os.Args[index+1:]...)
 			main()
-			return
+			os.Exit(0) // Do not append the test runner's PASS line to CLI stdout.
 		}
 	}
 	panic("missing argument separator")
