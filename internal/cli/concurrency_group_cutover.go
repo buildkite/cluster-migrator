@@ -49,7 +49,7 @@ func (cmd *ConcurrencyGroupCutoverCmd) Run(app *Context) error {
 		return fmt.Errorf("start concurrency-group cutover: %w", err)
 	}
 	if cmd.Wait {
-		if group, err = cmd.waitForCutover(app, scope, key); err != nil {
+		if group, err = cmd.waitForCutover(app, scope, key, group); err != nil {
 			return err
 		}
 	}
@@ -59,23 +59,38 @@ func (cmd *ConcurrencyGroupCutoverCmd) Run(app *Context) error {
 	return cmd.printResult(app, cluster, group)
 }
 
-func (cmd *ConcurrencyGroupCutoverCmd) waitForCutover(app *Context, scope, key string) (*buildkite.ConcurrencyGroup, error) {
+func (cmd *ConcurrencyGroupCutoverCmd) waitForCutover(app *Context, scope, key string, accepted *buildkite.ConcurrencyGroup) (*buildkite.ConcurrencyGroup, error) {
 	for {
 		group, err := app.Client.GetConcurrencyGroup(app.Context, scope, key)
-		if err != nil {
-			return nil, fmt.Errorf("get concurrency group: %w", err)
+		var apiError *buildkite.APIError
+		if errors.As(err, &apiError) && apiError.StatusCode == http.StatusNotFound {
+			// Status reads from a replica, so a first cutover may not be visible yet.
+			group, err = nil, nil
 		}
-		switch group.State {
-		case buildkite.ConcurrencyGroupClustered:
-			return group, nil
-		case buildkite.ConcurrencyGroupForwardDraining, buildkite.ConcurrencyGroupForwardReconciling:
-		default:
-			return nil, fmt.Errorf("concurrency-group cutover stopped in state %s", displayValue(group.State))
+		if err != nil {
+			return nil, fmt.Errorf("get concurrency group (the cutover continues on the server): %w", err)
+		}
+		if group != nil && !olderThan(group, accepted) {
+			switch group.State {
+			case buildkite.ConcurrencyGroupClustered:
+				return group, nil
+			case buildkite.ConcurrencyGroupForwardDraining, buildkite.ConcurrencyGroupForwardReconciling:
+			default:
+				return nil, fmt.Errorf("concurrency-group cutover stopped in state %s", displayValue(group.State))
+			}
 		}
 		if err := app.wait(app.Context, concurrencyGroupCutoverPollInterval); err != nil {
 			return nil, fmt.Errorf("wait for concurrency-group cutover (it continues on the server): %w", err)
 		}
 	}
+}
+
+// olderThan reports whether a status read predates the accepted cutover, such as a lagging replica that
+// still shows a reversed migration as unclustered. Later changes, including a reversal, are not older.
+func olderThan(group, accepted *buildkite.ConcurrencyGroup) bool {
+	observedAt, observedErr := time.Parse(time.RFC3339Nano, group.UpdatedAt)
+	acceptedAt, acceptedErr := time.Parse(time.RFC3339Nano, accepted.UpdatedAt)
+	return observedErr == nil && acceptedErr == nil && observedAt.Before(acceptedAt)
 }
 
 func (cmd *ConcurrencyGroupCutoverCmd) printHeading(app *Context, destination string) error {

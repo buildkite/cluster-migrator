@@ -24,10 +24,11 @@ func TestConcurrencyGroupCutover(t *testing.T) {
 			`{"queue":"release","reasons":["migration_missing"],"routed_percent":null,"recent_source_jobs":0}]}}`
 		inProgress = `{"message":"Concurrency group is not ready to cut over","scope":"custom","key":"deploy/production","destination_cluster_id":"cluster-id","ready":false,"status":"blocked",` +
 			`"migration":{"state":"forward_draining","blocking_reason":"cutover_in_progress"},"queue_observation":{"observed_at":"2026-10-09T07:00:00Z","window_started_at":"2026-10-09T06:50:00Z","window_seconds":600,"queues":["deploy"],"blocking_queues":[]}}`
-		draining  = `{"scope":"custom","key":"deploy/production","state":"forward_draining","destination_cluster_id":"cluster-id","held_at":"2026-10-09T07:00:00.000Z","source_jobs":{"running":1,"waiting":2},"url":"","created_at":"2026-10-09T06:59:00.000Z","updated_at":"2026-10-09T07:00:00.000Z"}`
-		clustered = `{"scope":"custom","key":"deploy/production","state":"clustered","destination_cluster_id":"cluster-id","held_at":null,"source_jobs":{"running":0,"waiting":0},"url":"","created_at":"2026-10-09T06:59:00.000Z","updated_at":"2026-10-09T07:00:00.000Z"}`
-		reversing = `{"scope":"custom","key":"deploy/production","state":"reverse_draining","destination_cluster_id":"cluster-id","held_at":"2026-10-09T07:00:00.000Z","source_jobs":{"running":0,"waiting":0},"url":"","created_at":"2026-10-09T06:59:00.000Z","updated_at":"2026-10-09T07:00:00.000Z"}`
-		reversed  = `{"scope":"custom","key":"deploy/production","state":"unclustered","destination_cluster_id":"%s","held_at":null,"source_jobs":{"running":0,"waiting":0},"url":"","created_at":"2026-10-09T06:59:00.000Z","updated_at":"2026-10-09T07:00:00.000Z"}`
+		draining      = `{"scope":"custom","key":"deploy/production","state":"forward_draining","destination_cluster_id":"cluster-id","held_at":"2026-10-09T07:00:00.000Z","source_jobs":{"running":1,"waiting":2},"url":"","created_at":"2026-10-09T06:59:00.000Z","updated_at":"2026-10-09T07:00:00.000Z"}`
+		clustered     = `{"scope":"custom","key":"deploy/production","state":"clustered","destination_cluster_id":"cluster-id","held_at":null,"source_jobs":{"running":0,"waiting":0},"url":"","created_at":"2026-10-09T06:59:00.000Z","updated_at":"2026-10-09T07:00:00.000Z"}`
+		reversing     = `{"scope":"custom","key":"deploy/production","state":"reverse_draining","destination_cluster_id":"cluster-id","held_at":"2026-10-09T07:00:00.000Z","source_jobs":{"running":0,"waiting":0},"url":"","created_at":"2026-10-09T06:59:00.000Z","updated_at":"2026-10-09T07:00:00.000Z"}`
+		staleReversed = `{"scope":"custom","key":"deploy/production","state":"unclustered","destination_cluster_id":"cluster-id","held_at":null,"source_jobs":{"running":0,"waiting":0},"url":"","created_at":"2026-10-09T06:59:00.000Z","updated_at":"2026-10-09T06:59:30.000Z"}`
+		reversed      = `{"scope":"custom","key":"deploy/production","state":"unclustered","destination_cluster_id":"%s","held_at":null,"source_jobs":{"running":0,"waiting":0},"url":"","created_at":"2026-10-09T06:59:00.000Z","updated_at":"2026-10-09T07:00:00.000Z"}`
 
 		heading       = "CONCURRENCY-GROUP CUTOVER\nGroup: custom/deploy/production\nDestination: production\n"
 		dryRunHeading = "CONCURRENCY-GROUP CUTOVER (DRY RUN)\nGroup: custom/deploy/production\nDestination: production\n"
@@ -100,6 +101,12 @@ func TestConcurrencyGroupCutover(t *testing.T) {
 		},
 		{name: "JSON wait for completion", json: true, wait: true, polls: []string{clustered}, wantPosts: 1, wantText: clustered},
 		{name: "wait sees reversal", wait: true, polls: []string{draining, reversing}, wantPosts: 1, wantWaits: 1, wantError: "concurrency-group cutover stopped in state reverse_draining"},
+		{
+			name: "wait retries status reads that predate the accepted cutover", wait: true, polls: []string{"404", staleReversed, clustered}, wantPosts: 1, wantWaits: 2,
+			wantText: heading + "\nRESULT\n\nConcurrency group moved to the production cluster.\n\nSTATUS\n\nState: clustered\nRunning unclustered jobs: 0\nWaiting unclustered jobs: 0\n" +
+				"\nNEXT STEPS\n\n1. Assess each pipeline using this concurrency group:\n\n   cluster-migrator pipeline readiness <pipeline> --destination-cluster cluster-id\n",
+		},
+		{name: "wait status request fails", wait: true, polls: []string{"500"}, wantPosts: 1, wantError: "get concurrency group (the cutover continues on the server): Buildkite API returned 500: Internal server error"},
 		{name: "wait cancelled", wait: true, polls: []string{draining}, waitError: context.Canceled, wantPosts: 1, wantWaits: 1, wantError: "wait for concurrency-group cutover (it continues on the server): context canceled"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -128,8 +135,18 @@ func TestConcurrencyGroupCutover(t *testing.T) {
 					}
 					_, _ = w.Write([]byte(test.existing))
 				case r.Method == http.MethodGet && r.URL.EscapedPath() == groupPath && polls < len(test.polls):
-					_, _ = w.Write([]byte(test.polls[polls]))
+					poll := test.polls[polls]
 					polls++
+					switch poll {
+					case "404":
+						w.WriteHeader(http.StatusNotFound)
+						_, _ = w.Write([]byte(`{"message":"No concurrency group migration found"}`))
+					case "500":
+						w.WriteHeader(http.StatusInternalServerError)
+						_, _ = w.Write([]byte(`{"message":"Internal server error"}`))
+					default:
+						_, _ = w.Write([]byte(poll))
+					}
 				default:
 					t.Errorf("unexpected request: %s %s", r.Method, r.URL)
 					w.WriteHeader(http.StatusNotFound)
