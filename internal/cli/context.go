@@ -45,7 +45,6 @@ type QueueChange struct {
 	Destination QueueDestination `json:"destination"`
 	DryRun      bool             `json:"dry_run"`
 	Next        string           `json:"-"`
-	Note        string           `json:"-"`
 }
 
 type QueueStatus struct {
@@ -110,10 +109,6 @@ func (c *Context) Print(value any) error {
 		}
 		if value.Next != "" {
 			_, err := fmt.Fprintf(c.Output, "\nNEXT STEPS\n\n%s\n", value.Next)
-			return err
-		}
-		if value.Note != "" {
-			_, err := fmt.Fprintf(c.Output, "\nCONTEXT\n\n%s\n", value.Note)
 			return err
 		}
 		return nil
