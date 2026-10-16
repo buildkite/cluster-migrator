@@ -7,15 +7,15 @@
 
 ## How it works
 
-A migration has three stages:
+A migration has three stages. Finish each stage for the whole organization before starting the next:
 
-1. **Route queues.** Map each unclustered source queue to an existing queue with the same key in the destination cluster, then increase the percentage of new jobs sent there from 0% to 100%.
-2. **Cut over concurrency groups.** Once every queue a concurrency group uses is fully routed and its ordinary jobs have drained, hold the group, let its running jobs finish, and move its waiting jobs to the cluster.
-3. **Move pipelines.** Once every queue used by a pipeline is fully routed and active source jobs have drained, assess its queue and concurrency-group blockers before permanently assigning it to the cluster.
+1. **Route queues.** Map every unclustered source queue to an existing queue with the same key in the destination cluster, then increase the percentage of new jobs sent there from 0% to 100%. All queues migrate to one destination cluster. Once a queue reaches 100%, its routing can't change.
+2. **Cut over concurrency groups.** Once every queue is fully routed, cut over each concurrency group that has been used on unclustered queues: hold the group, let its running jobs finish, and move its waiting jobs to the cluster.
+3. **Move pipelines.** Assess each pipeline's queue and concurrency-group blockers, then permanently assign it to the cluster. Repeat for every pipeline.
 
 Routing changes affect new jobs only. Jobs already created remain on the queue selected when they were created.
 
-Do not move a pipeline until every concurrency group it uses has moved to the cluster. Pipeline readiness reports those groups as blockers.
+A concurrency group first used after every queue it uses reaches 100% starts in the cluster, so it doesn't need a cutover. Do not move a pipeline until every concurrency group it uses is in the cluster. Pipeline readiness reports any that aren't as blockers.
 
 Concurrency groups are identified as `<scope>/<key>`: `custom/<key>` for a `concurrency_group` set in pipeline YAML, or `step/<id>` for a group Buildkite created for a step. Equal keys in different scopes are different groups. Keys may contain slashes, such as `custom/deploy/production`.
 
@@ -83,6 +83,8 @@ cluster-migrator queue configure test \
 
 Configuration does not route traffic. Scale the destination agents before raising the percentage.
 
+Every queue in an organization must migrate to the same cluster. Buildkite rejects configuring a queue for a different cluster from the organization's other queue migrations.
+
 ### 3. Increase routing gradually
 
 Percentages are absolute, not relative increments:
@@ -96,6 +98,8 @@ cluster-migrator queue metrics test
 
 cluster-migrator queue set-percent test --to 100
 ```
+
+Setting 100% is final. Once a queue reaches 100%, Buildkite rejects any change to its routing, because concurrency groups can start in the cluster from then on.
 
 Before each increase, confirm the destination has enough connected agents, waiting jobs remain controlled, and p95 wait time is acceptable. `queue metrics` compares the latest source activity with the latest and peak destination activity over the reported observation window. It provides context, not proof that a queue is safe to increase; also check your normal dispatch, queue-latency, and stranded-job observability.
 
@@ -111,12 +115,25 @@ This does not move existing jobs or remove the queue mapping. Once a queue reach
 
 ### 4. Cut over concurrency groups
 
-Pipeline readiness lists the concurrency groups each pipeline uses that still need a cutover. Request a cutover for each one:
+Start once every queue is routed 100%. Cut over every concurrency group that has been used on unclustered queues before moving any pipeline. Ask Buildkite for the list of these groups. Pipeline readiness also reports any group a pipeline still needs.
+
+Request a cutover for one group:
 
 ```shell
 cluster-migrator concurrency-group cutover custom/deploy \
   --destination-cluster production
 ```
+
+To request cutovers for a list of groups in `groups.txt`, one per line:
+
+```shell
+while IFS= read -r group; do
+  cluster-migrator concurrency-group cutover "$group" \
+    --destination-cluster production </dev/null
+done < groups.txt
+```
+
+Each cutover runs on the server, so the loop doesn't wait for them to finish. Rerun the command for any group that was rejected once its blockers are resolved.
 
 Buildkite checks the cutover before starting it, and rejects it without changes when:
 
@@ -167,7 +184,7 @@ cluster-migrator pipeline move monorepo \
 
 The CLI has no pipeline rollback command. The server revalidates authoritative migration invariants when applying a move; an earlier `no_known_blockers` result is not authorization by itself.
 
-Repeat the queue stages for every source queue, the cutover for every concurrency group, and the pipeline stages for every pipeline in the workload.
+Route every source queue to 100% first, then cut over every concurrency group, then assess and move each pipeline.
 
 ## Command reference
 
