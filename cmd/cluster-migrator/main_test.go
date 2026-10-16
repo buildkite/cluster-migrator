@@ -79,6 +79,89 @@ func TestConcurrencyGroupStatusProcess(t *testing.T) {
 	}
 }
 
+func TestConcurrencyGroupCutoverProcess(t *testing.T) {
+	const groupPath = "/v2/organizations/acme/concurrency-group-migrations/custom/deploy"
+	for _, test := range []struct {
+		name      string
+		args      []string
+		ready     bool
+		wantPosts int
+		wantJSON  bool
+		wantText  string
+		wantError string
+	}{
+		{name: "dry run", args: []string{"--dry-run"}, ready: true, wantText: "A cutover to the production cluster would be requested.\n"},
+		{name: "JSON dry run", args: []string{"--dry-run", "--json"}, ready: true, wantJSON: true},
+		{name: "started", ready: true, wantPosts: 1, wantText: "Cutover to the production cluster started.\n"},
+		{name: "blocked", wantPosts: 1, wantText: "Cutover rejected without changes. Blocked by 1 known condition.\n", wantError: "concurrency group has known cutover blockers"},
+		{name: "JSON blocked", args: []string{"--json"}, wantPosts: 1, wantJSON: true, wantError: "concurrency group has known cutover blockers"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("XDG_CACHE_HOME", t.TempDir())
+			posts := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch {
+				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations":
+					_, _ = fmt.Fprint(w, `[{"slug":"acme"}]`)
+				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/clusters":
+					_, _ = fmt.Fprint(w, `[{"id":"cluster-id","name":"production"}]`)
+				case r.Method == http.MethodGet && r.URL.Path == groupPath:
+					w.WriteHeader(http.StatusNotFound)
+					_, _ = fmt.Fprint(w, `{"message":"No concurrency group migration found"}`)
+				case r.Method == http.MethodPost && r.URL.Path == groupPath+"/cutover":
+					posts++
+					if !test.ready {
+						w.WriteHeader(http.StatusConflict)
+						_, _ = fmt.Fprint(w, `{"message":"Concurrency group is not ready to cut over","ready":false,"status":"blocked","migration":{"state":"unclustered","blocking_reason":null},"queue_observation":{"window_seconds":600,"queues":["deploy"],"blocking_queues":[{"queue":"deploy","reasons":["recent_source_jobs"],"routed_percent":100,"recent_source_jobs":1}]}}`)
+						return
+					}
+					w.WriteHeader(http.StatusAccepted)
+					_, _ = fmt.Fprint(w, `{"scope":"custom","key":"deploy","state":"forward_draining","destination_cluster_id":"cluster-id"}`)
+				default:
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+
+			args := append([]string{"--endpoint", server.URL, "concurrency-group", "cutover", "custom/deploy", "--destination-cluster", "production"}, test.args...)
+			stdout, stderr, exitCode := runCLI(t, args...)
+			wantExit, wantStderr := 0, ""
+			if test.wantError != "" {
+				wantExit, wantStderr = 1, "cluster-migrator: "+test.wantError+"\n"
+			}
+			if exitCode != wantExit || stderr != wantStderr || posts != test.wantPosts {
+				t.Fatalf("exit=%d stderr=%q posts=%d; want exit=%d stderr=%q posts=%d", exitCode, stderr, posts, wantExit, wantStderr, test.wantPosts)
+			}
+			if test.wantJSON && !json.Valid([]byte(stdout)) {
+				t.Fatalf("invalid JSON stdout: %q", stdout)
+			}
+			if !strings.Contains(stdout, test.wantText) {
+				t.Fatalf("stdout = %q, want %q", stdout, test.wantText)
+			}
+		})
+	}
+}
+
+func TestConcurrencyGroupRejectsUnscopedGroupsBeforeMigrationRequests(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v2/organizations" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `[{"slug":"acme"}]`)
+	}))
+	defer server.Close()
+
+	stdout, stderr, exitCode := runCLI(t, "--endpoint", server.URL, "concurrency-group", "cutover", "deploy", "--destination-cluster", "production")
+	want := "cluster-migrator: concurrency group \"deploy\" must be <scope>/<key>, where scope is custom or step\n"
+	if exitCode != 1 || stdout != "" || stderr != want {
+		t.Fatalf("exit=%d stdout=%q stderr=%q; want exit=1, empty stdout, stderr=%q", exitCode, stdout, stderr, want)
+	}
+}
+
 func TestParseErrorsPrintContextualUsage(t *testing.T) {
 	tests := []struct {
 		name      string

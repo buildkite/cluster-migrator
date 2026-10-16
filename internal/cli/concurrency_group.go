@@ -8,7 +8,8 @@ import (
 )
 
 type ConcurrencyGroupCmd struct {
-	Status ConcurrencyGroupStatusCmd `cmd:"" help:"Show one or all concurrency-group migrations."`
+	Cutover ConcurrencyGroupCutoverCmd `cmd:"" help:"Hold, drain, and move an unclustered concurrency group into a cluster."`
+	Status  ConcurrencyGroupStatusCmd  `cmd:"" help:"Show one or all concurrency-group migrations."`
 }
 
 // parseConcurrencyGroup splits a <scope>/<key> identifier. Keys may contain slashes; scopes cannot.
