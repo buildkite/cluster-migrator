@@ -8,10 +8,10 @@ type QueueSetPercentCmd struct {
 }
 
 func (cmd *QueueSetPercentCmd) Run(app *Context) error {
-	return setQueuePercent(app, cmd.Queue, cmd.To, "SET-PERCENT", "")
+	return setQueuePercent(app, cmd.Queue, cmd.To)
 }
 
-func setQueuePercent(app *Context, queue string, percent int, command, note string) error {
+func setQueuePercent(app *Context, queue string, percent int) error {
 	if percent < 0 || percent > 100 {
 		return fmt.Errorf("--to must be between 0 and 100")
 	}
@@ -25,7 +25,7 @@ func setQueuePercent(app *Context, queue string, percent int, command, note stri
 		return fmt.Errorf("resolve destination cluster: %w", err)
 	}
 	change := QueueChange{
-		Command:     command,
+		Command:     "SET-PERCENT",
 		Queue:       queue,
 		FromPercent: &current.RoutedPercent,
 		ToPercent:   percent,
@@ -34,9 +34,8 @@ func setQueuePercent(app *Context, queue string, percent int, command, note stri
 			ClusterName: cluster.Name,
 		},
 		DryRun: app.DryRun,
-		Note:   note,
 	}
-	if note == "" && !app.DryRun {
+	if !app.DryRun {
 		change.Next = queueRoutingNextSteps(queue, cluster.ID, percent)
 	}
 	if current.RoutedPercent == percent || app.DryRun {

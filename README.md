@@ -100,13 +100,13 @@ Before each increase, confirm the destination has enough connected agents, waiti
 
 Routing changes take effect when jobs are created, so observed traffic may take time to reflect the new percentage. For an infrequently used queue, trigger a representative build before continuing. Once the destination is healthy, safely reduce the corresponding source-agent capacity before provisioning and routing the next increment.
 
-To stop sending new jobs to the cluster queue:
+To stop sending new jobs to the cluster queue before it reaches 100%:
 
 ```shell
-cluster-migrator queue rollback test
+cluster-migrator queue set-percent test --to 0
 ```
 
-Rollback sets routing to 0%. It does not move existing jobs or remove the queue mapping.
+This does not move existing jobs or remove the queue mapping. Once a queue reaches 100%, Buildkite rejects any change to its routing.
 
 ### 4. Assess each pipeline
 
@@ -151,7 +151,6 @@ Repeat the queue stages for every source queue and the pipeline stages for every
 | `queue status [queue]` | Show one queue migration or list all migrations. |
 | `queue set-percent <queue> --to <0-100>` | Set the absolute percentage of new jobs routed to the cluster queue. |
 | `queue metrics <queue>` | Compare recent source and destination activity. |
-| `queue rollback <queue>` | Set routing to 0% for new jobs. |
 | `concurrency-group status [<scope>/<key>]` | Show one concurrency-group migration's state and unclustered jobs, or list every migration. A group whose cutover hasn't started has no migration. |
 | `pipeline readiness <pipeline> --destination-cluster <cluster>` | Assess known queue and concurrency-group blockers. |
 | `pipeline move <pipeline> --destination-cluster <cluster>` | Permanently assign a pipeline to the cluster. |
