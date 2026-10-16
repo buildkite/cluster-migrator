@@ -6,17 +6,13 @@ import (
 	"net/http"
 	"strings"
 	"text/tabwriter"
-	"time"
 
 	"github.com/buildkite/cluster-migrator/internal/buildkite"
 )
 
-const concurrencyGroupCutoverPollInterval = 5 * time.Second
-
 type ConcurrencyGroupCutoverCmd struct {
 	Group              string `arg:"" help:"Concurrency group as <scope>/<key>, such as custom/deploy."`
 	DestinationCluster string `name:"destination-cluster" required:"" help:"Destination cluster name or ID."`
-	Wait               bool   `help:"Wait until the group has moved to the cluster."`
 }
 
 func (cmd *ConcurrencyGroupCutoverCmd) Run(app *Context) error {
@@ -48,49 +44,10 @@ func (cmd *ConcurrencyGroupCutoverCmd) Run(app *Context) error {
 	if err != nil {
 		return fmt.Errorf("start concurrency-group cutover: %w", err)
 	}
-	if cmd.Wait {
-		if group, err = cmd.waitForCutover(app, scope, key, group); err != nil {
-			return err
-		}
-	}
 	if app.JSON {
 		return app.Print(group)
 	}
 	return cmd.printResult(app, cluster, group)
-}
-
-func (cmd *ConcurrencyGroupCutoverCmd) waitForCutover(app *Context, scope, key string, accepted *buildkite.ConcurrencyGroup) (*buildkite.ConcurrencyGroup, error) {
-	for {
-		group, err := app.Client.GetConcurrencyGroup(app.Context, scope, key)
-		var apiError *buildkite.APIError
-		if errors.As(err, &apiError) && apiError.StatusCode == http.StatusNotFound {
-			// Status reads from a replica, so a first cutover may not be visible yet.
-			group, err = nil, nil
-		}
-		if err != nil {
-			return nil, fmt.Errorf("get concurrency group (the cutover continues on the server): %w", err)
-		}
-		if group != nil && !olderThan(group, accepted) {
-			switch group.State {
-			case buildkite.ConcurrencyGroupClustered:
-				return group, nil
-			case buildkite.ConcurrencyGroupForwardDraining, buildkite.ConcurrencyGroupForwardReconciling:
-			default:
-				return nil, fmt.Errorf("concurrency-group cutover stopped in state %s", displayValue(group.State))
-			}
-		}
-		if err := app.wait(app.Context, concurrencyGroupCutoverPollInterval); err != nil {
-			return nil, fmt.Errorf("wait for concurrency-group cutover (it continues on the server): %w", err)
-		}
-	}
-}
-
-// olderThan reports whether a status read predates the accepted cutover, such as a lagging replica that
-// still shows a reversed migration as unclustered. Later changes, including a reversal, are not older.
-func olderThan(group, accepted *buildkite.ConcurrencyGroup) bool {
-	observedAt, observedErr := time.Parse(time.RFC3339Nano, group.UpdatedAt)
-	acceptedAt, acceptedErr := time.Parse(time.RFC3339Nano, accepted.UpdatedAt)
-	return observedErr == nil && acceptedErr == nil && observedAt.Before(acceptedAt)
 }
 
 func (cmd *ConcurrencyGroupCutoverCmd) printHeading(app *Context, destination string) error {
@@ -200,19 +157,13 @@ func (cmd *ConcurrencyGroupCutoverCmd) printResult(app *Context, cluster *buildk
 	if err := cmd.printHeading(app, cluster.Name); err != nil {
 		return err
 	}
-	result := fmt.Sprintf("Cutover to the %s cluster started.", cluster.Name)
-	next := []string{fmt.Sprintf("Check cutover progress:\n\n   cluster-migrator concurrency-group status %s", cmd.Group)}
-	if cmd.Wait {
-		result = fmt.Sprintf("Concurrency group moved to the %s cluster.", cluster.Name)
-		next = concurrencyGroupStatusNextSteps(group)
-	}
-	if _, err := fmt.Fprintf(app.Output, "\nRESULT\n\n%s\n", result); err != nil {
+	if _, err := fmt.Fprintf(app.Output, "\nRESULT\n\nCutover to the %s cluster started.\n", cluster.Name); err != nil {
 		return err
 	}
 	if err := app.printConcurrencyGroupState(group); err != nil {
 		return err
 	}
-	return app.printNextSteps(next)
+	return app.printNextSteps([]string{fmt.Sprintf("Check cutover progress:\n\n   cluster-migrator concurrency-group status %s", cmd.Group)})
 }
 
 func concurrencyGroupCutoverBlockerCount(readiness *buildkite.ConcurrencyGroupCutoverBlocked) int {

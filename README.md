@@ -143,7 +143,7 @@ Buildkite checks the cutover before starting it, and rejects it without changes 
 
 A rejected cutover prints its blockers and next steps and exits non-zero. Once they're resolved, run the same command again.
 
-An accepted cutover holds the group, waits for its running unclustered jobs to finish, and then moves its waiting jobs to the cluster. Add `--wait` to poll until the group reports `clustered`; stopping the wait, or reaching `--timeout`, does not stop the server-side cutover. Check progress at any time:
+An accepted cutover holds the group, waits for its running unclustered jobs to finish, and then moves its waiting jobs to the cluster. The command returns once the cutover starts; the rest runs on the server. Check progress at any time:
 
 ```shell
 cluster-migrator concurrency-group status custom/deploy
@@ -194,7 +194,7 @@ Route every source queue to 100% first, then cut over every concurrency group, t
 | `queue status [queue]` | Show one queue migration or list all migrations. |
 | `queue set-percent <queue> --to <0-100>` | Set the absolute percentage of new jobs routed to the cluster queue. |
 | `queue metrics <queue>` | Compare recent source and destination activity. |
-| `concurrency-group cutover <scope>/<key> --destination-cluster <cluster> [--wait]` | Hold, drain, and move a concurrency group into the cluster, or report why it can't start. `--dry-run` checks only the group's migration state. |
+| `concurrency-group cutover <scope>/<key> --destination-cluster <cluster>` | Start holding, draining, and moving a concurrency group into the cluster, or report why it can't start. `--dry-run` checks only the group's migration state. |
 | `concurrency-group status [<scope>/<key>]` | Show one concurrency-group migration's state and unclustered jobs, or list every migration. A group whose cutover hasn't started has no migration. |
 | `pipeline readiness <pipeline> --destination-cluster <cluster>` | Assess known queue and concurrency-group blockers. |
 | `pipeline move <pipeline> --destination-cluster <cluster>` | Permanently assign a pipeline to the cluster. |
