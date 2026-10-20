@@ -36,8 +36,8 @@ func TestConcurrencyGroupStatusOutput(t *testing.T) {
 			wantText: "CONCURRENCY-GROUP STATUS\nGroup: custom/deploy/production\nDestination: production\n\nSTATUS\n\nState: forward_draining (cutover is waiting for running unclustered jobs to finish)\nHeld since: 2026-10-09 07:00:00 UTC\nRunning unclustered jobs: 2\nWaiting unclustered jobs: 3\n",
 		},
 		{
-			name: "reversed", group: "step/deploy/production", response: unclustered, wantJSON: unclustered, wantClusters: true,
-			wantText: "CONCURRENCY-GROUP STATUS\nGroup: step/deploy/production\nDestination: production\n\nSTATUS\n\nState: unclustered (moved back to unclustered queues)\nRunning unclustered jobs: 0\nWaiting unclustered jobs: 1\n",
+			name: "unclustered", group: "step/deploy/production", response: unclustered, wantJSON: unclustered, wantClusters: true,
+			wantText: "CONCURRENCY-GROUP STATUS\nGroup: step/deploy/production\nDestination: production\n\nSTATUS\n\nState: unclustered\nRunning unclustered jobs: 0\nWaiting unclustered jobs: 1\n",
 		},
 		{
 			name: "clustered", group: "custom/deploy/production", response: clustered, wantJSON: clustered, wantClusters: true,

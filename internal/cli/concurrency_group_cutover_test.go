@@ -23,9 +23,9 @@ func TestConcurrencyGroupCutover(t *testing.T) {
 			`{"queue":"release","reasons":["migration_missing"],"routed_percent":null,"recent_source_jobs":0}]}}`
 		inProgress = `{"message":"Concurrency group is not ready to cut over","scope":"custom","key":"deploy/production","destination_cluster_id":"cluster-id","ready":false,"status":"blocked",` +
 			`"migration":{"state":"forward_draining","blocking_reason":"cutover_in_progress"},"queue_observation":{"observed_at":"2026-10-09T07:00:00Z","window_started_at":"2026-10-09T06:50:00Z","window_seconds":600,"queues":["deploy"],"blocking_queues":[]}}`
-		draining  = `{"scope":"custom","key":"deploy/production","state":"forward_draining","destination_cluster_id":"cluster-id","held_at":"2026-10-09T07:00:00.000Z","source_jobs":{"running":1,"waiting":2},"url":"","created_at":"2026-10-09T06:59:00.000Z","updated_at":"2026-10-09T07:00:00.000Z"}`
-		clustered = `{"scope":"custom","key":"deploy/production","state":"clustered","destination_cluster_id":"cluster-id","held_at":null,"source_jobs":{"running":0,"waiting":0},"url":"","created_at":"2026-10-09T06:59:00.000Z","updated_at":"2026-10-09T07:00:00.000Z"}`
-		reversed  = `{"scope":"custom","key":"deploy/production","state":"unclustered","destination_cluster_id":"%s","held_at":null,"source_jobs":{"running":0,"waiting":0},"url":"","created_at":"2026-10-09T06:59:00.000Z","updated_at":"2026-10-09T07:00:00.000Z"}`
+		draining    = `{"scope":"custom","key":"deploy/production","state":"forward_draining","destination_cluster_id":"cluster-id","held_at":"2026-10-09T07:00:00.000Z","source_jobs":{"running":1,"waiting":2},"url":"","created_at":"2026-10-09T06:59:00.000Z","updated_at":"2026-10-09T07:00:00.000Z"}`
+		clustered   = `{"scope":"custom","key":"deploy/production","state":"clustered","destination_cluster_id":"cluster-id","held_at":null,"source_jobs":{"running":0,"waiting":0},"url":"","created_at":"2026-10-09T06:59:00.000Z","updated_at":"2026-10-09T07:00:00.000Z"}`
+		unclustered = `{"scope":"custom","key":"deploy/production","state":"unclustered","destination_cluster_id":"%s","held_at":null,"source_jobs":{"running":0,"waiting":0},"url":"","created_at":"2026-10-09T06:59:00.000Z","updated_at":"2026-10-09T07:00:00.000Z"}`
 
 		heading       = "CONCURRENCY-GROUP CUTOVER\nGroup: custom/deploy/production\nDestination: production\n"
 		dryRunHeading = "CONCURRENCY-GROUP CUTOVER (DRY RUN)\nGroup: custom/deploy/production\nDestination: production\n"
@@ -48,8 +48,8 @@ func TestConcurrencyGroupCutover(t *testing.T) {
 		{name: "dry run without a migration", dryRun: true, wantText: dryRunHeading + "\nREADINESS\n\nNo migration has started for this concurrency group." + queuesChecked},
 		{name: "JSON dry run", dryRun: true, json: true, wantText: `{"action":"cut over","resource":"concurrency group custom/deploy/production","destination_cluster":"production","dry_run":true}`},
 		{
-			name: "dry run after a reversal", dryRun: true, existing: strings.Replace(reversed, "%s", "cluster-id", 1),
-			wantText: dryRunHeading + "\nREADINESS\n\nThe concurrency group moved back to unclustered queues and can cut over again." + queuesChecked,
+			name: "dry run after a cancelled forward migration", dryRun: true, existing: strings.Replace(unclustered, "%s", "cluster-id", 1),
+			wantText: dryRunHeading + "\nREADINESS\n\nThe concurrency group is unclustered and can cut over." + queuesChecked,
 		},
 		{
 			name: "dry run while in progress", dryRun: true, existing: draining, wantError: blockedError,
@@ -60,8 +60,8 @@ func TestConcurrencyGroupCutover(t *testing.T) {
 			wantText: dryRunHeading + "\nREADINESS\n\nCutover is blocked by the concurrency group's migration.\n\nState: clustered\nBlocker: The concurrency group has already moved to a cluster.\n" + statusNext,
 		},
 		{
-			name: "dry run for another destination", dryRun: true, existing: strings.Replace(reversed, "%s", "other-cluster-id", 1), wantError: blockedError,
-			wantText: dryRunHeading + "\nREADINESS\n\nCutover is blocked by the concurrency group's migration.\n\nState: unclustered (moved back to unclustered queues)\nBlocker: The concurrency group's migration targets another cluster.\n" + statusNext,
+			name: "dry run for another destination", dryRun: true, existing: strings.Replace(unclustered, "%s", "other-cluster-id", 1), wantError: blockedError,
+			wantText: dryRunHeading + "\nREADINESS\n\nCutover is blocked by the concurrency group's migration.\n\nState: unclustered\nBlocker: The concurrency group's migration targets another cluster.\n" + statusNext,
 		},
 		{name: "JSON dry run while in progress", dryRun: true, json: true, existing: draining, wantError: "concurrency group cannot cut over: A cutover is already in progress."},
 		{

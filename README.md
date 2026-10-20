@@ -137,7 +137,7 @@ Each cutover runs on the server, so the loop doesn't wait for them to finish. Re
 
 Buildkite checks the cutover before starting it, and rejects it without changes when:
 
-- The group already has a migration that is in progress, finished, reversing, or targets another cluster.
+- The group already has a migration that is in progress, finished, or targets another cluster.
 - Any queue the group used in the last 10 minutes, or still has unfinished jobs on, is not routed 100% to the destination.
 - Ungrouped jobs were created on those unclustered queues in the last 10 minutes. Older ungrouped jobs still running there don't block the cutover, but pipeline readiness blocks their pipelines until they finish. Jobs in other concurrency groups don't block, because they only leave the queue when their own group cuts over.
 
@@ -149,7 +149,7 @@ An accepted cutover holds the group, waits for its running unclustered jobs to f
 cluster-migrator concurrency-group status custom/deploy
 ```
 
-The CLI only cuts groups over into a cluster. It cannot move a group back.
+Concurrency-group migrations only move forward. Once a group routes to the cluster, it cannot return to unclustered queues. A forward migration cancelled before routing switches remains unclustered and can cut over again to the same destination.
 
 ### 5. Assess each pipeline
 

@@ -98,7 +98,7 @@ func (cmd *ConcurrencyGroupCutoverCmd) dryRun(app *Context, cluster *buildkite.C
 
 	state := "No migration has started for this concurrency group."
 	if migration != nil {
-		state = "The concurrency group moved back to unclustered queues and can cut over again."
+		state = "The concurrency group is unclustered and can cut over."
 	}
 	_, err = fmt.Fprintf(app.Output, "\nREADINESS\n\n%s Queue routing and recent ungrouped jobs are checked when the cutover is requested.\n\nPROPOSED CHANGE\n\nA cutover to the %s cluster would be requested.\n", state, cluster.Name)
 	return err
@@ -120,8 +120,6 @@ func concurrencyGroupMigrationBlockerFor(migration *buildkite.ConcurrencyGroup, 
 		return "cutover_in_progress"
 	case buildkite.ConcurrencyGroupClustered:
 		return "already_clustered"
-	case buildkite.ConcurrencyGroupReverseDraining, buildkite.ConcurrencyGroupReverseReconciling:
-		return "reverse_in_progress"
 	default:
 		return displayValue(migration.State)
 	}
@@ -225,7 +223,6 @@ func concurrencyGroupMigrationBlocker(reason string) string {
 	return describeBlocker(reason, map[string]string{
 		"cutover_in_progress": "A cutover is already in progress.",
 		"already_clustered":   "The concurrency group has already moved to a cluster.",
-		"reverse_in_progress": "The concurrency group is moving back to unclustered queues.",
 		"wrong_destination":   "The concurrency group's migration targets another cluster.",
 	})
 }
