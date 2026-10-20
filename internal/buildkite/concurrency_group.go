@@ -10,8 +10,6 @@ const (
 	ConcurrencyGroupForwardDraining    = "forward_draining"
 	ConcurrencyGroupForwardReconciling = "forward_reconciling"
 	ConcurrencyGroupClustered          = "clustered"
-	ConcurrencyGroupReverseDraining    = "reverse_draining"
-	ConcurrencyGroupReverseReconciling = "reverse_reconciling"
 )
 
 // ConcurrencyGroup is a concurrency group's migration. One exists only once a cutover has started.

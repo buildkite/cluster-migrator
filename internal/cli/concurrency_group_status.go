@@ -86,19 +86,12 @@ func concurrencyGroupHeldSince(group *buildkite.ConcurrencyGroup) string {
 func concurrencyGroupState(state string) string {
 	description := ""
 	switch state {
-	case buildkite.ConcurrencyGroupClustered:
+	case buildkite.ConcurrencyGroupUnclustered, buildkite.ConcurrencyGroupClustered:
 		return state
-	case buildkite.ConcurrencyGroupUnclustered:
-		// Migrations start held, so an unheld unclustered migration has been reversed.
-		description = "moved back to unclustered queues"
 	case buildkite.ConcurrencyGroupForwardDraining:
 		description = "cutover is waiting for running unclustered jobs to finish"
 	case buildkite.ConcurrencyGroupForwardReconciling:
 		description = "cutover is moving waiting jobs to the destination"
-	case buildkite.ConcurrencyGroupReverseDraining:
-		description = "reversal is waiting for running cluster jobs to finish"
-	case buildkite.ConcurrencyGroupReverseReconciling:
-		description = "reversal is moving waiting jobs back to unclustered queues"
 	default:
 		description = "unknown state"
 	}
