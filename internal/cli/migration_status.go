@@ -55,7 +55,7 @@ func printMigrationProgress(app *Context, progress *buildkite.MigrationProgress)
 		if err := printMigrationProgressSummary(app, "PIPELINE PROGRESS", pipelines.MigrationProgressSummary); err != nil {
 			return err
 		}
-		if _, err := fmt.Fprint(app.Output, "Completed means currently in the fixed destination, not necessarily moved by this operation.\n"); err != nil {
+		if _, err := fmt.Fprint(app.Output, "Destination means currently in the fixed destination, not necessarily moved by this operation.\n"); err != nil {
 			return err
 		}
 		if len(pipelines.Items) > 0 {
@@ -125,6 +125,26 @@ func migrationBlockers(blockers []buildkite.MigrationBlocker) string {
 	messages := make([]string, 0, len(blockers))
 	for _, blocker := range blockers {
 		messages = append(messages, blocker.Code+": "+blocker.Message)
+		if len(blocker.Queues) > 0 {
+			messages = append(messages, "queues: "+strings.Join(blocker.Queues, ", "))
+		}
+		if len(blocker.ConcurrencyGroups) > 0 {
+			groups := make([]string, 0, len(blocker.ConcurrencyGroups))
+			for _, group := range blocker.ConcurrencyGroups {
+				label := group.Key
+				if group.Scope != "" {
+					label = group.Scope + "/" + label
+				}
+				if len(group.Reasons) > 0 {
+					label += " (" + strings.Join(group.Reasons, ", ") + ")"
+				}
+				groups = append(groups, label)
+			}
+			messages = append(messages, "concurrency groups: "+strings.Join(groups, ", "))
+		}
+		if len(blocker.Reasons) > 0 {
+			messages = append(messages, "reasons: "+strings.Join(blocker.Reasons, ", "))
+		}
 	}
 	return strings.Join(messages, "; ")
 }

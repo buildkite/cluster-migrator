@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 )
@@ -20,6 +21,8 @@ type OrganizationMigration struct {
 	PhaseVersion         *string            `json:"phase_version,omitempty"`
 	LatestTransition     *MigrationEvent    `json:"latest_transition"`
 	Progress             *MigrationProgress `json:"progress,omitempty"`
+	// RawJSON preserves the GET response for lossless JSON status output.
+	RawJSON json.RawMessage `json:"-"`
 }
 
 type MigrationEvent struct {
@@ -122,8 +125,11 @@ type MigrationTransition struct {
 }
 
 type MigrationBlocker struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Code              string                     `json:"code"`
+	Message           string                     `json:"message"`
+	Queues            []string                   `json:"queues,omitempty"`
+	ConcurrencyGroups []BlockingConcurrencyGroup `json:"concurrency_groups,omitempty"`
+	Reasons           []string                   `json:"reasons,omitempty"`
 }
 
 type MigrationOperationRequest struct {
@@ -139,10 +145,15 @@ type MigrationOperationResult struct {
 }
 
 func (c *Client) GetMigration(ctx context.Context) (*OrganizationMigration, error) {
-	var migration OrganizationMigration
-	if err := c.do(ctx, http.MethodGet, c.path("unclustered-to-clustered-migration"), nil, &migration); err != nil {
+	var response json.RawMessage
+	if err := c.do(ctx, http.MethodGet, c.path("unclustered-to-clustered-migration"), nil, &response); err != nil {
 		return nil, err
 	}
+	var migration OrganizationMigration
+	if err := json.Unmarshal(response, &migration); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	migration.RawJSON = response
 	return &migration, nil
 }
 

@@ -475,33 +475,71 @@ func TestMigrationStatusProgressIsSampledNotReadiness(t *testing.T) {
 
 func TestMigrationStatusPipelineBlockers(t *testing.T) {
 	t.Setenv("BUILDKITE_API_TOKEN", "secret")
-	const progress = `{"concurrency_groups":null,"pipelines":{"authorization":{"event_id":"authorization-id","authorized_at":"2026-10-22T02:00:00.000Z","actor_id":null},"observation":{"status":"fresh","observed_at":"2026-10-22T02:05:00.000Z","expires_at":"2026-10-22T02:06:00.000Z","cached":false},"sample":{"limit":50,"scanned":2,"has_more":true,"counts":{"remaining":1,"completed":1,"blocked":1,"incompatible":0}},"items":[{"pipeline_id":"pipeline-one","slug":"release","archived":true,"state":"blocked","blockers":[{"code":"active_source_jobs","message":"Wait for active source jobs to finish"}]},{"pipeline_id":"pipeline-two","slug":"test","archived":false,"state":"completed","blockers":[]}]}}`
-	response := strings.TrimSuffix(migrationFixture, "}") + `,"progress":` + progress + `}`
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != migrationPath {
-			t.Errorf("unexpected request: %s %s", r.Method, r.URL)
-		}
-		_, _ = fmt.Fprint(w, response)
-	}))
-	defer server.Close()
-	for _, jsonOutput := range []bool{false, true} {
-		var stdout, stderr bytes.Buffer
-		args := []string{"--endpoint", server.URL, "migration", "status"}
-		if jsonOutput {
-			args = append(args, "--json")
-		}
-		if err := Run(context.Background(), args, &stdout, &stderr, organizationClient(server.Client())); err != nil || stderr.Len() != 0 {
-			t.Fatalf("error=%v stderr=%q", err, &stderr)
-		}
-		if jsonOutput {
-			assertMigrationJSON(t, stdout.Bytes(), response)
-			continue
-		}
-		for _, want := range []string{"Authorization event: authorization-id", "Actor: system", "Observation: fresh", "More inventory: true", "Completed means currently in the fixed destination", "release   pipeline-one  true      blocked    active_source_jobs: Wait for active source jobs to finish", "test      pipeline-two  false     completed  —"} {
-			if !strings.Contains(stdout.String(), want) {
-				t.Errorf("stdout lacks %q:\n%s", want, &stdout)
+	const pipelines = `{
+		"authorization":null,
+		"observation":{"status":"fresh","observed_at":"2026-10-22T02:05:00.000Z","expires_at":"2026-10-22T02:06:00.000Z","cached":false},
+		"sample":{"limit":3,"scanned":3,"has_more":true,"counts":{"ready":0,"blocked":1,"destination":1,"other_cluster":1,"remaining":1}},
+		"items":[
+			{"pipeline_id":"pipeline-one","name":"Archived display label","slug":"archived-builds","cluster_id":null,"archived":true,"state":"blocked","blockers":[{"code":"pipeline_not_ready","message":"Pipeline must finish its readiness checks","queues":["default"],"concurrency_groups":[{"scope":"custom","key":"status-dependency","reasons":["migration_missing"]}],"reasons":["active_source_jobs"]}]},
+			{"pipeline_id":"pipeline-two","name":"Manual destination display","slug":"manual-destination","cluster_id":"cluster-id","archived":false,"state":"destination","blockers":[]},
+			{"pipeline_id":"pipeline-three","name":"Other cluster display","slug":"other-assignment","cluster_id":"other-cluster-id","archived":false,"state":"other_cluster","blockers":[{"code":"pipeline_other_cluster","message":"Pipeline belongs to another cluster and will not be moved"}]}
+		]
+	}`
+	for _, test := range []struct {
+		name      string
+		pipelines string
+	}{
+		{name: "fresh", pipelines: pipelines},
+		{name: "cached", pipelines: strings.Replace(pipelines, `"cached":false`, `"cached":true`, 1)},
+		{name: "unavailable", pipelines: `{"authorization":null,"observation":{"status":"unavailable","observed_at":"2026-10-22T02:05:00.000Z","expires_at":null,"cached":false},"sample":null,"items":[]}`},
+		{name: "nested null and empty", pipelines: strings.NewReplacer(`"queues":["default"]`, `"queues":[]`, `"scope":"custom"`, `"scope":null`, `"reasons":["migration_missing"]`, `"reasons":[]`, `"reasons":["active_source_jobs"]`, `"reasons":null`).Replace(pipelines)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := strings.TrimSuffix(migrationFixture, "}") + `,"progress":{"concurrency_groups":null,"pipelines":` + test.pipelines + `}}`
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet || r.URL.Path != migrationPath {
+					t.Errorf("status sent %s %s", r.Method, r.URL)
+				}
+				_, _ = fmt.Fprint(w, response)
+			}))
+			defer server.Close()
+			for _, jsonOutput := range []bool{false, true} {
+				t.Run(fmt.Sprintf("json=%t", jsonOutput), func(t *testing.T) {
+					var stdout, stderr bytes.Buffer
+					args := []string{"--endpoint", server.URL, "migration", "status"}
+					if jsonOutput {
+						args = append(args, "--json")
+					}
+					if err := Run(context.Background(), args, &stdout, &stderr, organizationClient(server.Client())); err != nil || stderr.Len() != 0 {
+						t.Fatalf("error=%v stderr=%q", err, &stderr)
+					}
+					if jsonOutput {
+						assertMigrationJSON(t, stdout.Bytes(), response)
+						return
+					}
+					if test.name == "unavailable" {
+						if !strings.Contains(stdout.String(), "Authorization: unavailable") || !strings.Contains(stdout.String(), "Sample unavailable; no counts can be inferred.") || strings.Contains(stdout.String(), "SAMPLE COUNT") {
+							t.Fatalf("unknown status implies counts or absent authorization:\n%s", &stdout)
+						}
+						return
+					}
+					for _, want := range []string{"Observation: fresh", "SAMPLE (NOT ORGANIZATION TOTALS)", "Scanned: 3 (limit 3)", "More inventory: true", "Destination means currently in the fixed destination, not necessarily moved by this operation.", "archived-builds     pipeline-one    true      blocked", "manual-destination  pipeline-two    false     destination", "other-assignment    pipeline-three  false     other_cluster", "pipeline_other_cluster: Pipeline belongs to another cluster and will not be moved"} {
+						if !strings.Contains(stdout.String(), want) {
+							t.Errorf("stdout lacks %q:\n%s", want, &stdout)
+						}
+					}
+					if test.name != "nested null and empty" {
+						want := "pipeline_not_ready: Pipeline must finish its readiness checks; queues: default; concurrency groups: custom/status-dependency (migration_missing); reasons: active_source_jobs"
+						if !strings.Contains(stdout.String(), want) {
+							t.Errorf("stdout lacks %q:\n%s", want, &stdout)
+						}
+					}
+					if !strings.Contains(stdout.String(), fmt.Sprintf("Cached: %t", test.name == "cached")) || strings.Contains(stdout.String(), "Completed means") || strings.Contains(stdout.String(), "Total:") {
+						t.Fatalf("wrong cache, movement attribution or totals:\n%s", &stdout)
+					}
+				})
 			}
-		}
+		})
 	}
 }
 

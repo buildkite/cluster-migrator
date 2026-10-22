@@ -192,7 +192,7 @@ JSON stdout contains only the command's JSON response. Human guidance and progre
 
 Status distinguishes the configuration creator from the latest phase-transition actor, source, and time. Transition attribution comes from the recorded event; it is not inferred from configuration. Background authorization events do not change the phase version.
 
-Status progress is a bounded sample, not an organization total. `has_more` means inventory was omitted, not that migration finished. Held group counts overlap draining and reconciling. A completed pipeline is currently in the fixed destination; this does not claim the CLI moved it. Fresh/stale describes observations only, not readiness or authorization. Unavailable observations do not imply zero work, no blockers, or absence of authorization.
+Status progress is a bounded sample, not an organization total. `has_more` means inventory was omitted, not that migration finished. Held group counts overlap draining and reconciling. A pipeline in the `destination` state is currently in the fixed destination; this does not claim the CLI moved it. Fresh/stale describes observations only, not readiness or authorization. Unavailable observations do not imply zero work, no blockers, or absence of authorization.
 
 Previews report observation timestamps, expiry, and cache status. They never authorize transitions. Mutations submit the current phase version; the server rejects stale versions and reruns fresh checks. The CLI does not retry authorization automatically. If a mutation times out, inspect `migration status` before retrying: server-side work may still be running.
 

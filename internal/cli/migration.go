@@ -58,7 +58,7 @@ func (cmd *MigrationStatusCmd) Run(app *Context) error {
 		return err
 	}
 	if app.JSON {
-		return app.Print(migration)
+		return app.Print(migration.RawJSON)
 	}
 	if err := printMigrationHeading(app, "status", migration); err != nil {
 		return err
