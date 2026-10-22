@@ -148,6 +148,80 @@ func TestMigrationCommitRequiresAcknowledgement(t *testing.T) {
 	}
 }
 
+func TestMigrationFinalizationPreview(t *testing.T) {
+	t.Setenv("BUILDKITE_API_TOKEN", "secret")
+	for _, test := range []struct {
+		name    string
+		preview string
+		blocked bool
+		text    string
+	}{
+		{
+			name:    "bounded candidates with blockers",
+			preview: `{"candidates":[{"build_id":"build-a","pipeline_id":"pipeline-a","effective_result":null,"outcome":"passed"},{"build_id":"build-b","pipeline_id":"pipeline-b","effective_result":"failed","outcome":"failed"},{"build_id":"build-c","pipeline_id":"pipeline-c","effective_result":"unresolved","outcome":"canceled"}],"has_more":true}`,
+			blocked: true,
+			text:    "BUILD    PIPELINE    EFFECTIVE RESULT  CANDIDATE OUTCOME\nbuild-a  pipeline-a  none              passed\nbuild-b  pipeline-b  failed            failed\nbuild-c  pipeline-c  unresolved        canceled\nMore inventory is omitted or unexamined.\n",
+		},
+		{
+			name:    "empty candidate sample",
+			preview: `{"candidates":[],"has_more":false}`,
+			text:    "No candidates in this sample.\n",
+		},
+		{
+			name:    "empty sample with unexamined inventory",
+			preview: `{"candidates":[],"has_more":true}`,
+			text:    "No candidates in this sample.\nMore inventory is omitted or unexamined.\n",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := strings.Replace(readyFixture, `"operation":"validate-queues"`, `"operation":"complete"`, 1)
+			response = strings.TrimSuffix(response, "}") + `,"finalization_preview":` + test.preview + `}`
+			status, blockers := "ready", ""
+			if test.blocked {
+				status = "blocked"
+				response = strings.Replace(response, `"ready":true,"status":"ready","blockers":[]`, `"ready":false,"status":"blocked","blockers":[{"code":"blocked_builds","message":"Blocked builds remain"}]`, 1)
+				blockers = "\nBLOCKERS\n\nCODE            BLOCKER\nblocked_builds  Blocked builds remain\n"
+			}
+			previews := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet || r.URL.Path != migrationPath+"/readiness" || r.URL.RawQuery != "finalize_blocked_builds=true&operation=complete" {
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL)
+					http.Error(w, "unexpected request", http.StatusBadRequest)
+					return
+				}
+				previews++
+				_, _ = fmt.Fprint(w, response)
+			}))
+			defer server.Close()
+			for _, jsonOutput := range []bool{false, true} {
+				var stdout, stderr bytes.Buffer
+				args := []string{"--endpoint", server.URL, "migration", "complete", "--finalize-blocked-builds", "--dry-run"}
+				if jsonOutput {
+					args = append(args, "--json")
+				}
+				err := Run(context.Background(), args, &stdout, &stderr, organizationClient(server.Client()))
+				if (err != nil) != test.blocked || stderr.Len() != 0 {
+					t.Fatalf("error=%v stderr=%q", err, &stderr)
+				}
+				if jsonOutput {
+					assertMigrationJSON(t, stdout.Bytes(), response)
+				} else {
+					want := "MIGRATION COMPLETE (DRY RUN)\n\nREADINESS\n\nStatus: " + status + "\nAssessed phase: validate_queues\nObserved at: 2026-10-22T02:00:00.000Z\nExpires at: —\nCached: false\n" + blockers + "\nFINALIZATION PREVIEW\n\nBounded candidate sample; not organization totals or authorization.\n" + test.text
+					if !test.blocked {
+						want += "\nPROPOSED CHANGE\n\nThe complete operation would be requested. This preview does not authorize a transition or schedule work.\n"
+					}
+					if stdout.String() != want {
+						t.Errorf("stdout=%q, want %q", &stdout, want)
+					}
+				}
+			}
+			if previews != 2 {
+				t.Fatalf("previews=%d, want 2", previews)
+			}
+		})
+	}
+}
+
 func TestMigrationOutcomes(t *testing.T) {
 	t.Setenv("BUILDKITE_API_TOKEN", "secret")
 	for _, test := range []struct {

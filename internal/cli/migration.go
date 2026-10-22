@@ -206,6 +206,9 @@ func previewMigration(app *Context, operation, destinationClusterID string, fina
 		if err := printMigrationAssessment(app, assessment); err != nil {
 			return err
 		}
+		if err := printMigrationFinalizationPreview(app, assessment.FinalizationPreview); err != nil {
+			return err
+		}
 		if assessment.Ready && assessment.Status == "ready" {
 			if _, err := fmt.Fprintf(app.Output, "\nPROPOSED CHANGE\n\nThe %s operation would be requested. This preview does not authorize a transition or schedule work.\n", operation); err != nil {
 				return err
@@ -257,6 +260,38 @@ func printMigrationAssessment(app *Context, assessment *buildkite.MigrationAsses
 		_, _ = fmt.Fprintf(writer, "%s\t%s\n", blocker.Code, blocker.Message)
 	}
 	return writer.Flush()
+}
+
+func printMigrationFinalizationPreview(app *Context, preview *buildkite.MigrationFinalizationPreview) error {
+	if preview == nil {
+		return nil
+	}
+	if _, err := fmt.Fprint(app.Output, "\nFINALIZATION PREVIEW\n\nBounded candidate sample; not organization totals or authorization.\n"); err != nil {
+		return err
+	}
+	if len(preview.Candidates) == 0 {
+		if _, err := fmt.Fprintln(app.Output, "No candidates in this sample."); err != nil {
+			return err
+		}
+	} else {
+		writer := tabwriter.NewWriter(app.Output, 0, 4, 2, ' ', 0)
+		_, _ = fmt.Fprintln(writer, "BUILD\tPIPELINE\tEFFECTIVE RESULT\tCANDIDATE OUTCOME")
+		for _, candidate := range preview.Candidates {
+			result := "none"
+			if candidate.EffectiveResult != nil {
+				result = *candidate.EffectiveResult
+			}
+			_, _ = fmt.Fprintf(writer, "%s\t%s\t%s\t%s\n", candidate.BuildID, candidate.PipelineID, result, candidate.Outcome)
+		}
+		if err := writer.Flush(); err != nil {
+			return err
+		}
+	}
+	if preview.HasMore {
+		_, err := fmt.Fprintln(app.Output, "More inventory is omitted or unexamined.")
+		return err
+	}
+	return nil
 }
 
 func optionalString(value *string) string {

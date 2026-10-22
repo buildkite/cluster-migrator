@@ -89,18 +89,31 @@ type PipelineProgressItem struct {
 }
 
 type MigrationAssessment struct {
-	Operation      string               `json:"operation"`
-	MigrationID    *string              `json:"migration_id"`
-	OrganizationID string               `json:"organization_id"`
-	Phase          *string              `json:"phase"`
-	PhaseVersion   *string              `json:"phase_version"`
-	Transition     *MigrationTransition `json:"transition"`
-	Ready          bool                 `json:"ready"`
-	Status         string               `json:"status"`
-	Blockers       []MigrationBlocker   `json:"blockers"`
-	ObservedAt     string               `json:"observed_at"`
-	ExpiresAt      *string              `json:"expires_at"`
-	Cached         bool                 `json:"cached"`
+	Operation           string                        `json:"operation"`
+	MigrationID         *string                       `json:"migration_id"`
+	OrganizationID      string                        `json:"organization_id"`
+	Phase               *string                       `json:"phase"`
+	PhaseVersion        *string                       `json:"phase_version"`
+	Transition          *MigrationTransition          `json:"transition"`
+	Ready               bool                          `json:"ready"`
+	Status              string                        `json:"status"`
+	Blockers            []MigrationBlocker            `json:"blockers"`
+	ObservedAt          string                        `json:"observed_at"`
+	ExpiresAt           *string                       `json:"expires_at"`
+	Cached              bool                          `json:"cached"`
+	FinalizationPreview *MigrationFinalizationPreview `json:"finalization_preview,omitempty"`
+}
+
+type MigrationFinalizationPreview struct {
+	Candidates []MigrationFinalizationCandidate `json:"candidates"`
+	HasMore    bool                             `json:"has_more"`
+}
+
+type MigrationFinalizationCandidate struct {
+	BuildID         string  `json:"build_id"`
+	PipelineID      string  `json:"pipeline_id"`
+	EffectiveResult *string `json:"effective_result"`
+	Outcome         string  `json:"outcome"`
 }
 
 type MigrationTransition struct {

@@ -143,6 +143,10 @@ cluster-migrator migration complete --finalize-blocked-builds
 cluster-migrator migration status
 ```
 
+Both the opt-in preview and completion request require the `write_builds` API scope and the separate blocked-build finalization permission, in addition to the migration permissions above.
+
+The preview separates each build's effective result from its server-proposed candidate outcome. `none` means no prior effective result; it does not mean the build has passed. Candidates are a bounded sample, not organization totals or authorization. `has_more` means inventory was omitted or remains unexamined, even if the sample is empty.
+
 Finalization acceptance is not completion. Running work must finish normally. Inspect status for remaining work and failures before retrying completion.
 
 ## Command reference
