@@ -366,7 +366,7 @@ func TestMigrationStatusTransitionAttribution(t *testing.T) {
 
 func TestMigrationStatusProgressIsSampledNotReadiness(t *testing.T) {
 	t.Setenv("BUILDKITE_API_TOKEN", "secret")
-	progress := `{"concurrency_groups":{"authorization":{"event_id":"commit-id","authorized_at":"2026-10-22T01:00:00.000Z","actor_id":"actor-id"},"observation":{"status":"stale","observed_at":"2026-10-22T01:05:00.000Z","expires_at":"2026-10-22T01:06:00.000Z","cached":true},"sample":{"limit":50,"scanned":3,"has_more":true,"counts":{"remaining":2,"draining":1,"reconciling":1,"held":2,"completed":1,"blocked":0}},"items":[{"scope":"custom","key":"deploy","state":"forward_draining","held":true,"blockers":[]}]},"pipelines":{"authorization":null,"observation":{"status":"unavailable","observed_at":null,"expires_at":null,"cached":false},"sample":null,"items":[]}}`
+	progress := `{"concurrency_groups":{"authorization":{"event_id":"commit-id","authorized_at":"2026-10-22T01:00:00.000Z","actor_id":"actor-id"},"observation":{"status":"stale","observed_at":"2026-10-22T01:05:00.000Z","expires_at":"2026-10-22T01:06:00.000Z","cached":true},"sample":{"limit":50,"scanned":3,"has_more":true,"counts":{"remaining":2,"draining":1,"reconciling":1,"held":2,"completed":1,"blocked":0}},"items":[{"scope":"custom","key":"deploy","state":"forward_draining","held":true,"blockers":[]}]},"pipelines":{"authorization":null,"observation":{"status":"unavailable","observed_at":"2026-10-22T02:05:00.000Z","expires_at":null,"cached":false},"sample":null,"items":[]}}`
 	response := strings.TrimSuffix(migrationFixture, "}") + `,"progress":` + progress + `}`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != migrationPath {
@@ -388,13 +388,13 @@ func TestMigrationStatusProgressIsSampledNotReadiness(t *testing.T) {
 			assertMigrationJSON(t, stdout.Bytes(), response)
 			continue
 		}
-		for _, want := range []string{"Observation: stale", "Cached: true", "commit-id", "actor-id", "NOT ORGANIZATION TOTALS", "Scanned: 3", "More inventory: true", "Held overlaps draining and reconciling", "Sample unavailable", "Authorization: not recorded"} {
+		for _, want := range []string{"Observation: stale", "Cached: true", "commit-id", "actor-id", "NOT ORGANIZATION TOTALS", "Scanned: 3", "More inventory: true", "Held overlaps draining and reconciling", "Sample unavailable", "Authorization: unavailable", "Observation: unavailable\nObserved at: 2026-10-22T02:05:00.000Z"} {
 			if !strings.Contains(stdout.String(), want) {
 				t.Errorf("stdout lacks %q:\n%s", want, &stdout)
 			}
 		}
-		if strings.Contains(stdout.String(), "No known blockers") || strings.Contains(stdout.String(), "Total:") {
-			t.Fatalf("sample implies readiness or totals:\n%s", &stdout)
+		if strings.Contains(stdout.String(), "No known blockers") || strings.Contains(stdout.String(), "Total:") || strings.Contains(stdout.String(), "Authorization: not recorded") {
+			t.Fatalf("sample implies readiness, totals, or absence of authorization:\n%s", &stdout)
 		}
 	}
 }

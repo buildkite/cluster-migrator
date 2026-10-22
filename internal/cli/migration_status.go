@@ -76,6 +76,7 @@ func printMigrationProgressSummary(app *Context, heading string, summary buildki
 	if _, err := fmt.Fprintf(app.Output, "\n%s\n\n", heading); err != nil {
 		return err
 	}
+	observation := summary.Observation
 	if authorization := summary.Authorization; authorization != nil {
 		actor := "system"
 		if authorization.ActorID != nil {
@@ -84,10 +85,13 @@ func printMigrationProgressSummary(app *Context, heading string, summary buildki
 		if _, err := fmt.Fprintf(app.Output, "Authorization event: %s\nAuthorized at: %s\nActor: %s\n", authorization.EventID, authorization.AuthorizedAt, actor); err != nil {
 			return err
 		}
+	} else if observation == nil || observation.Status == "unavailable" {
+		if _, err := fmt.Fprint(app.Output, "Authorization: unavailable\n"); err != nil {
+			return err
+		}
 	} else if _, err := fmt.Fprint(app.Output, "Authorization: not recorded\n"); err != nil {
 		return err
 	}
-	observation := summary.Observation
 	if observation != nil {
 		if _, err := fmt.Fprintf(app.Output, "Observation: %s\nObserved at: %s\nExpires at: %s\nCached: %t\n", observation.Status, optionalString(observation.ObservedAt), optionalString(observation.ExpiresAt), observation.Cached); err != nil {
 			return err
