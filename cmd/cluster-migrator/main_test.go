@@ -101,6 +101,66 @@ func TestRemovedResourceCommandsProcess(t *testing.T) {
 	}
 }
 
+func TestQueueConfigurationProcess(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		phase     string
+		dryRun    bool
+		noQueue   bool
+		wantPosts int
+		wantError string
+	}{
+		{name: "fixed destination", phase: "prepare_queues", wantPosts: 1},
+		{name: "preview", phase: "prepare_queues", dryRun: true},
+		{name: "validation blocks edits", phase: "validate_queues", dryRun: true, wantError: "explicitly return with cluster-migrator migration prepare-queues"},
+		{name: "missing queue is not created", phase: "prepare_queues", noQueue: true, wantError: `has no queue with key "test"`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("XDG_CACHE_HOME", t.TempDir())
+			posts := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations":
+					_, _ = fmt.Fprint(w, `[{"slug":"acme"}]`)
+				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered-migration":
+					_, _ = fmt.Fprintf(w, `{"destination_cluster_id":"cluster-id","phase":%q}`, test.phase)
+				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/clusters":
+					_, _ = fmt.Fprint(w, `[{"id":"other-id","name":"other"},{"id":"cluster-id","name":"production"}]`)
+				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/clusters/cluster-id/queues":
+					if test.noQueue {
+						_, _ = fmt.Fprint(w, `[]`)
+					} else {
+						_, _ = fmt.Fprint(w, `[{"id":"queue-id","key":"test"}]`)
+					}
+				case r.Method == http.MethodPost && r.URL.Path == "/v2/organizations/acme/cluster-queue-migrations":
+					posts++
+					var body map[string]any
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body) != 2 || body["cluster_id"] != "cluster-id" || body["queue_key"] != "test" {
+						t.Errorf("body=%v error=%v", body, err)
+					}
+					_, _ = fmt.Fprint(w, `{"queue_key":"test","destination":{"cluster_id":"cluster-id","queue_id":"queue-id","queue_key":"test"},"routed_percent":0}`)
+				default:
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL)
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			args := []string{"--endpoint", server.URL, "queue", "configure", "test"}
+			if test.dryRun {
+				args = append(args, "--dry-run")
+			}
+			stdout, stderr, exit := runCLI(t, args...)
+			if posts != test.wantPosts || test.wantError == "" && (exit != 0 || stderr != "" || !strings.Contains(stdout, "Destination: production")) || test.wantError != "" && (exit != 1 || !strings.Contains(stderr, test.wantError)) {
+				t.Fatalf("posts=%d exit=%d stdout=%q stderr=%q", posts, exit, stdout, stderr)
+			}
+			if test.dryRun && !strings.Contains(stdout, "QUEUE CONFIGURE (DRY RUN)") {
+				t.Fatalf("stdout=%q", stdout)
+			}
+			t.Logf("exit=%d\nstdout:\n%sstderr:\n%s", exit, stdout, stderr)
+		})
+	}
+}
+
 func TestParseErrorsPrintContextualUsage(t *testing.T) {
 	tests := []struct {
 		name      string

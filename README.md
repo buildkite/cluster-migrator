@@ -17,6 +17,8 @@ The server stores the destination and controls five phases:
 
 Bulk migration commands are the supported cutover workflow. Operators do not need to enumerate concurrency groups or pipelines. Queue status, queue metrics, and concurrency-group status remain diagnostic tools.
 
+Earlier `concurrency-group cutover`, `pipeline readiness`, and `pipeline move` commands are removed without aliases. There is no `pipeline cutover` command. `queue configure` no longer accepts `--destination-cluster`; configure the organization destination once with `migration configure`.
+
 Routing changes affect new jobs only. Existing jobs stay on the queue selected when they were created. After commitment, recovery is forward-only: do not add mappings, change percentages, or create queues as an automatic recovery step.
 
 ## Prerequisites
