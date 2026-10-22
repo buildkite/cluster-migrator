@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"text/tabwriter"
+	"time"
 
 	"github.com/buildkite/cluster-migrator/internal/buildkite"
 )
@@ -79,7 +80,11 @@ func concurrencyGroupHeldSince(group *buildkite.ConcurrencyGroup) string {
 	if group.HeldAt == nil || *group.HeldAt == "" {
 		return "—"
 	}
-	return pipelineObservationTimestamp(*group.HeldAt)
+	timestamp, err := time.Parse(time.RFC3339Nano, *group.HeldAt)
+	if err != nil {
+		return *group.HeldAt
+	}
+	return timestamp.UTC().Format("2006-01-02 15:04:05 UTC")
 }
 
 // concurrencyGroupState explains transitional states; stable states speak for themselves.
@@ -152,7 +157,7 @@ func (app *Context) printConcurrencyGroupState(group *buildkite.ConcurrencyGroup
 
 func concurrencyGroupStatusNextSteps(group *buildkite.ConcurrencyGroup) []string {
 	if group.State == buildkite.ConcurrencyGroupClustered {
-		return []string{fmt.Sprintf("Assess each pipeline using this concurrency group:\n\n   cluster-migrator pipeline readiness <pipeline> --destination-cluster %s", group.DestinationClusterID)}
+		return []string{"Review organization-wide progress and pipeline blockers before authorizing bulk pipeline cutover:\n\n   cluster-migrator migration status"}
 	}
 	return nil
 }

@@ -16,6 +16,9 @@ func setQueuePercent(app *Context, queue string, percent int) error {
 		return fmt.Errorf("--to must be between 0 and 100")
 	}
 
+	if _, err := requireQueuePreparation(app, "SET-PERCENT", queue); err != nil {
+		return err
+	}
 	current, err := app.Client.GetQueueMigration(app.Context, queue)
 	if err != nil {
 		return fmt.Errorf("get queue migration: %w", err)
@@ -36,7 +39,7 @@ func setQueuePercent(app *Context, queue string, percent int) error {
 		DryRun: app.DryRun,
 	}
 	if !app.DryRun {
-		change.Next = queueRoutingNextSteps(queue, cluster.ID, percent)
+		change.Next = queueRoutingNextSteps(queue, percent)
 	}
 	if current.RoutedPercent == percent || app.DryRun {
 		return app.Print(change)
@@ -48,12 +51,12 @@ func setQueuePercent(app *Context, queue string, percent int) error {
 	return app.Print(change)
 }
 
-func queueRoutingNextSteps(queue, destinationClusterID string, percent int) string {
+func queueRoutingNextSteps(queue string, percent int) string {
 	switch percent {
 	case 0:
 		return fmt.Sprintf("1. Scale the destination infrastructure.\n\n2. Once ready, begin routing:\n\n   cluster-migrator queue set-percent %s --to <percentage>", queue)
 	case 100:
-		return fmt.Sprintf("1. Assess each pipeline using this queue:\n\n   cluster-migrator pipeline readiness <pipeline> --destination-cluster %s\n\n2. If no known blockers remain, move the pipeline:\n\n   cluster-migrator pipeline move <pipeline> --destination-cluster %s", destinationClusterID, destinationClusterID)
+		return "1. Routing remains reversible during preparation. Review organization-wide blockers before validation and bulk commitment:\n\n   cluster-migrator migration status"
 	default:
 		return fmt.Sprintf("1. Review destination activity:\n\n   cluster-migrator queue metrics %s\n\n2. When ready, increase routing:\n\n   cluster-migrator queue set-percent %s --to <percentage>", queue, queue)
 	}

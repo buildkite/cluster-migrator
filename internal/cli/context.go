@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -21,15 +20,6 @@ type Context struct {
 	DryRun      bool
 	Now         func() time.Time
 	Wait        func(context.Context, time.Duration) error
-}
-
-type Change struct {
-	Action             string `json:"action"`
-	Resource           string `json:"resource"`
-	DestinationCluster string `json:"destination_cluster,omitempty"`
-	FromPercent        *int   `json:"from_percent,omitempty"`
-	ToPercent          *int   `json:"to_percent,omitempty"`
-	DryRun             bool   `json:"dry_run"`
 }
 
 type QueueDestination struct {
@@ -54,16 +44,8 @@ type QueueStatus struct {
 	Next           string           `json:"-"`
 }
 
-type PipelineMoveResult struct {
-	Pipeline    *buildkite.Pipeline
-	Destination string
-}
-
 func (c *Context) Print(value any) error {
 	if c.JSON {
-		if result, ok := value.(PipelineMoveResult); ok {
-			value = result.Pipeline
-		}
 		encoder := json.NewEncoder(c.Output)
 		encoder.SetIndent("", "  ")
 		return encoder.Encode(value)
@@ -125,21 +107,6 @@ func (c *Context) Print(value any) error {
 		return c.printQueueStatuses(value)
 	case *buildkite.QueueMetrics:
 		return c.printQueueMetrics(value)
-	case *buildkite.PipelineReadiness:
-		return c.printPipelineReadiness(value)
-	case PipelineMoveResult:
-		pipeline := value.Pipeline.Name
-		if pipeline == "" {
-			pipeline = value.Pipeline.Slug
-		} else {
-			pipeline = fmt.Sprintf("%s (%s)", pipeline, value.Pipeline.Slug)
-		}
-		_, err := fmt.Fprintf(c.Output, "PIPELINE MOVE\nPipeline: %s\nDestination: %s\n\nRESULT\n\nPipeline moved to the %s cluster.\n", pipeline, value.Destination, value.Destination)
-		return err
-	case Change:
-		pipeline := strings.TrimPrefix(value.Resource, "pipeline ")
-		_, err := fmt.Fprintf(c.Output, "PIPELINE MOVE (DRY RUN)\nPipeline: %s\nDestination: %s\n\nREADINESS\n\nNo known blockers. This is not proof of readiness.\n\nPROPOSED CHANGE\n\nThe pipeline would move to the %s cluster.\n", pipeline, value.DestinationCluster, value.DestinationCluster)
-		return err
 	default:
 		encoder := json.NewEncoder(c.Output)
 		encoder.SetIndent("", "  ")

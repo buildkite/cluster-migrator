@@ -35,7 +35,6 @@ type rootCommand struct {
 
 	Queue            QueueCmd            `cmd:"" help:"Configure and inspect queue migrations."`
 	ConcurrencyGroup ConcurrencyGroupCmd `cmd:"" help:"Inspect concurrency-group migrations."`
-	Pipeline         PipelineCmd         `cmd:"" help:"Check and move pipelines."`
 	Migration        MigrationCmd        `cmd:"" help:"Configure and operate the organization's bulk migration."`
 }
 
