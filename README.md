@@ -1,47 +1,37 @@
 # Cluster Migrator
 
-`cluster-migrator` moves Buildkite workloads from unclustered queues to a cluster without an all-at-once cutover. It gradually routes new jobs to cluster queues, compares source and destination activity, cuts over concurrency groups, checks known pipeline blockers, and permanently assigns pipelines to the destination cluster.
+`cluster-migrator` moves an organization's unclustered workloads to one fixed destination cluster. It gradually routes queue traffic, validates mappings, commits bulk concurrency-group cutover, authorizes bulk pipeline cutover, and explicitly completes the migration.
 
 > [!IMPORTANT]
-> The queue migration APIs require a Buildkite feature flag. The concurrency-group cutover and pipeline migration contracts remain provisional. Do not use this tool for a production migration until Buildkite has enabled the APIs and confirmed the operational safety gates for your organization.
+> The organization migration APIs are under development and are not deployed. Enrollment is intentionally disabled on the server. Do not use this CLI for a production migration until Buildkite confirms the APIs and safety prerequisites are available. Local client tests use fixtures; they do not establish server readiness.
 
 ## How it works
 
-A migration has three stages. Finish each stage for the whole organization before starting the next:
+The server stores the destination and controls five phases:
 
-1. **Route queues.** Map every unclustered source queue to an existing queue with the same key in the destination cluster, then increase the percentage of new jobs sent there from 0% to 100%. All queues migrate to one destination cluster. Once a queue reaches 100%, its routing can't change.
-2. **Cut over concurrency groups.** Once every queue is fully routed, cut over each concurrency group that has been used on unclustered queues: hold the group, let its running jobs finish, and move its waiting jobs to the cluster.
-3. **Move pipelines.** Assess each pipeline's queue and concurrency-group blockers, then permanently assign it to the cluster. Repeat for every pipeline.
+1. **`prepare_queues`:** map source queues to existing destination queues and increase routing gradually. Routing remains reversible, including after reaching 100%.
+2. **`validate_queues`:** exercise normal workloads with queue validation enabled. Return explicitly to preparation before repairing mappings or percentages. Validation does not authorize cutover.
+3. **`cutover_concurrency_groups`:** explicitly acknowledge irreversible commitment. This freezes mappings and percentages and prevents returning to preparation. The server discovers, holds, drains, and cuts over concurrency groups in bulk.
+4. **`migrate_pipelines`:** the server enters this phase automatically after concurrency-group cutover genuinely finishes. Entering it does not authorize pipeline movement. The operator separately authorizes bulk pipeline cutover.
+5. **`complete`:** explicitly request completion after the server's authoritative checks pass. Finishing pipeline movement alone does not complete the migration.
 
-Routing changes affect new jobs only. Jobs already created remain on the queue selected when they were created.
+Bulk migration commands are the supported cutover workflow. Operators do not need to enumerate concurrency groups or pipelines. Queue status, queue metrics, and concurrency-group status remain diagnostic tools.
 
-A concurrency group first used after every queue it uses reaches 100% starts in the cluster, so it doesn't need a cutover. Do not move a pipeline until every concurrency group it uses is in the cluster. Pipeline readiness reports any that aren't as blockers.
-
-Concurrency groups are identified as `<scope>/<key>`: `custom/<key>` for a `concurrency_group` set in pipeline YAML, or `step/<id>` for a group Buildkite created for a step. Equal keys in different scopes are different groups. Keys may contain slashes, such as `custom/deploy/production`.
+Routing changes affect new jobs only. Existing jobs stay on the queue selected when they were created. After commitment, recovery is forward-only: do not add mappings, change percentages, or create queues as an automatic recovery step.
 
 ## Prerequisites
 
-Before starting:
+- Ask Buildkite to confirm migration enrollment and the required APIs are available.
+- Enable Advanced Queue Metrics to compare source and destination activity.
+- Create the destination cluster and its queues. Each destination queue must have the same exact, case-sensitive key as its source queue. The CLI never creates queues.
+- Prepare enough destination agent capacity for the traffic you will route.
+- Create an API token that can access exactly one organization. The workflow needs `read_organizations`, `read_clusters`, and `write_clusters`; pipeline API access may also require `read_pipelines` and `write_pipelines`. The user needs permission to change the organization and manage the destination cluster. Server permissions remain authoritative.
 
-- Ask Buildkite to enable the queue migration APIs for the organization.
-- Enable Advanced Queue Metrics for the organization so `queue metrics` can monitor source and destination activity.
-- Create the destination cluster and its queues. Each destination queue must have the same exact, case-sensitive key as its source queue.
-- Prepare enough agent capacity in the destination cluster for the traffic you will route.
-- Create an API token that can access exactly one Buildkite organization with these scopes:
+```shell
+export BUILDKITE_API_TOKEN=<token>
+```
 
-  - `read_organizations`
-  - `read_clusters`
-  - `write_clusters`
-  - `read_pipelines`
-  - `write_pipelines`
-
-  Export the token:
-
-  ```shell
-  export BUILDKITE_API_TOKEN=<token>
-  ```
-
-The CLI discovers the organization from the token and caches the slug locally. It refreshes a stale cache entry automatically.
+The CLI discovers the organization from the token and caches its slug. It refreshes stale organization-cache entries automatically. It does not select or cache a migration locally. No command takes a migration UUID.
 
 ## Install
 
@@ -53,151 +43,124 @@ mise use --global github:buildkite/cluster-migrator
 
 Alternatively, download a binary from [GitHub Releases](https://github.com/buildkite/cluster-migrator/releases). Releases support macOS and Linux on x86-64 and ARM64.
 
-## Migrate a workload
+## Migrate an organization
 
-The examples below migrate the `test` queue and the `monorepo` pipeline to the `production` cluster. Use a cluster name or ID and a pipeline slug, exact name, or ID.
+### 1. Configure the fixed destination
 
-### 1. Inspect current migrations
+Use a cluster name or ID. Previewing configuration checks the server's authorization, destination, and enrollment boundary without creating a migration:
 
 ```shell
-cluster-migrator queue status
+cluster-migrator migration configure --destination-cluster production --dry-run
+cluster-migrator migration configure --destination-cluster production
+cluster-migrator migration status
 ```
 
-Pass a queue key to inspect one migration:
+The destination cannot be changed after configuration. A same-destination retry preserves the existing migration and phase. Enrollment currently returns an unavailable error even for otherwise valid configuration requests.
+
+### 2. Prepare queue mappings and routing
+
+While the phase is `prepare_queues`, map each source queue to its existing destination queue and ramp routing:
 
 ```shell
-cluster-migrator queue status test
-```
-
-### 2. Configure the queue at 0%
-
-Preview the change, then create the mapping:
-
-```shell
-cluster-migrator --dry-run queue configure test \
-  --destination-cluster production
-
-cluster-migrator queue configure test \
-  --destination-cluster production
-```
-
-Configuration does not route traffic. Scale the destination agents before raising the percentage.
-
-Every queue in an organization must migrate to the same cluster. Buildkite rejects configuring a queue for a different cluster from the organization's other queue migrations.
-
-### 3. Increase routing gradually
-
-Percentages are absolute, not relative increments:
-
-```shell
+cluster-migrator queue configure test
 cluster-migrator queue set-percent test --to 10
 cluster-migrator queue metrics test
-
 cluster-migrator queue set-percent test --to 30
 cluster-migrator queue metrics test
-
 cluster-migrator queue set-percent test --to 100
 ```
 
-Setting 100% is final. Once a queue reaches 100%, Buildkite rejects any change to its routing, because concurrency groups can start in the cluster from then on.
+Percentages are absolute. Before increasing routing, check connected agents, waiting jobs, p95 wait time, and your normal dispatch and stranded-job observability. Metrics provide context, not proof that an increase is safe. Infrequent queues need representative workloads before you continue.
 
-Before each increase, confirm the destination has enough connected agents, waiting jobs remain controlled, and p95 wait time is acceptable. `queue metrics` compares the latest source activity with the latest and peak destination activity over the reported observation window. It provides context, not proof that a queue is safe to increase; also check your normal dispatch, queue-latency, and stranded-job observability.
-
-Routing changes take effect when jobs are created, so observed traffic may take time to reflect the new percentage. For an infrequently used queue, trigger a representative build before continuing. Once the destination is healthy, safely reduce the corresponding source-agent capacity before provisioning and routing the next increment.
-
-To stop sending new jobs to the cluster queue before it reaches 100%:
+Before commitment, returning to preparation permits reducing routing even from 100%:
 
 ```shell
 cluster-migrator queue set-percent test --to 0
 ```
 
-This does not move existing jobs or remove the queue mapping. Once a queue reaches 100%, Buildkite rejects any change to its routing.
+This does not move existing jobs or remove the mapping. Reaching 100% does not authorize cutover or transfer new-group concurrency authority.
 
-### 4. Cut over concurrency groups
-
-Start once every queue is routed 100%. Cut over every concurrency group that has been used on unclustered queues before moving any pipeline. Ask Buildkite for the list of these groups. Pipeline readiness also reports any group a pipeline still needs.
-
-Request a cutover for one group:
+### 3. Validate and repair
 
 ```shell
-cluster-migrator concurrency-group cutover custom/deploy \
-  --destination-cluster production
+cluster-migrator migration validate-queues --dry-run
+cluster-migrator migration validate-queues
+cluster-migrator migration status
 ```
 
-To request cutovers for a list of groups in `groups.txt`, one per line:
+Exercise static and dynamically generated pipeline steps. Validation rejects unmapped source queues. It does not require every mapping to be at 100%.
+
+If you need to repair mappings or percentages, explicitly reopen preparation first:
 
 ```shell
-while IFS= read -r group; do
-  cluster-migrator concurrency-group cutover "$group" \
-    --destination-cluster production </dev/null
-done < groups.txt
+cluster-migrator migration prepare-queues
+cluster-migrator queue configure release
+cluster-migrator migration validate-queues
 ```
 
-Each cutover runs on the server, so the loop doesn't wait for them to finish. Rerun the command for any group that was rejected once its blockers are resolved.
-
-Buildkite checks the cutover before starting it, and rejects it without changes when:
-
-- The group already has a migration that is in progress, finished, or targets another cluster.
-- Any queue the group used in the last 10 minutes, or still has unfinished jobs on, is not routed 100% to the destination.
-- Ungrouped jobs were created on those unclustered queues in the last 10 minutes. Older ungrouped jobs still running there don't block the cutover, but pipeline readiness blocks their pipelines until they finish. Jobs in other concurrency groups don't block, because they only leave the queue when their own group cuts over.
-
-A rejected cutover prints its blockers and next steps and exits non-zero. Once they're resolved, run the same command again.
-
-An accepted cutover holds the group, waits for its running unclustered jobs to finish, and then moves its waiting jobs to the cluster. The command returns once the cutover starts; the rest runs on the server. Check progress at any time:
+### 4. Commit bulk concurrency-group cutover
 
 ```shell
-cluster-migrator concurrency-group status custom/deploy
+cluster-migrator migration cutover-concurrency-groups --dry-run
+cluster-migrator migration cutover-concurrency-groups --acknowledge-irreversible
+cluster-migrator migration status
 ```
 
-Concurrency-group migrations only move forward. Once a group routes to the cluster, it cannot return to unclustered queues. A forward migration cancelled before routing switches remains unclustered and can cut over again to the same destination.
+The acknowledgement reaches the server. Commitment freezes configuration and is irreversible. The server checks current readiness before accepting the operation; a cached preview cannot authorize it.
 
-### 5. Assess each pipeline
+An accepted response means background work was authorized, not that cutover finished. Completion of all required concurrency-group work automatically advances the phase to `migrate_pipelines`, but does not authorize pipeline movement.
 
-After all queues used by a pipeline reach 100%, check its known blockers:
+For diagnosis, groups use `<scope>/<key>`: `custom/<key>` for YAML concurrency groups and `step/<id>` for groups created for a step. Equal keys in different scopes are distinct; keys may contain slashes.
 
 ```shell
-cluster-migrator pipeline readiness monorepo \
-  --destination-cluster production
+cluster-migrator concurrency-group status
+cluster-migrator concurrency-group status custom/deploy/production
 ```
 
-The assessment reports queue blockers, active source jobs, concurrency-group blockers, observation windows, and when the observations can refresh. A `no_known_blockers` result is not proof of readiness: incomplete observation windows may omit dependencies.
-
-A blocked assessment prints corrective next steps and exits non-zero.
-
-After a pipeline moves, step uploads that target a queue missing from the destination cluster will fail. Check static and dynamically generated pipeline steps for queue keys that may not appear in the readiness observation window.
-
-### 6. Move the pipeline
-
-Previewing a move runs the readiness assessment without changing the pipeline:
+### 5. Authorize bulk pipeline cutover
 
 ```shell
-cluster-migrator --dry-run pipeline move monorepo \
-  --destination-cluster production
+cluster-migrator migration status
+cluster-migrator migration cutover-pipelines --dry-run
+cluster-migrator migration cutover-pipelines
+cluster-migrator migration status
 ```
 
-Move the pipeline only after reviewing the assessment and your operational signals:
+Review per-pipeline blockers in migration status. The server preserves readiness checks and rechecks authoritative invariants before moving pipelines. Movement does not complete the migration.
+
+### 6. Complete explicitly
 
 ```shell
-cluster-migrator pipeline move monorepo \
-  --destination-cluster production
+cluster-migrator migration complete --dry-run
+cluster-migrator migration complete
 ```
 
-The CLI has no pipeline rollback command. The server revalidates authoritative migration invariants when applying a move; an earlier `no_known_blockers` result is not authorization by itself.
+Blocked-build finalization is a separate opt-in. Preview its candidates and blockers before authorizing it:
 
-Route every source queue to 100% first, then cut over every concurrency group, then assess and move each pipeline.
+```shell
+cluster-migrator migration complete --finalize-blocked-builds --dry-run
+cluster-migrator migration complete --finalize-blocked-builds
+cluster-migrator migration status
+```
+
+Finalization acceptance is not completion. Running work must finish normally. Inspect status for remaining work and failures before retrying completion.
 
 ## Command reference
 
 | Command | Purpose |
 | --- | --- |
-| `queue configure <queue> --destination-cluster <cluster>` | Map a source queue to an existing destination queue at 0%. |
-| `queue status [queue]` | Show one queue migration or list all migrations. |
-| `queue set-percent <queue> --to <0-100>` | Set the absolute percentage of new jobs routed to the cluster queue. |
+| `migration configure --destination-cluster <cluster>` | Store the organization's fixed destination. |
+| `migration status` | Show the phase, destination, available progress, and per-resource blockers. |
+| `migration prepare-queues` | Explicitly return from validation to preparation. |
+| `migration validate-queues` | Validate mappings before commitment. |
+| `migration cutover-concurrency-groups --acknowledge-irreversible` | Commit irreversibly and authorize bulk group cutover. The acknowledgement is not needed for a dry run. |
+| `migration cutover-pipelines` | Authorize bulk pipeline cutover separately from phase entry. |
+| `migration complete [--finalize-blocked-builds]` | Request completion, optionally authorizing bounded blocked-build finalization. |
+| `queue configure <queue>` | Map a source queue to an existing queue in the fixed destination at 0%, during preparation. |
+| `queue status [queue]` | Show one queue migration or list all queue migrations. |
+| `queue set-percent <queue> --to <0-100>` | Set absolute routing during preparation. |
 | `queue metrics <queue>` | Compare recent source and destination activity. |
-| `concurrency-group cutover <scope>/<key> --destination-cluster <cluster>` | Start holding, draining, and moving a concurrency group into the cluster, or report why it can't start. `--dry-run` checks only the group's migration state. |
-| `concurrency-group status [<scope>/<key>]` | Show one concurrency-group migration's state and unclustered jobs, or list every migration. A group whose cutover hasn't started has no migration. |
-| `pipeline readiness <pipeline> --destination-cluster <cluster>` | Assess known queue and concurrency-group blockers. |
-| `pipeline move <pipeline> --destination-cluster <cluster>` | Permanently assign a pipeline to the cluster. |
+| `concurrency-group status [<scope>/<key>]` | Inspect one or all concurrency-group migrations. |
 
 Run `cluster-migrator <command> --help` for full usage.
 
@@ -205,34 +168,33 @@ Run `cluster-migrator <command> --help` for full usage.
 
 | Flag | Purpose |
 | --- | --- |
-| `--dry-run` | Validate and display a mutation without applying it. |
+| `--dry-run` | Use read-only observations to preview a mutation. Never authorize, schedule, or apply work. |
 | `--json` | Write machine-readable JSON instead of terminal output. |
-| `--timeout <duration>` | Set the maximum command duration; defaults to `10m`. |
-| `--endpoint <url>` | Override the Buildkite REST API endpoint. Also available as `BUILDKITE_API_ENDPOINT`. |
-| `--api-token <token>` | Supply the API token. Prefer `BUILDKITE_API_TOKEN` to keep it out of shell history and process listings. |
-
-All mutations are non-interactive. The CLI reads fresh server state before applying routing changes.
+| `--timeout <duration>` | Maximum client command duration; defaults to `10m`. Does not cancel server-side work. |
+| `--endpoint <url>` | Override the REST API endpoint; also `BUILDKITE_API_ENDPOINT`. |
+| `--api-token <token>` | Supply a token; prefer `BUILDKITE_API_TOKEN` to avoid shell history and process listings. |
 
 ## Output and automation
 
-Human-readable output includes current state, results, observation freshness, and suggested next steps. Missing metric values appear as `—`, not zero.
-
-Use `--json` in scripts:
-
 ```shell
-cluster-migrator --json queue status
+cluster-migrator --json migration status
+cluster-migrator --json migration cutover-concurrency-groups --dry-run
 cluster-migrator --json queue metrics test
-cluster-migrator --json pipeline readiness monorepo \
-  --destination-cluster production
 ```
 
-JSON preserves the API's `null` metric and observation values. Terminal-only guidance is omitted.
+JSON stdout contains only the command's JSON response. Human guidance and progress are never mixed into it. Rejected operations and blocked, stale, or unavailable previews exit non-zero. Successful lifecycle results distinguish `accepted`, `completed`, and `no_op`. Configuration returns the stored migration directly.
 
-Queue metrics and pipeline readiness may initially be unavailable while Buildkite prepares an observation. The CLI follows the server's retry interval for up to one minute, writes prolonged-wait progress to stderr, and keeps stdout clean for the final human-readable or JSON result.
+Status distinguishes the configuration creator from the latest phase-transition actor, source, and time. Transition attribution comes from the recorded event; it is not inferred from configuration. Background authorization events do not change the phase version.
+
+Status progress is a bounded sample, not an organization total. `has_more` means inventory was omitted, not that migration finished. Held group counts overlap draining and reconciling. A completed pipeline is currently in the fixed destination; this does not claim the CLI moved it. Fresh/stale describes observations only, not readiness or authorization. Unavailable observations do not imply zero work or no blockers.
+
+Previews report observation timestamps, expiry, and cache status. They never authorize transitions. Mutations submit the current phase version; the server rejects stale versions and reruns fresh checks. The CLI does not retry authorization automatically. If a mutation times out, inspect `migration status` before retrying: server-side work may still be running.
+
+Queue metrics may initially be unavailable while an observation is prepared. The CLI follows the retry interval for up to one minute, writes prolonged-wait progress to stderr, and keeps stdout clean for the final result. Missing metric values appear as `—`, not zero.
 
 ## Development
 
-Install the pinned tools, build the binary, and run the development checks with [mise](https://mise.jdx.dev/):
+Install the pinned tools, build the binary, and run the checks with [mise](https://mise.jdx.dev/):
 
 ```shell
 mise install
@@ -244,7 +206,7 @@ mise run vet
 mise run vulnerability
 ```
 
-The build task creates `./cluster-migrator`. Run `mise run release-check` when changing the release configuration. The pre-commit hook runs formatting, linting, tests, and `go vet` in parallel.
+The build task creates `./cluster-migrator`. Run `mise run release-check` when changing release configuration. The pre-commit hook runs formatting, linting, tests, `go vet`, and release checks.
 
 ## License
 
