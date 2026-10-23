@@ -340,6 +340,7 @@ func TestMigrationConfigurationAndStatus(t *testing.T) {
 						if err := json.NewDecoder(r.Body).Decode(&body); err != nil || !reflect.DeepEqual(body, map[string]any{"destination_cluster_id": "cluster-id"}) {
 							t.Errorf("body=%#v error=%v", body, err)
 						}
+						w.WriteHeader(http.StatusCreated)
 					}
 					if r.Method != method || r.URL.Path != migrationPath {
 						t.Errorf("unexpected request: %s %s", r.Method, r.URL)

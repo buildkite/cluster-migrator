@@ -36,6 +36,7 @@ func TestOrganizationMigration(t *testing.T) {
 					if want := map[string]any{"destination_cluster_id": destination}; !reflect.DeepEqual(body, want) {
 						t.Errorf("body = %#v, want %#v", body, want)
 					}
+					w.WriteHeader(http.StatusCreated)
 				} else if r.Method != http.MethodGet {
 					t.Errorf("method = %s, want GET", r.Method)
 				}
