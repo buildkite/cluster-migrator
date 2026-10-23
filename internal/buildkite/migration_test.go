@@ -26,8 +26,8 @@ func TestOrganizationMigration(t *testing.T) {
 					t.Error("missing authorization")
 				}
 				if configure {
-					if r.Method != http.MethodPut {
-						t.Errorf("method = %s, want PUT", r.Method)
+					if r.Method != http.MethodPost {
+						t.Errorf("method = %s, want POST", r.Method)
 					}
 					var body map[string]any
 					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {

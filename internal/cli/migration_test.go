@@ -335,7 +335,7 @@ func TestMigrationConfigurationAndStatus(t *testing.T) {
 					}
 					method := http.MethodGet
 					if operation == "configure" {
-						method = http.MethodPut
+						method = http.MethodPost
 						var body map[string]any
 						if err := json.NewDecoder(r.Body).Decode(&body); err != nil || !reflect.DeepEqual(body, map[string]any{"destination_cluster_id": "cluster-id"}) {
 							t.Errorf("body=%#v error=%v", body, err)

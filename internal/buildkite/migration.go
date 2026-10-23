@@ -151,7 +151,7 @@ func (c *Client) ConfigureMigration(ctx context.Context, destinationClusterID st
 		DestinationClusterID string `json:"destination_cluster_id"`
 	}{DestinationClusterID: destinationClusterID}
 	var migration OrganizationMigration
-	if err := c.do(ctx, http.MethodPut, c.path("unclustered-to-clustered-migration"), request, &migration); err != nil {
+	if err := c.do(ctx, http.MethodPost, c.path("unclustered-to-clustered-migration"), request, &migration); err != nil {
 		return nil, err
 	}
 	return &migration, nil
