@@ -1,16 +1,48 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/buildkite/cluster-migrator/internal/buildkite"
 )
 
 type MigrationCmd struct {
+	Configure      MigrationConfigureCmd      `cmd:"" help:"Configure the organization's fixed migration destination."`
 	Status         MigrationStatusCmd         `cmd:"" help:"Show the organization's configured migration and phase."`
 	ValidateQueues MigrationValidateQueuesCmd `cmd:"" help:"Reject unmapped source queues and freeze queue configuration."`
 	PrepareQueues  MigrationPrepareQueuesCmd  `cmd:"" help:"Return from validation to editable queue preparation."`
+}
+
+type MigrationConfigureCmd struct {
+	DestinationCluster string `name:"destination-cluster" required:"" help:"Destination cluster name or ID."`
+}
+
+func (cmd *MigrationConfigureCmd) Run(app *Context) error {
+	if app.DryRun {
+		return fmt.Errorf("migration configure does not support --dry-run: the server has no read-only readiness endpoint; no migration was configured")
+	}
+	cluster, err := app.Client.ResolveCluster(app.Context, cmd.DestinationCluster)
+	if err != nil {
+		return fmt.Errorf("resolve destination cluster: %w", err)
+	}
+	migration, err := app.Client.ConfigureMigration(app.Context, cluster.ID)
+	if err != nil {
+		var apiError *buildkite.APIError
+		if errors.As(err, &apiError) && apiError.StatusCode == http.StatusConflict {
+			return fmt.Errorf("configure organization migration: %w; use cluster-migrator migration status to inspect it", err)
+		}
+		return fmt.Errorf("configure organization migration: %w", err)
+	}
+	if app.JSON {
+		return app.Print(migration)
+	}
+	if _, err := fmt.Fprintf(app.Output, "MIGRATION CONFIGURE\nMigration: %s\nDestination: %s\n\nRESULT\n\nMigration configured in queue preparation. No queue mappings or routing percentages were changed.\n", migration.ID, migration.DestinationClusterID); err != nil {
+		return err
+	}
+	return app.printNextSteps(migrationNextSteps(migration.Phase))
 }
 
 type MigrationStatusCmd struct{}

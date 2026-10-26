@@ -188,11 +188,38 @@ Route every source queue to 100% first, then cut over every concurrency group, t
 
 ## Command reference
 
-### Queue validation for enrolled organizations
+### Configure an organization migration
+
+When Buildkite makes organization enrollment available, configure the fixed
+destination before preparing and validating queue mappings:
+
+```shell
+cluster-migrator migration configure --destination-cluster production
+cluster-migrator migration status
+```
+
+The destination accepts a cluster name or ID, using the organization discovered
+from the API token. Configuration creates a migration in `prepare_queues`; it
+does not create clusters, queues, agents, or queue mappings, or change routing
+percentages. The destination cannot be changed by this command. An existing
+migration returns a conflict even for the same destination; inspect it with
+`migration status` rather than treating configuration as an idempotent update.
+
+Configuration requires `write_clusters`, permission to change the organization
+and manage the destination cluster, and server-side enrollment availability.
+Cluster resolution also requires `read_clusters`. Enrollment is currently closed
+on the server; this command does not enable it or bypass its rejection.
+
+There is no read-only configuration readiness endpoint, so `migration configure
+--dry-run` exits non-zero without a configuration request. `--json` returns the
+API migration object on success; rejected requests leave stdout empty and report
+the server error on stderr.
+
+### Queue validation for configured organizations
 
 The queue-validation APIs add an explicit, reversible preparation loop. They must
-be deployed and enabled before using these commands; organization enrollment
-remains managed by Buildkite.
+be deployed and enabled before using these commands. Configuration does not
+enable server-side enrollment protections or authorize later transitions.
 
 ```shell
 cluster-migrator migration status
@@ -237,6 +264,7 @@ next-step section. JSON output does not include this guidance.
 
 | Command | Purpose |
 | --- | --- |
+| `migration configure --destination-cluster <cluster>` | Create the organization's migration with a fixed destination in queue preparation, when server-side enrollment is available. |
 | `migration status` | Show the organization's configured migration and phase. |
 | `migration validate-queues` | Reject unmapped source queues and freeze queue configuration without changing concurrency authority. |
 | `migration prepare-queues` | Explicitly return from validation to editable preparation and reopen unmapped-source-queue admission. |
