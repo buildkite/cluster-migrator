@@ -33,7 +33,7 @@ func (cmd *QueueConfigureCmd) Run(app *Context) error {
 		return app.Print(change)
 	}
 
-	if _, err := app.Client.ConfigureQueueMigration(app.Context, cmd.Queue, cluster.ID); err != nil {
+	if _, err := app.Client.ConfigureQueueMigration(app.Context, cmd.Queue); err != nil {
 		return fmt.Errorf("configure queue migration: %w", err)
 	}
 	change.Next = queueRoutingNextSteps(cmd.Queue, 0)

@@ -47,13 +47,9 @@ type ConcurrencyGroupBlockingQueue struct {
 
 // StartConcurrencyGroupCutover asks the server to hold, drain, and move an unclustered group into the cluster.
 // The server checks readiness first; a blocked cutover returns *ConcurrencyGroupCutoverBlocked.
-func (c *Client) StartConcurrencyGroupCutover(ctx context.Context, scope, key, clusterID string) (*ConcurrencyGroup, error) {
-	request := struct {
-		DestinationClusterID string `json:"destination_cluster_id"`
-	}{DestinationClusterID: clusterID}
-
+func (c *Client) StartConcurrencyGroupCutover(ctx context.Context, scope, key string) (*ConcurrencyGroup, error) {
 	var group ConcurrencyGroup
-	err := c.do(ctx, http.MethodPost, c.concurrencyGroupPath(scope, key, "cutover"), request, &group)
+	err := c.do(ctx, http.MethodPost, c.concurrencyGroupPath(scope, key, "cutover"), nil, &group)
 	var apiError *APIError
 	if errors.As(err, &apiError) && apiError.StatusCode == http.StatusConflict {
 		var blocked ConcurrencyGroupCutoverBlocked

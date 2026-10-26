@@ -104,6 +104,8 @@ func TestConcurrencyGroupCutoverProcess(t *testing.T) {
 				switch {
 				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations":
 					_, _ = fmt.Fprint(w, `[{"slug":"acme"}]`)
+				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered-migration":
+					_, _ = fmt.Fprint(w, `{"destination_cluster_id":"cluster-id","phase":"cutover_concurrency_groups"}`)
 				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/clusters":
 					_, _ = fmt.Fprint(w, `[{"id":"cluster-id","name":"production"}]`)
 				case r.Method == http.MethodGet && r.URL.Path == groupPath:
@@ -125,7 +127,7 @@ func TestConcurrencyGroupCutoverProcess(t *testing.T) {
 			}))
 			defer server.Close()
 
-			args := append([]string{"--endpoint", server.URL, "concurrency-group", "cutover", "custom/deploy", "--destination-cluster", "production"}, test.args...)
+			args := append([]string{"--endpoint", server.URL, "concurrency-group", "cutover", "custom/deploy"}, test.args...)
 			stdout, stderr, exitCode := runCLI(t, args...)
 			wantExit, wantStderr := 0, ""
 			if test.wantError != "" {
@@ -155,7 +157,7 @@ func TestConcurrencyGroupRejectsUnscopedGroupsBeforeMigrationRequests(t *testing
 	}))
 	defer server.Close()
 
-	stdout, stderr, exitCode := runCLI(t, "--endpoint", server.URL, "concurrency-group", "cutover", "deploy", "--destination-cluster", "production")
+	stdout, stderr, exitCode := runCLI(t, "--endpoint", server.URL, "concurrency-group", "cutover", "deploy")
 	want := "cluster-migrator: concurrency group \"deploy\" must be <scope>/<key>, where scope is custom or step\n"
 	if exitCode != 1 || stdout != "" || stderr != want {
 		t.Fatalf("exit=%d stdout=%q stderr=%q; want exit=1, empty stdout, stderr=%q", exitCode, stdout, stderr, want)
@@ -234,6 +236,13 @@ func TestParseErrorsPrintContextualUsage(t *testing.T) {
 			args:      []string{"queue", "configure", "test", "--destination-cluster=production"},
 			errorText: "cluster-migrator: unknown flag --destination-cluster",
 			usage:     "Usage: cluster-migrator queue configure <queue>",
+			excludes:  "Destination cluster name or ID.",
+		},
+		{
+			name:      "removed concurrency group destination override",
+			args:      []string{"concurrency-group", "cutover", "custom/deploy", "--destination-cluster=production"},
+			errorText: "cluster-migrator: unknown flag --destination-cluster",
+			usage:     "Usage: cluster-migrator concurrency-group cutover <group>",
 			excludes:  "Destination cluster name or ID.",
 		},
 	}

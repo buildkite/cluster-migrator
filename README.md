@@ -119,16 +119,16 @@ These retained individual commands are provisional diagnostics and operations fo
 Request a cutover for one group:
 
 ```shell
-cluster-migrator concurrency-group cutover custom/deploy \
-  --destination-cluster production
+cluster-migrator concurrency-group cutover custom/deploy
 ```
+
+Like queue configuration, cutover uses the organization's fixed destination. Neither command accepts `--destination-cluster` or sends a destination in its mutation request. The server must resolve it from the organization migration.
 
 To request cutovers for a list of groups in `groups.txt`, one per line:
 
 ```shell
 while IFS= read -r group; do
-  cluster-migrator concurrency-group cutover "$group" \
-    --destination-cluster production </dev/null
+  cluster-migrator concurrency-group cutover "$group" </dev/null
 done < groups.txt
 ```
 
@@ -243,7 +243,7 @@ next-step section. JSON output does not include this guidance.
 | `queue status [queue]` | Show one queue migration or list all migrations. |
 | `queue set-percent <queue> --to <0-100>` | Set the absolute percentage of new jobs routed to the cluster queue. |
 | `queue metrics <queue>` | Compare recent source and destination activity. |
-| `concurrency-group cutover <scope>/<key> --destination-cluster <cluster>` | Start holding, draining, and moving a concurrency group into the cluster, or report why it can't start. `--dry-run` checks only the group's migration state. |
+| `concurrency-group cutover <scope>/<key>` | Start holding, draining, and moving a concurrency group into the organization's fixed destination, or report why it can't start. `--dry-run` checks only the group's migration state. |
 | `concurrency-group status [<scope>/<key>]` | Show one concurrency-group migration's state and unclustered jobs, or list every migration. A group whose cutover hasn't started has no migration. |
 | `pipeline readiness <pipeline> --destination-cluster <cluster>` | Assess known queue and concurrency-group blockers. |
 | `pipeline move <pipeline> --destination-cluster <cluster>` | Permanently assign a pipeline to the cluster. |

@@ -69,7 +69,7 @@ func TestQueueConfigurePrintsNextStep(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Error(err)
 			}
-			if body["cluster_id"] != "cluster-id" || body["queue_key"] != "test" {
+			if body["queue_key"] != "test" || len(body) != 1 {
 				t.Errorf("configuration = %v", body)
 			}
 			_, _ = w.Write([]byte(`{"queue_key":"test","destination":{"cluster_id":"cluster-id","queue_id":"queue-id","queue_key":"test"},"routed_percent":0}`))
