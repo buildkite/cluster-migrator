@@ -36,6 +36,7 @@ type rootCommand struct {
 	Queue            QueueCmd            `cmd:"" help:"Configure and inspect queue migrations."`
 	ConcurrencyGroup ConcurrencyGroupCmd `cmd:"" help:"Inspect concurrency-group migrations."`
 	Pipeline         PipelineCmd         `cmd:"" help:"Check and move pipelines."`
+	Migration        MigrationCmd        `cmd:"" help:"Inspect the organization migration and control queue validation."`
 }
 
 func Run(
