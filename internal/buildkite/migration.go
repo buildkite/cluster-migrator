@@ -16,6 +16,18 @@ type Migration struct {
 	UpdatedAt            string `json:"updated_at"`
 }
 
+func (c *Client) ConfigureMigration(ctx context.Context, destinationClusterID string) (*Migration, error) {
+	request := struct {
+		DestinationClusterID string `json:"destination_cluster_id"`
+	}{DestinationClusterID: destinationClusterID}
+
+	var migration Migration
+	if err := c.do(ctx, http.MethodPost, c.path("unclustered-to-clustered-migration"), request, &migration); err != nil {
+		return nil, err
+	}
+	return &migration, nil
+}
+
 func (c *Client) GetMigration(ctx context.Context) (*Migration, error) {
 	var migration Migration
 	if err := c.do(ctx, http.MethodGet, c.path("unclustered-to-clustered-migration"), nil, &migration); err != nil {
