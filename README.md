@@ -188,8 +188,51 @@ Route every source queue to 100% first, then cut over every concurrency group, t
 
 ## Command reference
 
+### Queue validation for enrolled organizations
+
+The queue-validation APIs add an explicit, reversible preparation loop. They must
+be deployed and enabled before using these commands; organization enrollment
+remains managed by Buildkite.
+
+```shell
+cluster-migrator migration status
+cluster-migrator migration validate-queues
+```
+
+Validation rejects unmapped source queues in new builds, dynamic uploads,
+retries, and parallelism increases. Mapped workloads continue at their configured
+routing percentages, including percentages below 100%. Queue mappings and routing
+percentages are frozen during validation. Neither validation nor 100% routing
+switches concurrency authority for an enrolled organization.
+
+To repair missing mappings or change routing, explicitly return to preparation:
+
+```shell
+cluster-migrator migration prepare-queues
+# Configure missing mappings or adjust routing, then validate again.
+cluster-migrator migration validate-queues
+```
+
+Returning to preparation admits unmapped source queues again. It does not move
+existing jobs or change concurrency authority. After irreversible commitment,
+neither queue-phase command can reopen preparation. Repeated requests for the
+current phase return a conflict, not a successful no-op.
+
+Both phase commands require `write_clusters` and permission to change the
+organization and manage its destination cluster. Status requires `read_clusters`
+and permission to change the organization. These commands use the organization's
+fixed destination; they do not accept a destination override.
+
+The server has no read-only readiness endpoint for these transitions, so
+`--dry-run` is rejected without a phase-change request. Use `migration status`
+to inspect the current phase; status is not authorization for a later change.
+`--json` returns the API migration object on success.
+
 | Command | Purpose |
 | --- | --- |
+| `migration status` | Show the organization's configured migration and phase. |
+| `migration validate-queues` | Reject unmapped source queues and freeze queue configuration without changing concurrency authority. |
+| `migration prepare-queues` | Explicitly return from validation to editable preparation and reopen unmapped-source-queue admission. |
 | `queue configure <queue> --destination-cluster <cluster>` | Map a source queue to an existing destination queue at 0%. |
 | `queue status [queue]` | Show one queue migration or list all migrations. |
 | `queue set-percent <queue> --to <0-100>` | Set the absolute percentage of new jobs routed to the cluster queue. |
