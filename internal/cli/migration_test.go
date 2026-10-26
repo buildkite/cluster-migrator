@@ -278,7 +278,7 @@ func TestMigrationLifecycleTransitions(t *testing.T) {
 		body  string
 	}{
 		{"cutover-concurrency-groups", "cutover_concurrency_groups", []string{"--acknowledge-irreversible"}, `{"acknowledge_irreversible":true}`},
-		{"cutover-pipelines", "migrate_pipelines", nil, `{}`},
+		{"cutover-pipelines", "migrate_pipelines", nil, ""},
 		{"complete", "complete", nil, `{"finalize_blocked_builds":false}`},
 		{"complete", "complete", []string{"--finalize-blocked-builds"}, `{"finalize_blocked_builds":true}`},
 	} {
@@ -313,13 +313,22 @@ func TestMigrationLifecycleTransitions(t *testing.T) {
 							t.Errorf("unexpected request: %s %s", r.Method, r.URL)
 						}
 						body, _ := io.ReadAll(r.Body)
-						var got, want any
-						if err := json.Unmarshal(body, &got); err != nil {
-							t.Error(err)
+						if operation.body == "" {
+							if len(body) != 0 || r.Header.Get("Content-Type") != "" {
+								t.Errorf("expected no body or Content-Type, got body=%q Content-Type=%q", body, r.Header.Get("Content-Type"))
+							}
+						} else {
+							var got, want any
+							if err := json.Unmarshal(body, &got); err != nil {
+								t.Error(err)
+							}
+							_ = json.Unmarshal([]byte(operation.body), &want)
+							if !reflect.DeepEqual(got, want) || r.Header.Get("Content-Type") != "application/json" {
+								t.Errorf("unexpected JSON body or Content-Type: %s", body)
+							}
 						}
-						_ = json.Unmarshal([]byte(operation.body), &want)
-						if !reflect.DeepEqual(got, want) || r.Header.Get("Content-Type") != "application/json" || r.Header.Get("Authorization") != "Bearer secret" {
-							t.Errorf("unexpected JSON body or headers: %s", body)
+						if r.Header.Get("Authorization") != "Bearer secret" {
+							t.Error("missing token authentication")
 						}
 						w.Header().Set("Content-Type", "application/json")
 						w.WriteHeader(outcome.status)

@@ -295,12 +295,12 @@ they accept neither a destination override nor a migration UUID. They require
 `write_clusters` and permission to change the organization and manage its fixed
 destination cluster.
 
-The POST request bodies are:
+The POST requests use these bodies:
 
-| Command | JSON body | Target phase |
+| Command | Request body | Target phase |
 | --- | --- | --- |
 | `migration cutover-concurrency-groups --acknowledge-irreversible` | `{"acknowledge_irreversible":true}` | `cutover_concurrency_groups` |
-| `migration cutover-pipelines` | `{}` | `migrate_pipelines` |
+| `migration cutover-pipelines` | No body | `migrate_pipelines` |
 | `migration complete` | `{"finalize_blocked_builds":false}` | `complete` |
 | `migration complete --finalize-blocked-builds` | `{"finalize_blocked_builds":true}` | `complete` |
 

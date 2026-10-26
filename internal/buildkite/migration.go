@@ -52,7 +52,7 @@ func (c *Client) CutoverConcurrencyGroups(ctx context.Context, acknowledgeIrreve
 }
 
 func (c *Client) CutoverPipelines(ctx context.Context) (*Migration, error) {
-	return c.transitionMigration(ctx, "cutover-pipelines", struct{}{})
+	return c.transitionMigration(ctx, "cutover-pipelines", nil)
 }
 
 func (c *Client) CompleteMigration(ctx context.Context, finalizeBlockedBuilds bool) (*Migration, error) {
