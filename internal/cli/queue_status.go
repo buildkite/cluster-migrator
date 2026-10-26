@@ -34,7 +34,7 @@ func (cmd *QueueStatusCmd) Run(app *Context) error {
 
 	migration, err := app.Client.GetQueueMigration(app.Context, cmd.Queue)
 	if err != nil {
-		return fmt.Errorf("get queue migration: %w", err)
+		return fmt.Errorf("get cluster queue migration for queue %q: %w", cmd.Queue, err)
 	}
 	return app.Print(queueStatus(migration, clusterNames))
 }

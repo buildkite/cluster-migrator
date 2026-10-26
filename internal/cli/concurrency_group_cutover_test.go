@@ -76,7 +76,7 @@ func TestConcurrencyGroupCutover(t *testing.T) {
 				strings.Replace(observations, "%s", "deploy, release", 1) +
 				"\nNEXT STEPS\n\n" +
 				"1. Wait until no ungrouped jobs have been created on the unclustered deploy queue for 10 minutes, then retry the cutover:\n\n   cluster-migrator concurrency-group cutover custom/deploy/production\n\n" +
-				"2. Configure the missing queue migration for release:\n\n   cluster-migrator queue configure release\n",
+				"2. Inspect the organization migration's phase before configuring the missing cluster queue migration for release:\n\n   cluster-migrator migration status\n",
 		},
 		{name: "JSON rejected", json: true, rejection: blocked, wantPosts: 1, wantError: blockedError, wantText: blocked},
 		{

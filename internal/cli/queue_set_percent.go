@@ -1,6 +1,12 @@
 package cli
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+	"net/http"
+
+	"github.com/buildkite/cluster-migrator/internal/buildkite"
+)
 
 type QueueSetPercentCmd struct {
 	Queue string `arg:"" help:"Source queue key."`
@@ -21,7 +27,11 @@ func setQueuePercent(app *Context, queue string, percent int) error {
 	}
 	current, err := app.Client.GetQueueMigration(app.Context, queue)
 	if err != nil {
-		return fmt.Errorf("get queue migration: %w", err)
+		var apiError *buildkite.APIError
+		if errors.As(err, &apiError) && apiError.StatusCode == http.StatusNotFound {
+			return fmt.Errorf("cluster queue migration for queue %q is not configured; run cluster-migrator queue configure %s while preparation is open: %w", queue, queue, err)
+		}
+		return fmt.Errorf("get cluster queue migration for queue %q: %w", queue, err)
 	}
 	cluster, err := app.Client.ResolveCluster(app.Context, current.Destination.ClusterID)
 	if err != nil {

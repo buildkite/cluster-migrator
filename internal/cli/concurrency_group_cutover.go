@@ -260,7 +260,7 @@ func concurrencyGroupCutoverActions(group string, readiness *buildkite.Concurren
 		for _, reason := range blocker.Reasons {
 			switch reason {
 			case "migration_missing":
-				appendAction(fmt.Sprintf("Configure the missing queue migration for %s:\n\n   cluster-migrator queue configure %s", blocker.Queue, blocker.Queue))
+				appendAction(fmt.Sprintf("Inspect the organization migration's phase before configuring the missing cluster queue migration for %s:\n\n   cluster-migrator migration status", blocker.Queue))
 			case "routing_incomplete":
 				appendAction(fmt.Sprintf("Review destination activity for %s before increasing routing:\n\n   cluster-migrator queue metrics %s", blocker.Queue, blocker.Queue))
 			case "recent_source_jobs":

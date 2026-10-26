@@ -84,6 +84,8 @@ Configuration does not route traffic. Scale the destination agents before raisin
 
 Queue configuration inherits the organization's fixed destination; `--destination-cluster` is not accepted. Configuration and percentage edits, including previews and same-percentage requests, require preparation. During validation, first run `cluster-migrator migration prepare-queues`; configure or adjust routing, then run `cluster-migrator migration validate-queues` again. After commitment, recover forward instead of trying to reopen preparation.
 
+A missing organization migration means enrollment and its destination must be configured by Buildkite. A missing cluster queue migration means that queue has no mapping yet; `queue configure <queue>` creates it during preparation. Creating a queue mapping does not enroll the organization or choose a destination.
+
 ### 3. Increase routing gradually
 
 Percentages are absolute, not relative increments:

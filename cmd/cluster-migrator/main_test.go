@@ -164,6 +164,56 @@ func TestConcurrencyGroupRejectsUnscopedGroupsBeforeMigrationRequests(t *testing
 	}
 }
 
+func TestQueueSetPercentDistinguishesMissingMigrations(t *testing.T) {
+	for _, test := range []struct {
+		name                string
+		missingOrganization bool
+		wantError           string
+	}{
+		{name: "organization migration", missingOrganization: true, wantError: "organization migration is not configured; ask Buildkite to configure enrollment and its destination before editing queues: Buildkite API returned 404: No migration found"},
+		{name: "cluster queue migration", wantError: "cluster queue migration for queue \"test\" is not configured; run cluster-migrator queue configure test while preparation is open: Buildkite API returned 404: No migration found"},
+	} {
+		for _, flags := range [][]string{nil, {"--dry-run"}, {"--json"}} {
+			t.Run(test.name+strings.Join(flags, " "), func(t *testing.T) {
+				t.Setenv("XDG_CACHE_HOME", t.TempDir())
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.Header().Set("Content-Type", "application/json")
+					if r.Method != http.MethodGet {
+						t.Errorf("unexpected mutation: %s %s", r.Method, r.URL.Path)
+					}
+					switch r.URL.Path {
+					case "/v2/organizations":
+						_, _ = fmt.Fprint(w, `[{"slug":"acme"}]`)
+					case "/v2/organizations/acme/unclustered-to-clustered-migration":
+						if !test.missingOrganization {
+							_, _ = fmt.Fprint(w, `{"phase":"prepare_queues","destination_cluster_id":"cluster-id"}`)
+							return
+						}
+						w.WriteHeader(http.StatusNotFound)
+						_, _ = fmt.Fprint(w, `{"message":"No migration found"}`)
+					case "/v2/organizations/acme/cluster-queue-migrations/test":
+						if test.missingOrganization {
+							t.Error("queue migration requested without an organization migration")
+						}
+						w.WriteHeader(http.StatusNotFound)
+						_, _ = fmt.Fprint(w, `{"message":"No migration found"}`)
+					default:
+						t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+						w.WriteHeader(http.StatusNotFound)
+					}
+				}))
+				defer server.Close()
+				args := append([]string{"--endpoint", server.URL, "queue", "set-percent", "test", "--to", "25"}, flags...)
+				stdout, stderr, exit := runCLI(t, args...)
+				wantStderr := "cluster-migrator: " + test.wantError + "\n"
+				if exit != 1 || stdout != "" || stderr != wantStderr {
+					t.Fatalf("exit=%d stdout=%q stderr=%q; want exit=1, empty stdout, stderr=%q", exit, stdout, stderr, wantStderr)
+				}
+			})
+		}
+	}
+}
+
 func TestParseErrorsPrintContextualUsage(t *testing.T) {
 	tests := []struct {
 		name      string
