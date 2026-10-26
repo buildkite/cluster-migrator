@@ -229,6 +229,13 @@ func TestParseErrorsPrintContextualUsage(t *testing.T) {
 			usage:     "Usage: cluster-migrator pipeline move --destination-cluster=STRING <pipeline>",
 			excludes:  "Wait until the pipeline reports",
 		},
+		{
+			name:      "removed queue destination override",
+			args:      []string{"queue", "configure", "test", "--destination-cluster=production"},
+			errorText: "cluster-migrator: unknown flag --destination-cluster",
+			usage:     "Usage: cluster-migrator queue configure <queue>",
+			excludes:  "Destination cluster name or ID.",
+		},
 	}
 
 	for _, test := range tests {

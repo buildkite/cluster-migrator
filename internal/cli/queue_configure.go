@@ -3,12 +3,15 @@ package cli
 import "fmt"
 
 type QueueConfigureCmd struct {
-	Queue              string `arg:"" help:"Source unclustered queue key."`
-	DestinationCluster string `name:"destination-cluster" required:"" help:"Destination cluster name or ID."`
+	Queue string `arg:"" help:"Source unclustered queue key."`
 }
 
 func (cmd *QueueConfigureCmd) Run(app *Context) error {
-	cluster, err := app.Client.ResolveCluster(app.Context, cmd.DestinationCluster)
+	migration, err := requireQueuePreparation(app)
+	if err != nil {
+		return err
+	}
+	cluster, err := app.Client.ResolveCluster(app.Context, migration.DestinationClusterID)
 	if err != nil {
 		return fmt.Errorf("resolve destination cluster: %w", err)
 	}
@@ -33,6 +36,6 @@ func (cmd *QueueConfigureCmd) Run(app *Context) error {
 	if _, err := app.Client.ConfigureQueueMigration(app.Context, cmd.Queue, cluster.ID); err != nil {
 		return fmt.Errorf("configure queue migration: %w", err)
 	}
-	change.Next = queueRoutingNextSteps(cmd.Queue, cluster.ID, 0)
+	change.Next = queueRoutingNextSteps(cmd.Queue, 0)
 	return app.Print(change)
 }

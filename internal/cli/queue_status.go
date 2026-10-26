@@ -53,7 +53,7 @@ func queueStatus(migration *buildkite.QueueMigration, clusterNames map[string]st
 		},
 	}
 	if migration.RoutedPercent == 0 || migration.RoutedPercent == 100 {
-		status.Next = queueRoutingNextSteps(migration.QueueKey, migration.Destination.ClusterID, migration.RoutedPercent)
+		status.Next = "1. Inspect the organization migration's phase before changing configuration or starting further operations:\n\n   cluster-migrator migration status"
 	}
 	return status
 }

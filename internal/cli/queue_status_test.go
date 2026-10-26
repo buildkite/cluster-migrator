@@ -65,7 +65,7 @@ func TestQueueStatusAtZeroPrintsNextStep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "QUEUE STATUS\nMigrations: 1\n\nSTATUS\n\nQUEUE    ROUTING  DESTINATION\ndefault  0%       Cluster Migrator Demo\n\nNEXT STEPS\n\n1. Scale the destination infrastructure.\n\n2. Once ready, begin routing:\n\n   cluster-migrator queue set-percent default --to <percentage>\n"
+	want := "QUEUE STATUS\nMigrations: 1\n\nSTATUS\n\nQUEUE    ROUTING  DESTINATION\ndefault  0%       Cluster Migrator Demo\n\nNEXT STEPS\n\n1. Inspect the organization migration's phase before changing configuration or starting further operations:\n\n   cluster-migrator migration status\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
@@ -147,7 +147,7 @@ func TestQueueStatusPrintsList(t *testing.T) {
 	}
 }
 
-func TestQueueStatusAtHundredPrintsPipelineGuidance(t *testing.T) {
+func TestQueueStatusAtHundredPrintsMigrationGuidance(t *testing.T) {
 	t.Setenv("BUILDKITE_API_TOKEN", "secret")
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -171,7 +171,7 @@ func TestQueueStatusAtHundredPrintsPipelineGuidance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "QUEUE STATUS\nMigrations: 1\n\nSTATUS\n\nQUEUE    ROUTING  DESTINATION\ndefault  100%     Production\n\nNEXT STEPS\n\n1. Assess each pipeline using this queue:\n\n   cluster-migrator pipeline readiness <pipeline> --destination-cluster cluster-id\n\n2. If no known blockers remain, move the pipeline:\n\n   cluster-migrator pipeline move <pipeline> --destination-cluster cluster-id\n"
+	want := "QUEUE STATUS\nMigrations: 1\n\nSTATUS\n\nQUEUE    ROUTING  DESTINATION\ndefault  100%     Production\n\nNEXT STEPS\n\n1. Inspect the organization migration's phase before changing configuration or starting further operations:\n\n   cluster-migrator migration status\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
