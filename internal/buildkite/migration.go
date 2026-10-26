@@ -37,34 +37,28 @@ func (c *Client) GetMigration(ctx context.Context) (*Migration, error) {
 }
 
 func (c *Client) ValidateQueues(ctx context.Context) (*Migration, error) {
-	return c.transitionMigration(ctx, "validate-queues", nil)
+	return c.transitionMigration(ctx, "validate-queues")
 }
 
 func (c *Client) PrepareQueues(ctx context.Context) (*Migration, error) {
-	return c.transitionMigration(ctx, "prepare-queues", nil)
+	return c.transitionMigration(ctx, "prepare-queues")
 }
 
-func (c *Client) CutoverConcurrencyGroups(ctx context.Context, acknowledgeIrreversible bool) (*Migration, error) {
-	request := struct {
-		AcknowledgeIrreversible bool `json:"acknowledge_irreversible"`
-	}{AcknowledgeIrreversible: acknowledgeIrreversible}
-	return c.transitionMigration(ctx, "cutover-concurrency-groups", request)
+func (c *Client) CutoverConcurrencyGroups(ctx context.Context) (*Migration, error) {
+	return c.transitionMigration(ctx, "cutover-concurrency-groups")
 }
 
 func (c *Client) CutoverPipelines(ctx context.Context) (*Migration, error) {
-	return c.transitionMigration(ctx, "cutover-pipelines", nil)
+	return c.transitionMigration(ctx, "cutover-pipelines")
 }
 
-func (c *Client) CompleteMigration(ctx context.Context, finalizeBlockedBuilds bool) (*Migration, error) {
-	request := struct {
-		FinalizeBlockedBuilds bool `json:"finalize_blocked_builds"`
-	}{FinalizeBlockedBuilds: finalizeBlockedBuilds}
-	return c.transitionMigration(ctx, "complete", request)
+func (c *Client) CompleteMigration(ctx context.Context) (*Migration, error) {
+	return c.transitionMigration(ctx, "complete")
 }
 
-func (c *Client) transitionMigration(ctx context.Context, operation string, request any) (*Migration, error) {
+func (c *Client) transitionMigration(ctx context.Context, operation string) (*Migration, error) {
 	var migration Migration
-	if err := c.do(ctx, http.MethodPost, c.path("unclustered-to-clustered-migration", operation), request, &migration); err != nil {
+	if err := c.do(ctx, http.MethodPost, c.path("unclustered-to-clustered-migration", operation), nil, &migration); err != nil {
 		return nil, err
 	}
 	return &migration, nil

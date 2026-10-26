@@ -275,12 +275,10 @@ func TestMigrationLifecycleTransitions(t *testing.T) {
 		name  string
 		phase string
 		flags []string
-		body  string
 	}{
-		{"cutover-concurrency-groups", "cutover_concurrency_groups", []string{"--acknowledge-irreversible"}, `{"acknowledge_irreversible":true}`},
-		{"cutover-pipelines", "migrate_pipelines", nil, ""},
-		{"complete", "complete", nil, `{"finalize_blocked_builds":false}`},
-		{"complete", "complete", []string{"--finalize-blocked-builds"}, `{"finalize_blocked_builds":true}`},
+		{"cutover-concurrency-groups", "cutover_concurrency_groups", []string{"--acknowledge-irreversible"}},
+		{"cutover-pipelines", "migrate_pipelines", nil},
+		{"complete", "complete", []string{"--finalize-blocked-builds"}},
 	} {
 		t.Run(operation.name+strings.Join(operation.flags, ""), func(t *testing.T) {
 			for _, outcome := range []struct {
@@ -295,11 +293,7 @@ func TestMigrationLifecycleTransitions(t *testing.T) {
 				{name: "JSON dry run", flags: []string{"--dry-run", "--json"}},
 				{name: "not configured", status: 404, message: "Unclustered-to-clustered migration is not configured for this organization"},
 				{name: "wrong phase", status: 409, message: "Cannot transition from prepare_queues"},
-				{name: "invalid request", flags: []string{"--json"}, status: 422, message: map[string]string{
-					"cutover-concurrency-groups": "acknowledge_irreversible must be true: commitment freezes queue mappings and routing percentages; preparation cannot be reopened",
-					"cutover-pipelines":          "Invalid transition options",
-					"complete":                   "finalize_blocked_builds must be a boolean",
-				}[operation.name]},
+				{name: "invalid request", flags: []string{"--json"}, status: 422, message: "Invalid transition request"},
 				{name: "not available", status: 503, message: "Migration transition to " + operation.phase + " is not available yet"},
 			} {
 				t.Run(outcome.name, func(t *testing.T) {
@@ -313,19 +307,8 @@ func TestMigrationLifecycleTransitions(t *testing.T) {
 							t.Errorf("unexpected request: %s %s", r.Method, r.URL)
 						}
 						body, _ := io.ReadAll(r.Body)
-						if operation.body == "" {
-							if len(body) != 0 || r.Header.Get("Content-Type") != "" {
-								t.Errorf("expected no body or Content-Type, got body=%q Content-Type=%q", body, r.Header.Get("Content-Type"))
-							}
-						} else {
-							var got, want any
-							if err := json.Unmarshal(body, &got); err != nil {
-								t.Error(err)
-							}
-							_ = json.Unmarshal([]byte(operation.body), &want)
-							if !reflect.DeepEqual(got, want) || r.Header.Get("Content-Type") != "application/json" {
-								t.Errorf("unexpected JSON body or Content-Type: %s", body)
-							}
+						if len(body) != 0 || r.Header.Get("Content-Type") != "" {
+							t.Errorf("expected no body or Content-Type, got body=%q Content-Type=%q", body, r.Header.Get("Content-Type"))
 						}
 						if r.Header.Get("Authorization") != "Bearer secret" {
 							t.Error("missing token authentication")
@@ -382,23 +365,32 @@ func TestMigrationLifecycleTransitions(t *testing.T) {
 	}
 }
 
-func TestMigrationConcurrencyCutoverRequiresAcknowledgement(t *testing.T) {
-	for _, flags := range [][]string{nil, {"--acknowledge-irreversible=false", "--json"}} {
-		t.Run(strings.Join(flags, " "), func(t *testing.T) {
-			t.Setenv("BUILDKITE_API_TOKEN", "secret")
-			t.Setenv("XDG_CACHE_HOME", t.TempDir())
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				t.Errorf("unexpected request without acknowledgement: %s %s", r.Method, r.URL)
-				w.WriteHeader(http.StatusInternalServerError)
-			}))
-			defer server.Close()
-			var stdout, stderr bytes.Buffer
-			args := append([]string{"--endpoint", server.URL, "migration", "cutover-concurrency-groups"}, flags...)
-			err := Run(context.Background(), args, &stdout, &stderr, organizationClient(server.Client()))
-			want := "migration cutover-concurrency-groups: requires --acknowledge-irreversible: commitment freezes queue mappings and routing percentages and prevents reopening preparation"
-			if err == nil || err.Error() != want || stdout.Len() != 0 || stderr.Len() != 0 {
-				t.Fatalf("error=%v stdout=%q stderr=%q, want %q and empty output", err, stdout.String(), stderr.String(), want)
-			}
-		})
+func TestMigrationTransitionsRequireAcknowledgement(t *testing.T) {
+	for _, test := range []struct {
+		operation string
+		flag      string
+		reason    string
+	}{
+		{"cutover-concurrency-groups", "--acknowledge-irreversible", "commitment freezes queue mappings and routing percentages and prevents reopening preparation"},
+		{"complete", "--finalize-blocked-builds", "completion includes blocked-build finalization; pass this flag to acknowledge before requesting completion"},
+	} {
+		for _, flags := range [][]string{nil, {test.flag + "=false", "--json"}} {
+			t.Run(test.operation+strings.Join(flags, " "), func(t *testing.T) {
+				t.Setenv("BUILDKITE_API_TOKEN", "secret")
+				t.Setenv("XDG_CACHE_HOME", t.TempDir())
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					t.Errorf("unexpected request without acknowledgement: %s %s", r.Method, r.URL)
+					w.WriteHeader(http.StatusInternalServerError)
+				}))
+				defer server.Close()
+				var stdout, stderr bytes.Buffer
+				args := append([]string{"--endpoint", server.URL, "migration", test.operation}, flags...)
+				err := Run(context.Background(), args, &stdout, &stderr, organizationClient(server.Client()))
+				want := fmt.Sprintf("migration %s: requires %s: %s", test.operation, test.flag, test.reason)
+				if err == nil || err.Error() != want || stdout.Len() != 0 || stderr.Len() != 0 {
+					t.Fatalf("error=%v stdout=%q stderr=%q, want %q and empty output", err, stdout.String(), stderr.String(), want)
+				}
+			})
+		}
 	}
 }

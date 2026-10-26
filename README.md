@@ -280,29 +280,32 @@ cluster-migrator migration cutover-concurrency-groups --acknowledge-irreversible
 cluster-migrator migration status
 cluster-migrator migration cutover-pipelines
 cluster-migrator migration status
-cluster-migrator migration complete
+cluster-migrator migration complete --finalize-blocked-builds
 ```
 
 Concurrency-group commitment freezes queue mappings and routing percentages and
 prevents returning to preparation. Without `--acknowledge-irreversible`, the CLI
-fails without a transition request and explains these consequences. It also sends
-the acknowledgement to the server for enforcement.
+fails without a transition request and explains these consequences.
 
-Completion does not opt in to blocked-build finalization by default. To request
-that option explicitly, use `migration complete --finalize-blocked-builds`.
+Completion includes blocked-build finalization. The CLI requires
+`migration complete --finalize-blocked-builds` to acknowledge that consequence;
+omitting the flag or setting it to false fails without a transition request.
+Both flags are client-side acknowledgements only. Neither is sent to or verified
+by the server: calling an endpoint requests its action. The server still enforces
+phase, readiness, and permissions.
+
 All three commands use the token's organization and its configured migration;
 they accept neither a destination override nor a migration UUID. They require
 `write_clusters` and permission to change the organization and manage its fixed
 destination cluster.
 
-The POST requests use these bodies:
+All three POST requests have no body and no `Content-Type` header:
 
-| Command | Request body | Target phase |
-| --- | --- | --- |
-| `migration cutover-concurrency-groups --acknowledge-irreversible` | `{"acknowledge_irreversible":true}` | `cutover_concurrency_groups` |
-| `migration cutover-pipelines` | No body | `migrate_pipelines` |
-| `migration complete` | `{"finalize_blocked_builds":false}` | `complete` |
-| `migration complete --finalize-blocked-builds` | `{"finalize_blocked_builds":true}` | `complete` |
+| Command | Target phase |
+| --- | --- |
+| `migration cutover-concurrency-groups --acknowledge-irreversible` | `cutover_concurrency_groups` |
+| `migration cutover-pipelines` | `migrate_pipelines` |
+| `migration complete --finalize-blocked-builds` | `complete` |
 
 There is no read-only preview endpoint, so all three reject `--dry-run` without
 mutation requests, including when acknowledgement or finalization flags are set.
@@ -321,7 +324,7 @@ stderr, including HTTP 404, 409, 422, and 503 responses.
 | `migration prepare-queues` | Explicitly return from validation to editable preparation and reopen unmapped-source-queue admission. |
 | `migration cutover-concurrency-groups --acknowledge-irreversible` | Request irreversible commitment, subject to server readiness checks. |
 | `migration cutover-pipelines` | Request organization-wide pipeline cutover, subject to server readiness checks. |
-| `migration complete [--finalize-blocked-builds]` | Request completion, opting in to blocked-build finalization only when explicitly flagged. |
+| `migration complete --finalize-blocked-builds` | Request completion, acknowledging that it includes blocked-build finalization. |
 | `queue configure <queue>` | During preparation, map a source queue to an existing queue in the organization's fixed destination at 0%. |
 | `queue status [queue]` | Show one queue migration or list all migrations. |
 | `queue set-percent <queue> --to <0-100>` | Set the absolute percentage of new jobs routed to the cluster queue. |

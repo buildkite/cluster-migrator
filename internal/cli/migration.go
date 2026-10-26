@@ -85,7 +85,7 @@ func (cmd *MigrationCutoverConcurrencyGroupsCmd) Run(app *Context) error {
 		if !cmd.AcknowledgeIrreversible {
 			return nil, fmt.Errorf("requires --acknowledge-irreversible: commitment freezes queue mappings and routing percentages and prevents reopening preparation")
 		}
-		return app.Client.CutoverConcurrencyGroups(app.Context, cmd.AcknowledgeIrreversible)
+		return app.Client.CutoverConcurrencyGroups(app.Context)
 	})
 }
 
@@ -98,12 +98,15 @@ func (cmd *MigrationCutoverPipelinesCmd) Run(app *Context) error {
 }
 
 type MigrationCompleteCmd struct {
-	FinalizeBlockedBuilds bool `help:"Opt in to finalizing blocked builds during completion."`
+	FinalizeBlockedBuilds bool `help:"Acknowledge that completion includes blocked-build finalization."`
 }
 
 func (cmd *MigrationCompleteCmd) Run(app *Context) error {
 	return runMigrationTransition(app, "complete", func() (*buildkite.Migration, error) {
-		return app.Client.CompleteMigration(app.Context, cmd.FinalizeBlockedBuilds)
+		if !cmd.FinalizeBlockedBuilds {
+			return nil, fmt.Errorf("requires --finalize-blocked-builds: completion includes blocked-build finalization; pass this flag to acknowledge before requesting completion")
+		}
+		return app.Client.CompleteMigration(app.Context)
 	})
 }
 
