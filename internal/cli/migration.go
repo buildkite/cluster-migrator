@@ -10,10 +10,13 @@ import (
 )
 
 type MigrationCmd struct {
-	Configure      MigrationConfigureCmd      `cmd:"" help:"Configure the organization's fixed migration destination."`
-	Status         MigrationStatusCmd         `cmd:"" help:"Show the organization's configured migration and phase."`
-	ValidateQueues MigrationValidateQueuesCmd `cmd:"" help:"Reject unmapped source queues and freeze queue configuration."`
-	PrepareQueues  MigrationPrepareQueuesCmd  `cmd:"" help:"Return from validation to editable queue preparation."`
+	Configure                MigrationConfigureCmd                `cmd:"" help:"Configure the organization's fixed migration destination."`
+	Status                   MigrationStatusCmd                   `cmd:"" help:"Show the organization's configured migration and phase."`
+	ValidateQueues           MigrationValidateQueuesCmd           `cmd:"" help:"Reject unmapped source queues and freeze queue configuration."`
+	PrepareQueues            MigrationPrepareQueuesCmd            `cmd:"" help:"Return from validation to editable queue preparation."`
+	CutoverConcurrencyGroups MigrationCutoverConcurrencyGroupsCmd `cmd:"" help:"Request irreversible concurrency-group commitment."`
+	CutoverPipelines         MigrationCutoverPipelinesCmd         `cmd:"" help:"Request organization-wide pipeline cutover."`
+	Complete                 MigrationCompleteCmd                 `cmd:"" help:"Request migration completion."`
 }
 
 type MigrationConfigureCmd struct {
@@ -73,6 +76,57 @@ func (cmd *MigrationPrepareQueuesCmd) Run(app *Context) error {
 	return changeQueuePhase(app, "prepare-queues")
 }
 
+type MigrationCutoverConcurrencyGroupsCmd struct {
+	AcknowledgeIrreversible bool `help:"Acknowledge that commitment freezes queue mappings and routing percentages and prevents reopening preparation."`
+}
+
+func (cmd *MigrationCutoverConcurrencyGroupsCmd) Run(app *Context) error {
+	return runMigrationTransition(app, "cutover-concurrency-groups", func() (*buildkite.Migration, error) {
+		if !cmd.AcknowledgeIrreversible {
+			return nil, fmt.Errorf("requires --acknowledge-irreversible: commitment freezes queue mappings and routing percentages and prevents reopening preparation")
+		}
+		return app.Client.CutoverConcurrencyGroups(app.Context)
+	})
+}
+
+type MigrationCutoverPipelinesCmd struct{}
+
+func (cmd *MigrationCutoverPipelinesCmd) Run(app *Context) error {
+	return runMigrationTransition(app, "cutover-pipelines", func() (*buildkite.Migration, error) {
+		return app.Client.CutoverPipelines(app.Context)
+	})
+}
+
+type MigrationCompleteCmd struct {
+	FinalizeBlockedBuilds bool `help:"Acknowledge that completion includes blocked-build finalization."`
+}
+
+func (cmd *MigrationCompleteCmd) Run(app *Context) error {
+	return runMigrationTransition(app, "complete", func() (*buildkite.Migration, error) {
+		if !cmd.FinalizeBlockedBuilds {
+			return nil, fmt.Errorf("requires --finalize-blocked-builds: completion includes blocked-build finalization; pass this flag to acknowledge before requesting completion")
+		}
+		return app.Client.CompleteMigration(app.Context)
+	})
+}
+
+func runMigrationTransition(app *Context, operation string, transition func() (*buildkite.Migration, error)) error {
+	if app.DryRun {
+		return fmt.Errorf("migration %s does not support --dry-run: the server has no read-only readiness endpoint; use cluster-migrator migration status to inspect the current phase", operation)
+	}
+	migration, err := transition()
+	if err != nil {
+		return fmt.Errorf("migration %s: %w", operation, err)
+	}
+	if app.JSON {
+		return app.Print(migration)
+	}
+	if _, err := fmt.Fprintf(app.Output, "MIGRATION %s\nMigration: %s\nDestination: %s\n\nRESULT\n\nPhase: %s\n", strings.ToUpper(operation), migration.ID, migration.DestinationClusterID, migration.Phase); err != nil {
+		return err
+	}
+	return app.printNextSteps([]string{"Inspect the migration's current state:\n\n   cluster-migrator migration status"})
+}
+
 func changeQueuePhase(app *Context, operation string) error {
 	// There is no read-only readiness endpoint for these operations.
 	if app.DryRun {
@@ -123,7 +177,7 @@ func migrationNextSteps(phase string) []string {
 		}
 	case "migrate_pipelines":
 		return []string{
-			"Coordinate the remaining pipeline moves with Buildkite. This CLI does not yet provide organization-wide pipeline cutover or migration completion.",
+			"Coordinate pipeline cutover and completion with Buildkite. The server readiness checks for these transitions are not implemented yet.",
 		}
 	default:
 		return nil

@@ -37,14 +37,26 @@ func (c *Client) GetMigration(ctx context.Context) (*Migration, error) {
 }
 
 func (c *Client) ValidateQueues(ctx context.Context) (*Migration, error) {
-	return c.changeQueuePhase(ctx, "validate-queues")
+	return c.transitionMigration(ctx, "validate-queues")
 }
 
 func (c *Client) PrepareQueues(ctx context.Context) (*Migration, error) {
-	return c.changeQueuePhase(ctx, "prepare-queues")
+	return c.transitionMigration(ctx, "prepare-queues")
 }
 
-func (c *Client) changeQueuePhase(ctx context.Context, operation string) (*Migration, error) {
+func (c *Client) CutoverConcurrencyGroups(ctx context.Context) (*Migration, error) {
+	return c.transitionMigration(ctx, "cutover-concurrency-groups")
+}
+
+func (c *Client) CutoverPipelines(ctx context.Context) (*Migration, error) {
+	return c.transitionMigration(ctx, "cutover-pipelines")
+}
+
+func (c *Client) CompleteMigration(ctx context.Context) (*Migration, error) {
+	return c.transitionMigration(ctx, "complete")
+}
+
+func (c *Client) transitionMigration(ctx context.Context, operation string) (*Migration, error) {
 	var migration Migration
 	if err := c.do(ctx, http.MethodPost, c.path("unclustered-to-clustered-migration", operation), nil, &migration); err != nil {
 		return nil, err
