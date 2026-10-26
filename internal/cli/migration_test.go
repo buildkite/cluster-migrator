@@ -173,7 +173,7 @@ NEXT STEPS
 	const pipelineNextSteps = `
 NEXT STEPS
 
-1. Coordinate the remaining pipeline moves with Buildkite. This CLI does not yet provide organization-wide pipeline cutover or migration completion.
+1. Coordinate pipeline cutover and completion with Buildkite. The server readiness checks for these transitions are not implemented yet.
 `
 	for _, test := range []struct {
 		name      string
@@ -265,6 +265,130 @@ NEXT STEPS
 			}
 			if requests != wantRequests || stderr.Len() != 0 {
 				t.Fatalf("requests=%d stderr=%q", requests, stderr.String())
+			}
+		})
+	}
+}
+
+func TestMigrationLifecycleTransitions(t *testing.T) {
+	for _, operation := range []struct {
+		name  string
+		phase string
+		flags []string
+		body  string
+	}{
+		{"cutover-concurrency-groups", "cutover_concurrency_groups", []string{"--acknowledge-irreversible"}, `{"acknowledge_irreversible":true}`},
+		{"cutover-pipelines", "migrate_pipelines", nil, `{}`},
+		{"complete", "complete", nil, `{"finalize_blocked_builds":false}`},
+		{"complete", "complete", []string{"--finalize-blocked-builds"}, `{"finalize_blocked_builds":true}`},
+	} {
+		t.Run(operation.name+strings.Join(operation.flags, ""), func(t *testing.T) {
+			for _, outcome := range []struct {
+				name    string
+				flags   []string
+				status  int
+				message string
+			}{
+				{name: "accepted", status: 200},
+				{name: "JSON accepted", flags: []string{"--json"}, status: 200},
+				{name: "dry run", flags: []string{"--dry-run"}},
+				{name: "JSON dry run", flags: []string{"--dry-run", "--json"}},
+				{name: "not configured", status: 404, message: "Unclustered-to-clustered migration is not configured for this organization"},
+				{name: "wrong phase", status: 409, message: "Cannot transition from prepare_queues"},
+				{name: "invalid request", flags: []string{"--json"}, status: 422, message: map[string]string{
+					"cutover-concurrency-groups": "acknowledge_irreversible must be true: commitment freezes queue mappings and routing percentages; preparation cannot be reopened",
+					"cutover-pipelines":          "Invalid transition options",
+					"complete":                   "finalize_blocked_builds must be a boolean",
+				}[operation.name]},
+				{name: "not implemented", status: 503, message: "Migration transition to " + operation.phase + " is not implemented yet"},
+			} {
+				t.Run(outcome.name, func(t *testing.T) {
+					t.Setenv("BUILDKITE_API_TOKEN", "secret")
+					t.Setenv("XDG_CACHE_HOME", t.TempDir())
+					requests := 0
+					payload := fmt.Sprintf(`{"id":"migration-id","organization_id":"org-id","destination_cluster_id":"cluster-id","phase":%q,"created_by_id":"user-id","url":"https://api.buildkite.com/migration","created_at":"2026-10-26T00:00:00Z","updated_at":"2026-10-26T01:00:00Z"}`, operation.phase)
+					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						requests++
+						if r.Method != http.MethodPost || r.URL.Path != "/v2/organizations/acme/unclustered-to-clustered-migration/"+operation.name {
+							t.Errorf("unexpected request: %s %s", r.Method, r.URL)
+						}
+						body, _ := io.ReadAll(r.Body)
+						var got, want any
+						if err := json.Unmarshal(body, &got); err != nil {
+							t.Error(err)
+						}
+						_ = json.Unmarshal([]byte(operation.body), &want)
+						if !reflect.DeepEqual(got, want) || r.Header.Get("Content-Type") != "application/json" || r.Header.Get("Authorization") != "Bearer secret" {
+							t.Errorf("unexpected JSON body or headers: %s", body)
+						}
+						w.Header().Set("Content-Type", "application/json")
+						w.WriteHeader(outcome.status)
+						if outcome.message != "" {
+							_ = json.NewEncoder(w).Encode(map[string]string{"message": outcome.message})
+						} else {
+							_, _ = fmt.Fprint(w, payload)
+						}
+					}))
+					defer server.Close()
+
+					var stdout, stderr bytes.Buffer
+					args := append([]string{"--endpoint", server.URL, "migration", operation.name}, operation.flags...)
+					args = append(args, outcome.flags...)
+					err := Run(context.Background(), args, &stdout, &stderr, organizationClient(server.Client()))
+					wantError := ""
+					wantRequests := 1
+					if outcome.status == 0 {
+						wantRequests = 0
+						wantError = fmt.Sprintf("migration %s does not support --dry-run: the server has no read-only readiness endpoint; use cluster-migrator migration status to inspect the current phase", operation.name)
+					} else if outcome.message != "" {
+						wantError = fmt.Sprintf("migration %s: Buildkite API returned %d: %s", operation.name, outcome.status, outcome.message)
+					}
+					if wantError != "" {
+						if err == nil || err.Error() != wantError || stdout.Len() != 0 {
+							t.Fatalf("error=%v stdout=%q, want %q and empty stdout", err, stdout.String(), wantError)
+						}
+					} else if err != nil {
+						t.Fatal(err)
+					} else if outcome.name == "JSON accepted" {
+						var got, want any
+						if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+							t.Fatal(err)
+						}
+						_ = json.Unmarshal([]byte(payload), &want)
+						if !reflect.DeepEqual(got, want) {
+							t.Fatalf("JSON=%s, want %s", stdout.String(), payload)
+						}
+					} else {
+						want := fmt.Sprintf("MIGRATION %s\nMigration: migration-id\nDestination: cluster-id\n\nRESULT\n\nPhase: %s\n\nNEXT STEPS\n\n1. Inspect the migration's current state:\n\n   cluster-migrator migration status\n", strings.ToUpper(operation.name), operation.phase)
+						if stdout.String() != want {
+							t.Fatalf("stdout=%q, want %q", stdout.String(), want)
+						}
+					}
+					if requests != wantRequests || stderr.Len() != 0 {
+						t.Fatalf("requests=%d stderr=%q, want requests=%d and empty stderr", requests, stderr.String(), wantRequests)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestMigrationConcurrencyCutoverRequiresAcknowledgement(t *testing.T) {
+	for _, flags := range [][]string{nil, {"--acknowledge-irreversible=false", "--json"}} {
+		t.Run(strings.Join(flags, " "), func(t *testing.T) {
+			t.Setenv("BUILDKITE_API_TOKEN", "secret")
+			t.Setenv("XDG_CACHE_HOME", t.TempDir())
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				t.Errorf("unexpected request without acknowledgement: %s %s", r.Method, r.URL)
+				w.WriteHeader(http.StatusInternalServerError)
+			}))
+			defer server.Close()
+			var stdout, stderr bytes.Buffer
+			args := append([]string{"--endpoint", server.URL, "migration", "cutover-concurrency-groups"}, flags...)
+			err := Run(context.Background(), args, &stdout, &stderr, organizationClient(server.Client()))
+			want := "migration cutover-concurrency-groups: requires --acknowledge-irreversible: commitment freezes queue mappings and routing percentages and prevents reopening preparation"
+			if err == nil || err.Error() != want || stdout.Len() != 0 || stderr.Len() != 0 {
+				t.Fatalf("error=%v stdout=%q stderr=%q, want %q and empty output", err, stdout.String(), stderr.String(), want)
 			}
 		})
 	}
