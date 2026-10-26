@@ -21,18 +21,12 @@ func TestConfigureQueueMigration(t *testing.T) {
 		if got := r.Header.Get("Authorization"); got != "Bearer secret" {
 			t.Fatalf("authorization = %q", got)
 		}
-		var body struct {
-			ClusterID string `json:"cluster_id"`
-			QueueKey  string `json:"queue_key"`
-		}
+		var body map[string]string
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatal(err)
 		}
-		if body.ClusterID != "cluster-id" {
-			t.Fatalf("cluster ID = %q", body.ClusterID)
-		}
-		if body.QueueKey != "linux.cpu" {
-			t.Fatalf("queue key = %q", body.QueueKey)
+		if body["queue_key"] != "linux.cpu" || len(body) != 1 {
+			t.Fatalf("body = %#v, want only queue_key", body)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
@@ -45,7 +39,7 @@ func TestConfigureQueueMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	migration, err := client.ConfigureQueueMigration(context.Background(), "linux.cpu", "cluster-id")
+	migration, err := client.ConfigureQueueMigration(context.Background(), "linux.cpu")
 	if err != nil {
 		t.Fatal(err)
 	}

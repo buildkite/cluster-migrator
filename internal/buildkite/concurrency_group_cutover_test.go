@@ -2,8 +2,8 @@ package buildkite
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -34,9 +34,8 @@ func TestStartConcurrencyGroupCutover(t *testing.T) {
 				if r.Method != http.MethodPost || r.URL.EscapedPath() != groupPath {
 					t.Errorf("request = %s %s", r.Method, r.URL.EscapedPath())
 				}
-				var body map[string]string
-				if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["destination_cluster_id"] != "cluster-id" || len(body) != 1 {
-					t.Errorf("body = %#v, error = %v", body, err)
+				if body, err := io.ReadAll(r.Body); err != nil || len(body) != 0 {
+					t.Errorf("body = %q, error = %v; want empty body", body, err)
 				}
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(test.status)
@@ -48,7 +47,7 @@ func TestStartConcurrencyGroupCutover(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			group, err := client.StartConcurrencyGroupCutover(context.Background(), "custom", "deploy/production", "cluster-id")
+			group, err := client.StartConcurrencyGroupCutover(context.Background(), "custom", "deploy/production")
 
 			var blocked *ConcurrencyGroupCutoverBlocked
 			var apiError *APIError

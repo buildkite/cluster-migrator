@@ -104,6 +104,8 @@ func TestConcurrencyGroupCutoverProcess(t *testing.T) {
 				switch {
 				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations":
 					_, _ = fmt.Fprint(w, `[{"slug":"acme"}]`)
+				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered-migration":
+					_, _ = fmt.Fprint(w, `{"destination_cluster_id":"cluster-id","phase":"cutover_concurrency_groups"}`)
 				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/clusters":
 					_, _ = fmt.Fprint(w, `[{"id":"cluster-id","name":"production"}]`)
 				case r.Method == http.MethodGet && r.URL.Path == groupPath:
@@ -125,7 +127,7 @@ func TestConcurrencyGroupCutoverProcess(t *testing.T) {
 			}))
 			defer server.Close()
 
-			args := append([]string{"--endpoint", server.URL, "concurrency-group", "cutover", "custom/deploy", "--destination-cluster", "production"}, test.args...)
+			args := append([]string{"--endpoint", server.URL, "concurrency-group", "cutover", "custom/deploy"}, test.args...)
 			stdout, stderr, exitCode := runCLI(t, args...)
 			wantExit, wantStderr := 0, ""
 			if test.wantError != "" {
@@ -155,10 +157,60 @@ func TestConcurrencyGroupRejectsUnscopedGroupsBeforeMigrationRequests(t *testing
 	}))
 	defer server.Close()
 
-	stdout, stderr, exitCode := runCLI(t, "--endpoint", server.URL, "concurrency-group", "cutover", "deploy", "--destination-cluster", "production")
+	stdout, stderr, exitCode := runCLI(t, "--endpoint", server.URL, "concurrency-group", "cutover", "deploy")
 	want := "cluster-migrator: concurrency group \"deploy\" must be <scope>/<key>, where scope is custom or step\n"
 	if exitCode != 1 || stdout != "" || stderr != want {
 		t.Fatalf("exit=%d stdout=%q stderr=%q; want exit=1, empty stdout, stderr=%q", exitCode, stdout, stderr, want)
+	}
+}
+
+func TestQueueSetPercentDistinguishesMissingMigrations(t *testing.T) {
+	for _, test := range []struct {
+		name                string
+		missingOrganization bool
+		wantError           string
+	}{
+		{name: "organization migration", missingOrganization: true, wantError: "organization migration is not configured; ask Buildkite to configure enrollment and its destination before editing queues: Buildkite API returned 404: No migration found"},
+		{name: "cluster queue migration", wantError: "cluster queue migration for queue \"test\" is not configured; run cluster-migrator queue configure test while preparation is open: Buildkite API returned 404: No migration found"},
+	} {
+		for _, flags := range [][]string{nil, {"--dry-run"}, {"--json"}} {
+			t.Run(test.name+strings.Join(flags, " "), func(t *testing.T) {
+				t.Setenv("XDG_CACHE_HOME", t.TempDir())
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.Header().Set("Content-Type", "application/json")
+					if r.Method != http.MethodGet {
+						t.Errorf("unexpected mutation: %s %s", r.Method, r.URL.Path)
+					}
+					switch r.URL.Path {
+					case "/v2/organizations":
+						_, _ = fmt.Fprint(w, `[{"slug":"acme"}]`)
+					case "/v2/organizations/acme/unclustered-to-clustered-migration":
+						if !test.missingOrganization {
+							_, _ = fmt.Fprint(w, `{"phase":"prepare_queues","destination_cluster_id":"cluster-id"}`)
+							return
+						}
+						w.WriteHeader(http.StatusNotFound)
+						_, _ = fmt.Fprint(w, `{"message":"No migration found"}`)
+					case "/v2/organizations/acme/cluster-queue-migrations/test":
+						if test.missingOrganization {
+							t.Error("queue migration requested without an organization migration")
+						}
+						w.WriteHeader(http.StatusNotFound)
+						_, _ = fmt.Fprint(w, `{"message":"No migration found"}`)
+					default:
+						t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+						w.WriteHeader(http.StatusNotFound)
+					}
+				}))
+				defer server.Close()
+				args := append([]string{"--endpoint", server.URL, "queue", "set-percent", "test", "--to", "25"}, flags...)
+				stdout, stderr, exit := runCLI(t, args...)
+				wantStderr := "cluster-migrator: " + test.wantError + "\n"
+				if exit != 1 || stdout != "" || stderr != wantStderr {
+					t.Fatalf("exit=%d stdout=%q stderr=%q; want exit=1, empty stdout, stderr=%q", exit, stdout, stderr, wantStderr)
+				}
+			})
+		}
 	}
 }
 
@@ -228,6 +280,20 @@ func TestParseErrorsPrintContextualUsage(t *testing.T) {
 			errorText: "cluster-migrator: unknown flag --wait",
 			usage:     "Usage: cluster-migrator pipeline move --destination-cluster=STRING <pipeline>",
 			excludes:  "Wait until the pipeline reports",
+		},
+		{
+			name:      "removed queue destination override",
+			args:      []string{"queue", "configure", "test", "--destination-cluster=production"},
+			errorText: "cluster-migrator: unknown flag --destination-cluster",
+			usage:     "Usage: cluster-migrator queue configure <queue>",
+			excludes:  "Destination cluster name or ID.",
+		},
+		{
+			name:      "removed concurrency group destination override",
+			args:      []string{"concurrency-group", "cutover", "custom/deploy", "--destination-cluster=production"},
+			errorText: "cluster-migrator: unknown flag --destination-cluster",
+			usage:     "Usage: cluster-migrator concurrency-group cutover <group>",
+			excludes:  "Destination cluster name or ID.",
 		},
 	}
 

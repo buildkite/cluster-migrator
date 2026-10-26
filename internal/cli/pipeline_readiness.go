@@ -320,8 +320,8 @@ func pipelineReadinessActions(readiness *buildkite.PipelineReadiness) []string {
 					appendAction(fmt.Sprintf("Review destination activity for %s:\n\n   cluster-migrator queue metrics %s", blocker.Queue, blocker.Queue))
 				}
 			case "migration_missing":
-				if blocker.Queue != "" && readiness.DestinationClusterID != "" {
-					appendAction(fmt.Sprintf("Configure the missing queue migration for %s:\n\n   cluster-migrator queue configure %s --destination-cluster %s", blocker.Queue, blocker.Queue, readiness.DestinationClusterID))
+				if blocker.Queue != "" {
+					appendAction(fmt.Sprintf("Inspect the organization migration's phase before configuring the missing cluster queue migration for %s:\n\n   cluster-migrator migration status", blocker.Queue))
 				}
 			case "active_source_jobs":
 				if blocker.Queue != "" && readiness.Pipeline != "" && readiness.DestinationClusterID != "" {

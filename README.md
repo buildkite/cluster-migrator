@@ -9,13 +9,13 @@
 
 A migration has three stages. Finish each stage for the whole organization before starting the next:
 
-1. **Route queues.** Map every unclustered source queue to an existing queue with the same key in the destination cluster, then increase the percentage of new jobs sent there from 0% to 100%. All queues migrate to one destination cluster. Once a queue reaches 100%, its routing can't change.
-2. **Cut over concurrency groups.** Once every queue is fully routed, cut over each concurrency group that has been used on unclustered queues: hold the group, let its running jobs finish, and move its waiting jobs to the cluster.
+1. **Prepare and validate queues.** Map every unclustered source queue to an existing queue with the same key in the organization's fixed destination cluster, then increase the percentage of new jobs sent there from 0% to 100%. Routing remains reversible during preparation, including decreases from 100%. Explicit validation rejects unmapped source queues and freezes configuration until an explicit return to preparation.
+2. **Cut over concurrency groups.** Only after the organization commits to concurrency-group cutover can groups move their authority to the cluster. Fully routing queues does not authorize commitment. This CLI does not yet expose the organization-wide commitment operation; coordinate that later stage with Buildkite.
 3. **Move pipelines.** Assess each pipeline's queue and concurrency-group blockers, then permanently assign it to the cluster. Repeat for every pipeline.
 
 Routing changes affect new jobs only. Jobs already created remain on the queue selected when they were created.
 
-A concurrency group first used after every queue it uses reaches 100% starts in the cluster, so it doesn't need a cutover. Do not move a pipeline until every concurrency group it uses is in the cluster. Pipeline readiness reports any that aren't as blockers.
+New concurrency groups retain unclustered authority throughout preparation and validation, even at 100% routing. Do not move a pipeline until the organization reaches the pipeline-migration phase and every concurrency group it uses is in the cluster. Pipeline readiness reports known blockers.
 
 Concurrency groups are identified as `<scope>/<key>`: `custom/<key>` for a `concurrency_group` set in pipeline YAML, or `step/<id>` for a group Buildkite created for a step. Equal keys in different scopes are different groups. Keys may contain slashes, such as `custom/deploy/production`.
 
@@ -23,7 +23,7 @@ Concurrency groups are identified as `<scope>/<key>`: `custom/<key>` for a `conc
 
 Before starting:
 
-- Ask Buildkite to enable the queue migration APIs for the organization.
+- Ask Buildkite to configure the organization's migration and fixed destination and enable the queue migration APIs. Enrollment is not performed implicitly by queue commands.
 - Enable Advanced Queue Metrics for the organization so `queue metrics` can monitor source and destination activity.
 - Create the destination cluster and its queues. Each destination queue must have the same exact, case-sensitive key as its source queue.
 - Prepare enough agent capacity in the destination cluster for the traffic you will route.
@@ -55,11 +55,12 @@ Alternatively, download a binary from [GitHub Releases](https://github.com/build
 
 ## Migrate a workload
 
-The examples below migrate the `test` queue and the `monorepo` pipeline to the `production` cluster. Use a cluster name or ID and a pipeline slug, exact name, or ID.
+The examples below use the `test` queue and an organization migration configured for the `production` cluster. Later pipeline examples use the `monorepo` pipeline. Use a pipeline slug, exact name, or ID.
 
 ### 1. Inspect current migrations
 
 ```shell
+cluster-migrator migration status
 cluster-migrator queue status
 ```
 
@@ -74,16 +75,16 @@ cluster-migrator queue status test
 Preview the change, then create the mapping:
 
 ```shell
-cluster-migrator --dry-run queue configure test \
-  --destination-cluster production
+cluster-migrator --dry-run queue configure test
 
-cluster-migrator queue configure test \
-  --destination-cluster production
+cluster-migrator queue configure test
 ```
 
 Configuration does not route traffic. Scale the destination agents before raising the percentage.
 
-Every queue in an organization must migrate to the same cluster. Buildkite rejects configuring a queue for a different cluster from the organization's other queue migrations.
+Queue configuration inherits the organization's fixed destination; `--destination-cluster` is not accepted. Configuration and percentage edits, including previews and same-percentage requests, require preparation. During validation, first run `cluster-migrator migration prepare-queues`; configure or adjust routing, then run `cluster-migrator migration validate-queues` again. After commitment, recover forward instead of trying to reopen preparation.
+
+A missing organization migration means enrollment and its destination must be configured by Buildkite. A missing cluster queue migration means that queue has no mapping yet; `queue configure <queue>` creates it during preparation. Creating a queue mapping does not enroll the organization or choose a destination.
 
 ### 3. Increase routing gradually
 
@@ -99,37 +100,37 @@ cluster-migrator queue metrics test
 cluster-migrator queue set-percent test --to 100
 ```
 
-Setting 100% is final. Once a queue reaches 100%, Buildkite rejects any change to its routing, because concurrency groups can start in the cluster from then on.
+Setting 100% remains reversible during preparation and does not switch concurrency authority. Validate representative workloads before coordinating irreversible commitment with Buildkite.
 
 Before each increase, confirm the destination has enough connected agents, waiting jobs remain controlled, and p95 wait time is acceptable. `queue metrics` compares the latest source activity with the latest and peak destination activity over the reported observation window. It provides context, not proof that a queue is safe to increase; also check your normal dispatch, queue-latency, and stranded-job observability.
 
 Routing changes take effect when jobs are created, so observed traffic may take time to reflect the new percentage. For an infrequently used queue, trigger a representative build before continuing. Once the destination is healthy, safely reduce the corresponding source-agent capacity before provisioning and routing the next increment.
 
-To stop sending new jobs to the cluster queue before it reaches 100%:
+During preparation, stop sending new jobs to the cluster queue, including after reaching 100%:
 
 ```shell
 cluster-migrator queue set-percent test --to 0
 ```
 
-This does not move existing jobs or remove the queue mapping. Once a queue reaches 100%, Buildkite rejects any change to its routing.
+This does not move existing jobs or remove the queue mapping. Routing is frozen outside preparation.
 
 ### 4. Cut over concurrency groups
 
-Start once every queue is routed 100%. Cut over every concurrency group that has been used on unclustered queues before moving any pipeline. Ask Buildkite for the list of these groups. Pipeline readiness also reports any group a pipeline still needs.
+These retained individual commands are provisional diagnostics and operations for later phases, not the organization-wide commitment workflow. Do not use them to bypass validation or commitment. Coordinate commitment with Buildkite first; the server rejects individual cutovers during preparation and validation. Once committed and every queue is routed 100%, cut over every concurrency group that has been used on unclustered queues before moving any pipeline. Ask Buildkite for the list of these groups. Pipeline readiness also reports any group a pipeline still needs.
 
 Request a cutover for one group:
 
 ```shell
-cluster-migrator concurrency-group cutover custom/deploy \
-  --destination-cluster production
+cluster-migrator concurrency-group cutover custom/deploy
 ```
+
+Like queue configuration, cutover uses the organization's fixed destination. Neither command accepts `--destination-cluster` or sends a destination in its mutation request. The server must resolve it from the organization migration.
 
 To request cutovers for a list of groups in `groups.txt`, one per line:
 
 ```shell
 while IFS= read -r group; do
-  cluster-migrator concurrency-group cutover "$group" \
-    --destination-cluster production </dev/null
+  cluster-migrator concurrency-group cutover "$group" </dev/null
 done < groups.txt
 ```
 
@@ -184,7 +185,7 @@ cluster-migrator pipeline move monorepo \
 
 The CLI has no pipeline rollback command. The server revalidates authoritative migration invariants when applying a move; an earlier `no_known_blockers` result is not authorization by itself.
 
-Route every source queue to 100% first, then cut over every concurrency group, then assess and move each pipeline.
+Prepare and validate queue mappings first. Coordinate irreversible commitment with Buildkite before cutting over concurrency groups, then assess and move pipelines only in the pipeline-migration phase.
 
 ## Command reference
 
@@ -268,11 +269,11 @@ next-step section. JSON output does not include this guidance.
 | `migration status` | Show the organization's configured migration and phase. |
 | `migration validate-queues` | Reject unmapped source queues and freeze queue configuration without changing concurrency authority. |
 | `migration prepare-queues` | Explicitly return from validation to editable preparation and reopen unmapped-source-queue admission. |
-| `queue configure <queue> --destination-cluster <cluster>` | Map a source queue to an existing destination queue at 0%. |
+| `queue configure <queue>` | During preparation, map a source queue to an existing queue in the organization's fixed destination at 0%. |
 | `queue status [queue]` | Show one queue migration or list all migrations. |
 | `queue set-percent <queue> --to <0-100>` | Set the absolute percentage of new jobs routed to the cluster queue. |
 | `queue metrics <queue>` | Compare recent source and destination activity. |
-| `concurrency-group cutover <scope>/<key> --destination-cluster <cluster>` | Start holding, draining, and moving a concurrency group into the cluster, or report why it can't start. `--dry-run` checks only the group's migration state. |
+| `concurrency-group cutover <scope>/<key>` | Start holding, draining, and moving a concurrency group into the organization's fixed destination, or report why it can't start. `--dry-run` checks only the group's migration state. |
 | `concurrency-group status [<scope>/<key>]` | Show one concurrency-group migration's state and unclustered jobs, or list every migration. A group whose cutover hasn't started has no migration. |
 | `pipeline readiness <pipeline> --destination-cluster <cluster>` | Assess known queue and concurrency-group blockers. |
 | `pipeline move <pipeline> --destination-cluster <cluster>` | Permanently assign a pipeline to the cluster. |
@@ -289,7 +290,7 @@ Run `cluster-migrator <command> --help` for full usage.
 | `--endpoint <url>` | Override the Buildkite REST API endpoint. Also available as `BUILDKITE_API_ENDPOINT`. |
 | `--api-token <token>` | Supply the API token. Prefer `BUILDKITE_API_TOKEN` to keep it out of shell history and process listings. |
 
-All mutations are non-interactive. The CLI reads fresh server state before applying routing changes.
+All mutations are non-interactive. The CLI reads the organization's phase before queue edits and previews. The server rechecks authoritative state when applying mutations; a successful preview does not reserve the phase or authorize a later edit.
 
 ## Output and automation
 

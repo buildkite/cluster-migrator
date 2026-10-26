@@ -36,15 +36,18 @@ func TestConcurrencyGroupCutover(t *testing.T) {
 	blockedError := "concurrency group has known cutover blockers"
 
 	for _, test := range []struct {
-		name      string
-		dryRun    bool
-		json      bool
-		existing  string
-		rejection string
-		wantPosts int
-		wantError string
-		wantText  string
+		name                         string
+		dryRun                       bool
+		json                         bool
+		existing                     string
+		rejection                    string
+		missingOrganizationMigration bool
+		wantPosts                    int
+		wantError                    string
+		wantText                     string
 	}{
+		{name: "organization migration missing", missingOrganizationMigration: true, wantError: "get organization migration: Buildkite API returned 404: No migration found"},
+		{name: "organization migration missing during dry run", dryRun: true, missingOrganizationMigration: true, wantError: "get organization migration: Buildkite API returned 404: No migration found"},
 		{name: "dry run without a migration", dryRun: true, wantText: dryRunHeading + "\nREADINESS\n\nNo migration has started for this concurrency group." + queuesChecked},
 		{name: "JSON dry run", dryRun: true, json: true, wantText: `{"action":"cut over","resource":"concurrency group custom/deploy/production","destination_cluster":"production","dry_run":true}`},
 		{
@@ -72,8 +75,8 @@ func TestConcurrencyGroupCutover(t *testing.T) {
 				"release  —        0                      No queue migration is configured.\n" +
 				strings.Replace(observations, "%s", "deploy, release", 1) +
 				"\nNEXT STEPS\n\n" +
-				"1. Wait until no ungrouped jobs have been created on the unclustered deploy queue for 10 minutes, then retry the cutover:\n\n   cluster-migrator concurrency-group cutover custom/deploy/production --destination-cluster cluster-id\n\n" +
-				"2. Configure the missing queue migration for release:\n\n   cluster-migrator queue configure release --destination-cluster cluster-id\n",
+				"1. Wait until no ungrouped jobs have been created on the unclustered deploy queue for 10 minutes, then retry the cutover:\n\n   cluster-migrator concurrency-group cutover custom/deploy/production\n\n" +
+				"2. Inspect the organization migration's phase before configuring the missing cluster queue migration for release:\n\n   cluster-migrator migration status\n",
 		},
 		{name: "JSON rejected", json: true, rejection: blocked, wantPosts: 1, wantError: blockedError, wantText: blocked},
 		{
@@ -95,8 +98,15 @@ func TestConcurrencyGroupCutover(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				switch {
+				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered-migration":
+					if test.missingOrganizationMigration {
+						w.WriteHeader(http.StatusNotFound)
+						_, _ = w.Write([]byte(`{"message":"No migration found"}`))
+						return
+					}
+					_, _ = w.Write([]byte(`{"destination_cluster_id":"cluster-id","phase":"cutover_concurrency_groups"}`))
 				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/clusters":
-					_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
+					_, _ = w.Write([]byte(`[{"id":"other-cluster-id","name":"development"},{"id":"cluster-id","name":"production"}]`))
 				case r.Method == http.MethodPost && r.URL.EscapedPath() == groupPath+"/cutover":
 					posts++
 					if test.rejection != "" {
@@ -128,7 +138,7 @@ func TestConcurrencyGroupCutover(t *testing.T) {
 				Context: context.Background(), Client: client, Output: &stdout, ErrorOutput: &stderr, DryRun: test.dryRun, JSON: test.json,
 				Now: func() time.Time { return time.Date(2026, 10, 9, 7, 0, 5, 0, time.UTC) },
 			}
-			err = (&ConcurrencyGroupCutoverCmd{Group: "custom/deploy/production", DestinationCluster: "production"}).Run(app)
+			err = (&ConcurrencyGroupCutoverCmd{Group: "custom/deploy/production"}).Run(app)
 			if test.wantError == "" && err != nil {
 				t.Fatal(err)
 			}

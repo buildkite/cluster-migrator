@@ -11,8 +11,7 @@ import (
 )
 
 type ConcurrencyGroupCutoverCmd struct {
-	Group              string `arg:"" help:"Concurrency group as <scope>/<key>, such as custom/deploy."`
-	DestinationCluster string `name:"destination-cluster" required:"" help:"Destination cluster name or ID."`
+	Group string `arg:"" help:"Concurrency group as <scope>/<key>, such as custom/deploy."`
 }
 
 func (cmd *ConcurrencyGroupCutoverCmd) Run(app *Context) error {
@@ -20,7 +19,11 @@ func (cmd *ConcurrencyGroupCutoverCmd) Run(app *Context) error {
 	if err != nil {
 		return err
 	}
-	cluster, err := app.Client.ResolveCluster(app.Context, cmd.DestinationCluster)
+	migration, err := app.Client.GetMigration(app.Context)
+	if err != nil {
+		return fmt.Errorf("get organization migration: %w", err)
+	}
+	cluster, err := app.Client.ResolveCluster(app.Context, migration.DestinationClusterID)
 	if err != nil {
 		return fmt.Errorf("resolve destination cluster: %w", err)
 	}
@@ -29,7 +32,7 @@ func (cmd *ConcurrencyGroupCutoverCmd) Run(app *Context) error {
 	}
 
 	// The server checks readiness and rejects a blocked cutover without changing anything.
-	group, err := app.Client.StartConcurrencyGroupCutover(app.Context, scope, key, cluster.ID)
+	group, err := app.Client.StartConcurrencyGroupCutover(app.Context, scope, key)
 	var blocked *buildkite.ConcurrencyGroupCutoverBlocked
 	if errors.As(err, &blocked) {
 		if app.JSON {
@@ -148,7 +151,7 @@ func (cmd *ConcurrencyGroupCutoverCmd) printBlocked(app *Context, cluster *build
 	if err := app.printConcurrencyGroupQueueObservation(blocked.QueueObservation); err != nil {
 		return err
 	}
-	return app.printNextSteps(concurrencyGroupCutoverActions(cmd.Group, cluster.ID, blocked))
+	return app.printNextSteps(concurrencyGroupCutoverActions(cmd.Group, blocked))
 }
 
 func (cmd *ConcurrencyGroupCutoverCmd) printResult(app *Context, cluster *buildkite.Cluster, group *buildkite.ConcurrencyGroup) error {
@@ -236,7 +239,7 @@ func concurrencyGroupQueueBlocker(reason string) string {
 	})
 }
 
-func concurrencyGroupCutoverActions(group, clusterID string, readiness *buildkite.ConcurrencyGroupCutoverBlocked) []string {
+func concurrencyGroupCutoverActions(group string, readiness *buildkite.ConcurrencyGroupCutoverBlocked) []string {
 	var actions []string
 	seen := make(map[string]bool)
 	appendAction := func(action string) {
@@ -257,11 +260,11 @@ func concurrencyGroupCutoverActions(group, clusterID string, readiness *buildkit
 		for _, reason := range blocker.Reasons {
 			switch reason {
 			case "migration_missing":
-				appendAction(fmt.Sprintf("Configure the missing queue migration for %s:\n\n   cluster-migrator queue configure %s --destination-cluster %s", blocker.Queue, blocker.Queue, clusterID))
+				appendAction(fmt.Sprintf("Inspect the organization migration's phase before configuring the missing cluster queue migration for %s:\n\n   cluster-migrator migration status", blocker.Queue))
 			case "routing_incomplete":
 				appendAction(fmt.Sprintf("Review destination activity for %s before increasing routing:\n\n   cluster-migrator queue metrics %s", blocker.Queue, blocker.Queue))
 			case "recent_source_jobs":
-				appendAction(fmt.Sprintf("Wait until no ungrouped jobs have been created on the unclustered %s queue for 10 minutes, then retry the cutover:\n\n   cluster-migrator concurrency-group cutover %s --destination-cluster %s", blocker.Queue, group, clusterID))
+				appendAction(fmt.Sprintf("Wait until no ungrouped jobs have been created on the unclustered %s queue for 10 minutes, then retry the cutover:\n\n   cluster-migrator concurrency-group cutover %s", blocker.Queue, group))
 			}
 		}
 	}
