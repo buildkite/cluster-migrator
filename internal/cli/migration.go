@@ -23,8 +23,10 @@ func (cmd *MigrationStatusCmd) Run(app *Context) error {
 	if app.JSON {
 		return app.Print(migration)
 	}
-	_, err = fmt.Fprintf(app.Output, "MIGRATION STATUS\nMigration: %s\nDestination: %s\n\nSTATUS\n\nPhase: %s\n", migration.ID, migration.DestinationClusterID, migration.Phase)
-	return err
+	if _, err := fmt.Fprintf(app.Output, "MIGRATION STATUS\nMigration: %s\nDestination: %s\n\nSTATUS\n\nPhase: %s\n", migration.ID, migration.DestinationClusterID, migration.Phase); err != nil {
+		return err
+	}
+	return app.printNextSteps(migrationNextSteps(migration.Phase))
 }
 
 type MigrationValidateQueuesCmd struct{}
@@ -62,6 +64,36 @@ func changeQueuePhase(app *Context, operation string) error {
 	if operation == "prepare-queues" {
 		result = "Queue preparation reopened. Queue mappings and routing percentages can be changed; unmapped source queues are admitted again."
 	}
-	_, err = fmt.Fprintf(app.Output, "MIGRATION %s\nMigration: %s\nDestination: %s\n\nRESULT\n\n%s\nConcurrency authority is unchanged.\n", strings.ToUpper(operation), migration.ID, migration.DestinationClusterID, result)
-	return err
+	if _, err := fmt.Fprintf(app.Output, "MIGRATION %s\nMigration: %s\nDestination: %s\n\nRESULT\n\n%s\nConcurrency authority is unchanged.\n", strings.ToUpper(operation), migration.ID, migration.DestinationClusterID, result); err != nil {
+		return err
+	}
+	return app.printNextSteps(migrationNextSteps(migration.Phase))
+}
+
+func migrationNextSteps(phase string) []string {
+	switch phase {
+	case "prepare_queues":
+		return []string{
+			"Review queue mappings:\n\n   cluster-migrator queue status",
+			"Configure missing mappings and adjust routing while preparation is open.",
+			"Once the mappings are ready, start validation:\n\n   cluster-migrator migration validate-queues",
+		}
+	case "validate_queues":
+		return []string{
+			"Run representative workloads to check for unmapped source queues.",
+			"If you need to repair mappings or change routing, return to preparation first:\n\n   cluster-migrator migration prepare-queues",
+			"After making those changes, start validation again:\n\n   cluster-migrator migration validate-queues",
+		}
+	case "cutover_concurrency_groups":
+		return []string{
+			"Inspect concurrency-group migration progress:\n\n   cluster-migrator concurrency-group status",
+			"If progress stalls or an operation fails, contact Buildkite. Queue configuration is frozen and preparation cannot be reopened.",
+		}
+	case "migrate_pipelines":
+		return []string{
+			"Coordinate the remaining pipeline moves with Buildkite. This CLI does not yet provide organization-wide pipeline cutover or migration completion.",
+		}
+	default:
+		return nil
+	}
 }

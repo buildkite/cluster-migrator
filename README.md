@@ -228,6 +228,13 @@ The server has no read-only readiness endpoint for these transitions, so
 to inspect the current phase; status is not authorization for a later change.
 `--json` returns the API migration object on success.
 
+Human-readable output includes next steps for the current phase. Preparation
+directs you to review mappings before validation. Validation directs you to test
+representative workloads and explicitly reopen preparation for repairs. After
+commitment, guidance covers concurrency-group progress and coordinating pipeline
+moves with Buildkite, not reopening preparation. Completed migrations have no
+next-step section. JSON output does not include this guidance.
+
 | Command | Purpose |
 | --- | --- |
 | `migration status` | Show the organization's configured migration and phase. |
