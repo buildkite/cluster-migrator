@@ -300,7 +300,7 @@ func TestMigrationLifecycleTransitions(t *testing.T) {
 					"cutover-pipelines":          "Invalid transition options",
 					"complete":                   "finalize_blocked_builds must be a boolean",
 				}[operation.name]},
-				{name: "not implemented", status: 503, message: "Migration transition to " + operation.phase + " is not implemented yet"},
+				{name: "not available", status: 503, message: "Migration transition to " + operation.phase + " is not available yet"},
 			} {
 				t.Run(outcome.name, func(t *testing.T) {
 					t.Setenv("BUILDKITE_API_TOKEN", "secret")

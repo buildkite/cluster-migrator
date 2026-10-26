@@ -267,7 +267,7 @@ has no next-step section. JSON output does not include this guidance.
 
 These commands require companion server endpoints and implemented readiness
 checks before operational use. The companion server contract rejects otherwise
-valid requests with HTTP 503: `Migration transition to <phase> is not implemented yet`.
+valid requests with HTTP 503: `Migration transition to <phase> is not available yet`.
 Wrong-phase requests return HTTP 409. These are not successful no-ops, and the CLI
 does not bypass these server checks or enable enrollment.
 
