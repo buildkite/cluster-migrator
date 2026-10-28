@@ -294,7 +294,7 @@ fails without a transition request and explains these consequences.
 Entering `migrate-pipelines` does not move pipelines or finalize builds. Pipeline
 moves remain separate operations. Completion does not finalize blocked builds:
 all unclustered builds must already be terminal before completion can proceed.
-Standalone blocked-build finalization is not yet exposed by this CLI.
+Blocked-build finalization has its own command, described below.
 
 `--acknowledge-irreversible` is a client-side acknowledgement only. It is not sent
 to or verified by the server: calling an endpoint requests its action. The server
@@ -323,6 +323,34 @@ not imply server-side cancellation; inspect status before deciding what to do
 next. Server rejections exit non-zero with empty stdout and the API error on
 stderr, including HTTP 404, 409, 422, and 503 responses.
 
+### Finalize blocked builds separately
+
+> [!IMPORTANT]
+> This command targets a proposed API endpoint that is not yet implemented.
+> Keep it out of operational use until the companion server contract, permissions,
+> eligibility rules, and implementation are reviewed and deployed.
+
+During pipeline migration, request finalization separately from completion:
+
+```shell
+cluster-migrator migration finalize-blocked-builds
+```
+
+The proposed contract is an empty POST to the configured organization's
+`unclustered-to-clustered-migration/finalize-blocked-builds` endpoint, returning
+the migration object without changing its phase. The CLI never falls back to
+`complete`, moves pipelines, or finalizes individual builds itself. The server
+must enforce organization and build permissions and finalization eligibility
+during `migrate_pipelines`; the CLI is not an authorization boundary.
+
+Human output reports that finalization was requested, not that all builds are
+terminal or the migration is complete. `--json` returns the migration object.
+There is no read-only preview endpoint, so `--dry-run` exits non-zero without
+a finalization request. Missing or rejected endpoints produce a non-zero exit
+with empty stdout and the API error on stderr. A timeout does not prove that
+the server cancelled the request; inspect affected builds before retrying or
+requesting completion.
+
 | Command | Purpose |
 | --- | --- |
 | `migration configure --destination-cluster <cluster>` | Create the organization's migration with a fixed destination in queue preparation, when server-side enrollment is available. |
@@ -332,6 +360,7 @@ stderr, including HTTP 404, 409, 422, and 503 responses.
 | `migration set-phase cutover-concurrency-groups --acknowledge-irreversible` | Request irreversible commitment, subject to server readiness checks. |
 | `migration set-phase migrate-pipelines` | Enter the pipeline-migration phase without moving pipelines or finalizing builds. |
 | `migration set-phase complete` | Request completion after all unclustered builds are terminal; does not finalize blocked builds. |
+| `migration finalize-blocked-builds` | Request finalization separately without completing the migration; requires the proposed companion server endpoint. |
 | `queue configure <queue>` | During preparation, map a source queue to an existing queue in the organization's fixed destination at 0%. |
 | `queue status [queue]` | Show one queue migration or list all migrations. |
 | `queue set-percent <queue> --to <0-100>` | Set the absolute percentage of new jobs routed to the cluster queue. |

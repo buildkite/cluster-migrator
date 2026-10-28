@@ -56,6 +56,15 @@ func (c *Client) CompleteMigration(ctx context.Context) (*Migration, error) {
 	return c.transitionMigration(ctx, "complete")
 }
 
+// FinalizeBlockedBuilds requires the proposed standalone finalization endpoint.
+func (c *Client) FinalizeBlockedBuilds(ctx context.Context) (*Migration, error) {
+	var migration Migration
+	if err := c.do(ctx, http.MethodPost, c.path("unclustered-to-clustered-migration", "finalize-blocked-builds"), nil, &migration); err != nil {
+		return nil, err
+	}
+	return &migration, nil
+}
+
 func (c *Client) transitionMigration(ctx context.Context, operation string) (*Migration, error) {
 	var migration Migration
 	if err := c.do(ctx, http.MethodPost, c.path("unclustered-to-clustered-migration", operation), nil, &migration); err != nil {
