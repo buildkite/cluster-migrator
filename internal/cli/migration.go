@@ -10,9 +10,10 @@ import (
 )
 
 type MigrationCmd struct {
-	Configure MigrationConfigureCmd `cmd:"" help:"Configure the organization's fixed migration destination."`
-	Status    MigrationStatusCmd    `cmd:"" help:"Show the organization's configured migration and phase."`
-	SetPhase  MigrationSetPhaseCmd  `cmd:"" help:"Request a migration phase transition, subject to server readiness checks."`
+	Configure             MigrationConfigureCmd             `cmd:"" help:"Configure the organization's fixed migration destination."`
+	Status                MigrationStatusCmd                `cmd:"" help:"Show the organization's configured migration and phase."`
+	SetPhase              MigrationSetPhaseCmd              `cmd:"" help:"Request a migration phase transition, subject to server readiness checks."`
+	FinalizeBlockedBuilds MigrationFinalizeBlockedBuildsCmd `cmd:"" help:"Request blocked-build finalization without changing phase (requires a companion server endpoint)."`
 }
 
 type MigrationSetPhaseCmd struct {
@@ -107,6 +108,23 @@ func (cmd *MigrationCompleteCmd) Run(app *Context) error {
 	return runMigrationTransition(app, "set-phase complete", func() (*buildkite.Migration, error) {
 		return app.Client.CompleteMigration(app.Context)
 	})
+}
+
+type MigrationFinalizeBlockedBuildsCmd struct{}
+
+func (cmd *MigrationFinalizeBlockedBuildsCmd) Run(app *Context) error {
+	if app.DryRun {
+		return fmt.Errorf("migration finalize-blocked-builds does not support --dry-run: the server has no read-only readiness endpoint; use cluster-migrator migration status to inspect the current phase")
+	}
+	migration, err := app.Client.FinalizeBlockedBuilds(app.Context)
+	if err != nil {
+		return fmt.Errorf("migration finalize-blocked-builds: %w", err)
+	}
+	if app.JSON {
+		return app.Print(migration)
+	}
+	_, err = fmt.Fprintf(app.Output, "MIGRATION FINALIZE-BLOCKED-BUILDS\nMigration: %s\nDestination: %s\n\nRESULT\n\nBlocked-build finalization requested. This does not complete the migration.\nPhase: %s\n", migration.ID, migration.DestinationClusterID, migration.Phase)
+	return err
 }
 
 func runMigrationTransition(app *Context, operation string, transition func() (*buildkite.Migration, error)) error {

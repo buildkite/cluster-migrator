@@ -275,16 +275,17 @@ NEXT STEPS
 	}
 }
 
-func TestMigrationLifecycleTransitions(t *testing.T) {
+func TestMigrationLifecycleOperations(t *testing.T) {
 	for _, operation := range []struct {
 		name  string
 		path  string
 		phase string
 		flags []string
 	}{
-		{"cutover-concurrency-groups", "cutover-concurrency-groups", "cutover_concurrency_groups", []string{"--acknowledge-irreversible"}},
-		{"migrate-pipelines", "cutover-pipelines", "migrate_pipelines", nil},
-		{"complete", "complete", "complete", nil},
+		{"set-phase cutover-concurrency-groups", "cutover-concurrency-groups", "cutover_concurrency_groups", []string{"--acknowledge-irreversible"}},
+		{"set-phase migrate-pipelines", "cutover-pipelines", "migrate_pipelines", nil},
+		{"set-phase complete", "complete", "complete", nil},
+		{"finalize-blocked-builds", "finalize-blocked-builds", "migrate_pipelines", nil},
 	} {
 		t.Run(operation.name+strings.Join(operation.flags, ""), func(t *testing.T) {
 			for _, outcome := range []struct {
@@ -298,6 +299,7 @@ func TestMigrationLifecycleTransitions(t *testing.T) {
 				{name: "dry run", flags: []string{"--dry-run"}},
 				{name: "JSON dry run", flags: []string{"--dry-run", "--json"}},
 				{name: "not configured", status: 404, message: "Unclustered-to-clustered migration is not configured for this organization"},
+				{name: "forbidden", status: 403, message: "Forbidden"},
 				{name: "wrong phase", status: 409, message: "Cannot transition from prepare_queues"},
 				{name: "invalid request", flags: []string{"--json"}, status: 422, message: "Invalid transition request"},
 				{name: "not available", status: 503, message: "Migration transition to " + operation.phase + " is not available yet"},
@@ -330,16 +332,17 @@ func TestMigrationLifecycleTransitions(t *testing.T) {
 					defer server.Close()
 
 					var stdout, stderr bytes.Buffer
-					args := append([]string{"--endpoint", server.URL, "migration", "set-phase", operation.name}, operation.flags...)
+					args := append([]string{"--endpoint", server.URL, "migration"}, strings.Fields(operation.name)...)
+					args = append(args, operation.flags...)
 					args = append(args, outcome.flags...)
 					err := Run(context.Background(), args, &stdout, &stderr, organizationClient(server.Client()))
 					wantError := ""
 					wantRequests := 1
 					if outcome.status == 0 {
 						wantRequests = 0
-						wantError = fmt.Sprintf("migration set-phase %s does not support --dry-run: the server has no read-only readiness endpoint; use cluster-migrator migration status to inspect the current phase", operation.name)
+						wantError = fmt.Sprintf("migration %s does not support --dry-run: the server has no read-only readiness endpoint; use cluster-migrator migration status to inspect the current phase", operation.name)
 					} else if outcome.message != "" {
-						wantError = fmt.Sprintf("migration set-phase %s: Buildkite API returned %d: %s", operation.name, outcome.status, outcome.message)
+						wantError = fmt.Sprintf("migration %s: Buildkite API returned %d: %s", operation.name, outcome.status, outcome.message)
 					}
 					if wantError != "" {
 						if err == nil || err.Error() != wantError || stdout.Len() != 0 {
@@ -357,7 +360,10 @@ func TestMigrationLifecycleTransitions(t *testing.T) {
 							t.Fatalf("JSON=%s, want %s", stdout.String(), payload)
 						}
 					} else {
-						want := fmt.Sprintf("MIGRATION SET-PHASE %s\nMigration: migration-id\nDestination: cluster-id\n\nRESULT\n\nPhase: %s\n\nNEXT STEPS\n\n1. Inspect the migration's current state:\n\n   cluster-migrator migration status\n", strings.ToUpper(operation.name), operation.phase)
+						want := fmt.Sprintf("MIGRATION %s\nMigration: migration-id\nDestination: cluster-id\n\nRESULT\n\nPhase: %s\n\nNEXT STEPS\n\n1. Inspect the migration's current state:\n\n   cluster-migrator migration status\n", strings.ToUpper(operation.name), operation.phase)
+						if operation.name == "finalize-blocked-builds" {
+							want = "MIGRATION FINALIZE-BLOCKED-BUILDS\nMigration: migration-id\nDestination: cluster-id\n\nRESULT\n\nBlocked-build finalization requested. This does not complete the migration.\nPhase: migrate_pipelines\n"
+						}
 						if stdout.String() != want {
 							t.Fatalf("stdout=%q, want %q", stdout.String(), want)
 						}
