@@ -34,7 +34,7 @@ NEXT STEPS
 
 3. Once the mappings are ready, start validation:
 
-   cluster-migrator migration validate-queues
+   cluster-migrator migration set-phase validate-queues
 `
 	for _, test := range []struct {
 		name        string
@@ -146,7 +146,7 @@ NEXT STEPS
 
 3. Once the mappings are ready, start validation:
 
-   cluster-migrator migration validate-queues
+   cluster-migrator migration set-phase validate-queues
 `
 	const validationNextSteps = `
 NEXT STEPS
@@ -155,11 +155,11 @@ NEXT STEPS
 
 2. If you need to repair mappings or change routing, return to preparation first:
 
-   cluster-migrator migration prepare-queues
+   cluster-migrator migration set-phase prepare-queues
 
 3. After making those changes, start validation again:
 
-   cluster-migrator migration validate-queues
+   cluster-migrator migration set-phase validate-queues
 `
 	const concurrencyNextSteps = `
 NEXT STEPS
@@ -191,8 +191,8 @@ NEXT STEPS
 		{name: "status pipeline migration", operation: "status", phase: "migrate_pipelines", wantText: "MIGRATION STATUS\nMigration: migration-id\nDestination: cluster-id\n\nSTATUS\n\nPhase: migrate_pipelines\n", wantNext: pipelineNextSteps},
 		{name: "status complete", operation: "status", phase: "complete", wantText: "MIGRATION STATUS\nMigration: migration-id\nDestination: cluster-id\n\nSTATUS\n\nPhase: complete\n"},
 		{name: "status unknown phase", operation: "status", phase: "future_phase", wantText: "MIGRATION STATUS\nMigration: migration-id\nDestination: cluster-id\n\nSTATUS\n\nPhase: future_phase\n"},
-		{name: "validate", operation: "validate-queues", phase: "validate_queues", wantText: "MIGRATION VALIDATE-QUEUES\nMigration: migration-id\nDestination: cluster-id\n\nRESULT\n\nQueue validation started. Unmapped source queues are rejected; queue mappings and routing percentages are frozen.\nConcurrency authority is unchanged.\n", wantNext: validationNextSteps},
-		{name: "prepare", operation: "prepare-queues", phase: "prepare_queues", wantText: "MIGRATION PREPARE-QUEUES\nMigration: migration-id\nDestination: cluster-id\n\nRESULT\n\nQueue preparation reopened. Queue mappings and routing percentages can be changed; unmapped source queues are admitted again.\nConcurrency authority is unchanged.\n", wantNext: preparationNextSteps},
+		{name: "validate", operation: "validate-queues", phase: "validate_queues", wantText: "MIGRATION SET-PHASE VALIDATE-QUEUES\nMigration: migration-id\nDestination: cluster-id\n\nRESULT\n\nQueue validation started. Unmapped source queues are rejected; queue mappings and routing percentages are frozen.\nConcurrency authority is unchanged.\n", wantNext: validationNextSteps},
+		{name: "prepare", operation: "prepare-queues", phase: "prepare_queues", wantText: "MIGRATION SET-PHASE PREPARE-QUEUES\nMigration: migration-id\nDestination: cluster-id\n\nRESULT\n\nQueue preparation reopened. Queue mappings and routing percentages can be changed; unmapped source queues are admitted again.\nConcurrency authority is unchanged.\n", wantNext: preparationNextSteps},
 		{name: "JSON status", operation: "status", phase: "complete", flags: []string{"--json"}},
 		{name: "JSON status validation", operation: "status", phase: "validate_queues", flags: []string{"--json"}},
 		{name: "JSON validate", operation: "validate-queues", phase: "validate_queues", flags: []string{"--json"}},
@@ -234,7 +234,12 @@ NEXT STEPS
 			defer server.Close()
 
 			var stdout, stderr bytes.Buffer
-			args := append([]string{"--endpoint", server.URL, "migration", test.operation}, test.flags...)
+			args := []string{"--endpoint", server.URL, "migration"}
+			if test.operation != "status" {
+				args = append(args, "set-phase")
+			}
+			args = append(args, test.operation)
+			args = append(args, test.flags...)
 			err := Run(context.Background(), args, &stdout, &stderr, organizationClient(server.Client()))
 			if test.wantError != "" {
 				if err == nil || !strings.Contains(err.Error(), test.wantError) || stdout.Len() != 0 {
@@ -273,12 +278,13 @@ NEXT STEPS
 func TestMigrationLifecycleTransitions(t *testing.T) {
 	for _, operation := range []struct {
 		name  string
+		path  string
 		phase string
 		flags []string
 	}{
-		{"cutover-concurrency-groups", "cutover_concurrency_groups", []string{"--acknowledge-irreversible"}},
-		{"cutover-pipelines", "migrate_pipelines", nil},
-		{"complete", "complete", []string{"--finalize-blocked-builds"}},
+		{"cutover-concurrency-groups", "cutover-concurrency-groups", "cutover_concurrency_groups", []string{"--acknowledge-irreversible"}},
+		{"migrate-pipelines", "cutover-pipelines", "migrate_pipelines", nil},
+		{"complete", "complete", "complete", nil},
 	} {
 		t.Run(operation.name+strings.Join(operation.flags, ""), func(t *testing.T) {
 			for _, outcome := range []struct {
@@ -303,7 +309,7 @@ func TestMigrationLifecycleTransitions(t *testing.T) {
 					payload := fmt.Sprintf(`{"id":"migration-id","organization_id":"org-id","destination_cluster_id":"cluster-id","phase":%q,"created_by_id":"user-id","url":"https://api.buildkite.com/migration","created_at":"2026-10-26T00:00:00Z","updated_at":"2026-10-26T01:00:00Z"}`, operation.phase)
 					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 						requests++
-						if r.Method != http.MethodPost || r.URL.Path != "/v2/organizations/acme/unclustered-to-clustered-migration/"+operation.name {
+						if r.Method != http.MethodPost || r.URL.Path != "/v2/organizations/acme/unclustered-to-clustered-migration/"+operation.path {
 							t.Errorf("unexpected request: %s %s", r.Method, r.URL)
 						}
 						body, _ := io.ReadAll(r.Body)
@@ -324,16 +330,16 @@ func TestMigrationLifecycleTransitions(t *testing.T) {
 					defer server.Close()
 
 					var stdout, stderr bytes.Buffer
-					args := append([]string{"--endpoint", server.URL, "migration", operation.name}, operation.flags...)
+					args := append([]string{"--endpoint", server.URL, "migration", "set-phase", operation.name}, operation.flags...)
 					args = append(args, outcome.flags...)
 					err := Run(context.Background(), args, &stdout, &stderr, organizationClient(server.Client()))
 					wantError := ""
 					wantRequests := 1
 					if outcome.status == 0 {
 						wantRequests = 0
-						wantError = fmt.Sprintf("migration %s does not support --dry-run: the server has no read-only readiness endpoint; use cluster-migrator migration status to inspect the current phase", operation.name)
+						wantError = fmt.Sprintf("migration set-phase %s does not support --dry-run: the server has no read-only readiness endpoint; use cluster-migrator migration status to inspect the current phase", operation.name)
 					} else if outcome.message != "" {
-						wantError = fmt.Sprintf("migration %s: Buildkite API returned %d: %s", operation.name, outcome.status, outcome.message)
+						wantError = fmt.Sprintf("migration set-phase %s: Buildkite API returned %d: %s", operation.name, outcome.status, outcome.message)
 					}
 					if wantError != "" {
 						if err == nil || err.Error() != wantError || stdout.Len() != 0 {
@@ -351,7 +357,7 @@ func TestMigrationLifecycleTransitions(t *testing.T) {
 							t.Fatalf("JSON=%s, want %s", stdout.String(), payload)
 						}
 					} else {
-						want := fmt.Sprintf("MIGRATION %s\nMigration: migration-id\nDestination: cluster-id\n\nRESULT\n\nPhase: %s\n\nNEXT STEPS\n\n1. Inspect the migration's current state:\n\n   cluster-migrator migration status\n", strings.ToUpper(operation.name), operation.phase)
+						want := fmt.Sprintf("MIGRATION SET-PHASE %s\nMigration: migration-id\nDestination: cluster-id\n\nRESULT\n\nPhase: %s\n\nNEXT STEPS\n\n1. Inspect the migration's current state:\n\n   cluster-migrator migration status\n", strings.ToUpper(operation.name), operation.phase)
 						if stdout.String() != want {
 							t.Fatalf("stdout=%q, want %q", stdout.String(), want)
 						}
@@ -372,7 +378,6 @@ func TestMigrationTransitionsRequireAcknowledgement(t *testing.T) {
 		reason    string
 	}{
 		{"cutover-concurrency-groups", "--acknowledge-irreversible", "commitment freezes queue mappings and routing percentages and prevents reopening preparation"},
-		{"complete", "--finalize-blocked-builds", "completion includes blocked-build finalization; pass this flag to acknowledge before requesting completion"},
 	} {
 		for _, flags := range [][]string{nil, {test.flag + "=false", "--json"}} {
 			t.Run(test.operation+strings.Join(flags, " "), func(t *testing.T) {
@@ -384,13 +389,30 @@ func TestMigrationTransitionsRequireAcknowledgement(t *testing.T) {
 				}))
 				defer server.Close()
 				var stdout, stderr bytes.Buffer
-				args := append([]string{"--endpoint", server.URL, "migration", test.operation}, flags...)
+				args := append([]string{"--endpoint", server.URL, "migration", "set-phase", test.operation}, flags...)
 				err := Run(context.Background(), args, &stdout, &stderr, organizationClient(server.Client()))
-				want := fmt.Sprintf("migration %s: requires %s: %s", test.operation, test.flag, test.reason)
+				want := fmt.Sprintf("migration set-phase %s: requires %s: %s", test.operation, test.flag, test.reason)
 				if err == nil || err.Error() != want || stdout.Len() != 0 || stderr.Len() != 0 {
 					t.Fatalf("error=%v stdout=%q stderr=%q, want %q and empty output", err, stdout.String(), stderr.String(), want)
 				}
 			})
 		}
+	}
+}
+
+func TestMigrationRejectsRemovedSyntax(t *testing.T) {
+	for _, args := range [][]string{
+		{"complete", "--finalize-blocked-builds"},
+		{"set-phase", "complete", "--finalize-blocked-builds"},
+		{"set-phase", "cutover-pipelines"},
+		{"set-phase", "unknown"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			err := Run(context.Background(), append([]string{"migration"}, args...), &stdout, &stderr, organizationClient(&http.Client{}))
+			if err == nil || stdout.Len() != 0 || stderr.Len() == 0 {
+				t.Fatalf("error=%v stdout=%q stderr=%q, want a parser error and empty stdout", err, stdout.String(), stderr.String())
+			}
+		})
 	}
 }

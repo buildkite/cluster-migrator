@@ -82,7 +82,7 @@ cluster-migrator queue configure test
 
 Configuration does not route traffic. Scale the destination agents before raising the percentage.
 
-Queue configuration inherits the organization's fixed destination; `--destination-cluster` is not accepted. Configuration and percentage edits, including previews and same-percentage requests, require preparation. During validation, first run `cluster-migrator migration prepare-queues`; configure or adjust routing, then run `cluster-migrator migration validate-queues` again. After commitment, recover forward instead of trying to reopen preparation.
+Queue configuration inherits the organization's fixed destination; `--destination-cluster` is not accepted. Configuration and percentage edits, including previews and same-percentage requests, require preparation. During validation, first run `cluster-migrator migration set-phase prepare-queues`; configure or adjust routing, then run `cluster-migrator migration set-phase validate-queues` again. After commitment, recover forward instead of trying to reopen preparation.
 
 A missing organization migration means enrollment and its destination must be configured by Buildkite. A missing cluster queue migration means that queue has no mapping yet; `queue configure <queue>` creates it during preparation. Creating a queue mapping does not enroll the organization or choose a destination.
 
@@ -218,13 +218,17 @@ the server error on stderr.
 
 ### Queue validation for configured organizations
 
+All phase transitions are grouped under `migration set-phase <phase>`. Phase
+names use hyphens in commands and underscores in API responses. The server still
+enforces the allowed transition order and readiness checks.
+
 The queue-validation APIs add an explicit, reversible preparation loop. They must
 be deployed and enabled before using these commands. Configuration does not
 enable server-side enrollment protections or authorize later transitions.
 
 ```shell
 cluster-migrator migration status
-cluster-migrator migration validate-queues
+cluster-migrator migration set-phase validate-queues
 ```
 
 Validation rejects unmapped source queues in new builds, dynamic uploads,
@@ -236,9 +240,9 @@ switches concurrency authority for an enrolled organization.
 To repair missing mappings or change routing, explicitly return to preparation:
 
 ```shell
-cluster-migrator migration prepare-queues
+cluster-migrator migration set-phase prepare-queues
 # Configure missing mappings or adjust routing, then validate again.
-cluster-migrator migration validate-queues
+cluster-migrator migration set-phase validate-queues
 ```
 
 Returning to preparation admits unmapped source queues again. It does not move
@@ -263,7 +267,7 @@ commitment, guidance covers concurrency-group progress and coordinating pipeline
 moves with Buildkite, not reopening preparation. Status for completed migrations
 has no next-step section. JSON output does not include this guidance.
 
-### Request commitment, pipeline cutover, and completion
+### Request commitment, pipeline migration, and completion
 
 These commands require companion server endpoints and implemented readiness
 checks before operational use. The companion server contract rejects otherwise
@@ -275,24 +279,27 @@ When those server checks are implemented and Buildkite authorizes proceeding,
 request each transition separately:
 
 ```shell
-cluster-migrator migration cutover-concurrency-groups --acknowledge-irreversible
+cluster-migrator migration set-phase cutover-concurrency-groups --acknowledge-irreversible
 # Inspect current state before requesting any subsequent transition.
 cluster-migrator migration status
-cluster-migrator migration cutover-pipelines
+cluster-migrator migration set-phase migrate-pipelines
 cluster-migrator migration status
-cluster-migrator migration complete --finalize-blocked-builds
+cluster-migrator migration set-phase complete
 ```
 
 Concurrency-group commitment freezes queue mappings and routing percentages and
 prevents returning to preparation. Without `--acknowledge-irreversible`, the CLI
 fails without a transition request and explains these consequences.
 
-Completion includes blocked-build finalization. The CLI requires
-`migration complete --finalize-blocked-builds` to acknowledge that consequence;
-omitting the flag or setting it to false fails without a transition request.
-Both flags are client-side acknowledgements only. Neither is sent to or verified
-by the server: calling an endpoint requests its action. The server still enforces
-phase, readiness, and permissions.
+Entering `migrate-pipelines` does not move pipelines or finalize builds. Pipeline
+moves remain separate operations. Completion does not finalize blocked builds:
+all unclustered builds must already be terminal before completion can proceed.
+Standalone blocked-build finalization is not yet exposed by this CLI.
+
+`--acknowledge-irreversible` is a client-side acknowledgement only. It is not sent
+to or verified by the server: calling an endpoint requests its action. The server
+still enforces phase, readiness, and permissions. Completion accepts no
+`--finalize-blocked-builds` flag.
 
 All three commands use the token's organization and its configured migration;
 they accept neither a destination override nor a migration UUID. They require
@@ -301,14 +308,14 @@ destination cluster.
 
 All three POST requests have no body and no `Content-Type` header:
 
-| Command | Target phase |
-| --- | --- |
-| `migration cutover-concurrency-groups --acknowledge-irreversible` | `cutover_concurrency_groups` |
-| `migration cutover-pipelines` | `migrate_pipelines` |
-| `migration complete --finalize-blocked-builds` | `complete` |
+| Command | API operation | Target phase |
+| --- | --- | --- |
+| `migration set-phase cutover-concurrency-groups --acknowledge-irreversible` | `cutover-concurrency-groups` | `cutover_concurrency_groups` |
+| `migration set-phase migrate-pipelines` | `cutover-pipelines` | `migrate_pipelines` |
+| `migration set-phase complete` | `complete` | `complete` |
 
 There is no read-only preview endpoint, so all three reject `--dry-run` without
-mutation requests, including when acknowledgement or finalization flags are set.
+mutation requests, including when the acknowledgement flag is set.
 On HTTP 200, human output reports the returned phase and directs you to
 `migration status`; `--json` returns only the API migration object. A successful
 POST is not proof that all background work has finished. A client timeout does
@@ -320,11 +327,11 @@ stderr, including HTTP 404, 409, 422, and 503 responses.
 | --- | --- |
 | `migration configure --destination-cluster <cluster>` | Create the organization's migration with a fixed destination in queue preparation, when server-side enrollment is available. |
 | `migration status` | Show the organization's configured migration and phase. |
-| `migration validate-queues` | Reject unmapped source queues and freeze queue configuration without changing concurrency authority. |
-| `migration prepare-queues` | Explicitly return from validation to editable preparation and reopen unmapped-source-queue admission. |
-| `migration cutover-concurrency-groups --acknowledge-irreversible` | Request irreversible commitment, subject to server readiness checks. |
-| `migration cutover-pipelines` | Request organization-wide pipeline cutover, subject to server readiness checks. |
-| `migration complete --finalize-blocked-builds` | Request completion, acknowledging that it includes blocked-build finalization. |
+| `migration set-phase validate-queues` | Reject unmapped source queues and freeze queue configuration without changing concurrency authority. |
+| `migration set-phase prepare-queues` | Explicitly return from validation to editable preparation and reopen unmapped-source-queue admission. |
+| `migration set-phase cutover-concurrency-groups --acknowledge-irreversible` | Request irreversible commitment, subject to server readiness checks. |
+| `migration set-phase migrate-pipelines` | Enter the pipeline-migration phase without moving pipelines or finalizing builds. |
+| `migration set-phase complete` | Request completion after all unclustered builds are terminal; does not finalize blocked builds. |
 | `queue configure <queue>` | During preparation, map a source queue to an existing queue in the organization's fixed destination at 0%. |
 | `queue status [queue]` | Show one queue migration or list all migrations. |
 | `queue set-percent <queue> --to <0-100>` | Set the absolute percentage of new jobs routed to the cluster queue. |
