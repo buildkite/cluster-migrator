@@ -21,7 +21,7 @@ func requireQueuePreparation(app *Context) (*buildkite.Migration, error) {
 	case "prepare_queues":
 		return migration, nil
 	case "validate_queues":
-		return nil, fmt.Errorf("queue edits are frozen during validation; run cluster-migrator migration prepare-queues before editing, then cluster-migrator migration validate-queues to validate again")
+		return nil, fmt.Errorf("queue edits are frozen during validation; run cluster-migrator migration set-phase prepare-queues before editing, then cluster-migrator migration set-phase validate-queues to validate again")
 	default:
 		return nil, fmt.Errorf("queue edits require preparation and cannot reopen it after commitment; use cluster-migrator migration status to inspect progress and recover forward")
 	}

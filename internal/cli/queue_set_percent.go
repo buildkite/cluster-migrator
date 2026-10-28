@@ -66,7 +66,7 @@ func queueRoutingNextSteps(queue string, percent int) string {
 	case 0:
 		return fmt.Sprintf("1. Scale the destination infrastructure.\n\n2. Once ready, begin routing:\n\n   cluster-migrator queue set-percent %s --to <percentage>", queue)
 	case 100:
-		return "1. Once all queue mappings are prepared, test representative workloads during validation:\n\n   cluster-migrator migration validate-queues\n\n2. Inspect the organization migration before further operations:\n\n   cluster-migrator migration status"
+		return "1. Once all queue mappings are prepared, test representative workloads during validation:\n\n   cluster-migrator migration set-phase validate-queues\n\n2. Inspect the organization migration before further operations:\n\n   cluster-migrator migration status"
 	default:
 		return fmt.Sprintf("1. Review destination activity:\n\n   cluster-migrator queue metrics %s\n\n2. When ready, increase routing:\n\n   cluster-migrator queue set-percent %s --to <percentage>", queue, queue)
 	}

@@ -10,13 +10,17 @@ import (
 )
 
 type MigrationCmd struct {
-	Configure                MigrationConfigureCmd                `cmd:"" help:"Configure the organization's fixed migration destination."`
-	Status                   MigrationStatusCmd                   `cmd:"" help:"Show the organization's configured migration and phase."`
+	Configure MigrationConfigureCmd `cmd:"" help:"Configure the organization's fixed migration destination."`
+	Status    MigrationStatusCmd    `cmd:"" help:"Show the organization's configured migration and phase."`
+	SetPhase  MigrationSetPhaseCmd  `cmd:"" help:"Request a migration phase transition, subject to server readiness checks."`
+}
+
+type MigrationSetPhaseCmd struct {
 	ValidateQueues           MigrationValidateQueuesCmd           `cmd:"" help:"Reject unmapped source queues and freeze queue configuration."`
 	PrepareQueues            MigrationPrepareQueuesCmd            `cmd:"" help:"Return from validation to editable queue preparation."`
 	CutoverConcurrencyGroups MigrationCutoverConcurrencyGroupsCmd `cmd:"" help:"Request irreversible concurrency-group commitment."`
-	CutoverPipelines         MigrationCutoverPipelinesCmd         `cmd:"" help:"Request organization-wide pipeline cutover."`
-	Complete                 MigrationCompleteCmd                 `cmd:"" help:"Request migration completion."`
+	MigratePipelines         MigrationMigratePipelinesCmd         `cmd:"" help:"Enter the pipeline-migration phase without moving pipelines."`
+	Complete                 MigrationCompleteCmd                 `cmd:"" help:"Request completion without finalizing blocked builds."`
 }
 
 type MigrationConfigureCmd struct {
@@ -81,7 +85,7 @@ type MigrationCutoverConcurrencyGroupsCmd struct {
 }
 
 func (cmd *MigrationCutoverConcurrencyGroupsCmd) Run(app *Context) error {
-	return runMigrationTransition(app, "cutover-concurrency-groups", func() (*buildkite.Migration, error) {
+	return runMigrationTransition(app, "set-phase cutover-concurrency-groups", func() (*buildkite.Migration, error) {
 		if !cmd.AcknowledgeIrreversible {
 			return nil, fmt.Errorf("requires --acknowledge-irreversible: commitment freezes queue mappings and routing percentages and prevents reopening preparation")
 		}
@@ -89,23 +93,18 @@ func (cmd *MigrationCutoverConcurrencyGroupsCmd) Run(app *Context) error {
 	})
 }
 
-type MigrationCutoverPipelinesCmd struct{}
+type MigrationMigratePipelinesCmd struct{}
 
-func (cmd *MigrationCutoverPipelinesCmd) Run(app *Context) error {
-	return runMigrationTransition(app, "cutover-pipelines", func() (*buildkite.Migration, error) {
+func (cmd *MigrationMigratePipelinesCmd) Run(app *Context) error {
+	return runMigrationTransition(app, "set-phase migrate-pipelines", func() (*buildkite.Migration, error) {
 		return app.Client.CutoverPipelines(app.Context)
 	})
 }
 
-type MigrationCompleteCmd struct {
-	FinalizeBlockedBuilds bool `help:"Acknowledge that completion includes blocked-build finalization."`
-}
+type MigrationCompleteCmd struct{}
 
 func (cmd *MigrationCompleteCmd) Run(app *Context) error {
-	return runMigrationTransition(app, "complete", func() (*buildkite.Migration, error) {
-		if !cmd.FinalizeBlockedBuilds {
-			return nil, fmt.Errorf("requires --finalize-blocked-builds: completion includes blocked-build finalization; pass this flag to acknowledge before requesting completion")
-		}
+	return runMigrationTransition(app, "set-phase complete", func() (*buildkite.Migration, error) {
 		return app.Client.CompleteMigration(app.Context)
 	})
 }
@@ -130,7 +129,7 @@ func runMigrationTransition(app *Context, operation string, transition func() (*
 func changeQueuePhase(app *Context, operation string) error {
 	// There is no read-only readiness endpoint for these operations.
 	if app.DryRun {
-		return fmt.Errorf("migration %s does not support --dry-run: the server has no read-only readiness endpoint; use cluster-migrator migration status to inspect the current phase", operation)
+		return fmt.Errorf("migration set-phase %s does not support --dry-run: the server has no read-only readiness endpoint; use cluster-migrator migration status to inspect the current phase", operation)
 	}
 
 	var migration *buildkite.Migration
@@ -141,7 +140,7 @@ func changeQueuePhase(app *Context, operation string) error {
 		migration, err = app.Client.ValidateQueues(app.Context)
 	}
 	if err != nil {
-		return fmt.Errorf("migration %s: %w", operation, err)
+		return fmt.Errorf("migration set-phase %s: %w", operation, err)
 	}
 	if app.JSON {
 		return app.Print(migration)
@@ -150,7 +149,7 @@ func changeQueuePhase(app *Context, operation string) error {
 	if operation == "prepare-queues" {
 		result = "Queue preparation reopened. Queue mappings and routing percentages can be changed; unmapped source queues are admitted again."
 	}
-	if _, err := fmt.Fprintf(app.Output, "MIGRATION %s\nMigration: %s\nDestination: %s\n\nRESULT\n\n%s\nConcurrency authority is unchanged.\n", strings.ToUpper(operation), migration.ID, migration.DestinationClusterID, result); err != nil {
+	if _, err := fmt.Fprintf(app.Output, "MIGRATION SET-PHASE %s\nMigration: %s\nDestination: %s\n\nRESULT\n\n%s\nConcurrency authority is unchanged.\n", strings.ToUpper(operation), migration.ID, migration.DestinationClusterID, result); err != nil {
 		return err
 	}
 	return app.printNextSteps(migrationNextSteps(migration.Phase))
@@ -162,13 +161,13 @@ func migrationNextSteps(phase string) []string {
 		return []string{
 			"Review queue mappings:\n\n   cluster-migrator queue status",
 			"Configure missing mappings and adjust routing while preparation is open.",
-			"Once the mappings are ready, start validation:\n\n   cluster-migrator migration validate-queues",
+			"Once the mappings are ready, start validation:\n\n   cluster-migrator migration set-phase validate-queues",
 		}
 	case "validate_queues":
 		return []string{
 			"Run representative workloads to check for unmapped source queues.",
-			"If you need to repair mappings or change routing, return to preparation first:\n\n   cluster-migrator migration prepare-queues",
-			"After making those changes, start validation again:\n\n   cluster-migrator migration validate-queues",
+			"If you need to repair mappings or change routing, return to preparation first:\n\n   cluster-migrator migration set-phase prepare-queues",
+			"After making those changes, start validation again:\n\n   cluster-migrator migration set-phase validate-queues",
 		}
 	case "cutover_concurrency_groups":
 		return []string{

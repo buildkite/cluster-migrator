@@ -122,14 +122,14 @@ func TestQueueEditsRejectFrozenOrMissingConfiguration(t *testing.T) {
 					wantError := "recover forward"
 					switch phase {
 					case "validate_queues":
-						wantError = "cluster-migrator migration prepare-queues"
+						wantError = "cluster-migrator migration set-phase prepare-queues"
 					case "missing":
 						wantError = "ask Buildkite to configure enrollment"
 					}
 					if err == nil || !strings.Contains(err.Error(), wantError) || stdout.Len() != 0 {
 						t.Fatalf("error=%v stdout=%q, want %q and empty stdout", err, stdout.String(), wantError)
 					}
-					if phase != "validate_queues" && err != nil && strings.Contains(err.Error(), "migration prepare-queues") {
+					if phase != "validate_queues" && err != nil && strings.Contains(err.Error(), "migration set-phase prepare-queues") {
 						t.Fatalf("unsafe preparation guidance: %v", err)
 					}
 				})

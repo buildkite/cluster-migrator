@@ -122,7 +122,7 @@ func TestQueueSetPercentToHundredPrintsValidationGuidance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "QUEUE SET-PERCENT\nQueue: test\nDestination: Cluster Migrator Demo\n\nRESULT\n\nRouting changed from 75% to 100%.\n\nNEXT STEPS\n\n1. Once all queue mappings are prepared, test representative workloads during validation:\n\n   cluster-migrator migration validate-queues\n\n2. Inspect the organization migration before further operations:\n\n   cluster-migrator migration status\n"
+	want := "QUEUE SET-PERCENT\nQueue: test\nDestination: Cluster Migrator Demo\n\nRESULT\n\nRouting changed from 75% to 100%.\n\nNEXT STEPS\n\n1. Once all queue mappings are prepared, test representative workloads during validation:\n\n   cluster-migrator migration set-phase validate-queues\n\n2. Inspect the organization migration before further operations:\n\n   cluster-migrator migration status\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
