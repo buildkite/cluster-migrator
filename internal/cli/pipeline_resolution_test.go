@@ -29,15 +29,14 @@ func TestPipelineCommandsInheritOrganizationMigrationDestination(t *testing.T) {
 	} {
 		for _, test := range []struct {
 			name      string
-			migration string
+			response  string
 			status    int
 			wantError string
 		}{
-			{name: "parent destination differs from defaults", migration: `{"destination_cluster_id":"parent-cluster"}`},
-			{name: "missing migration", status: http.StatusNotFound, migration: `{"message":"No migration found"}`, wantError: "migration configure --destination-cluster <cluster>"},
-			{name: "migration access denied", status: http.StatusForbidden, migration: `{"message":"Forbidden"}`, wantError: "check cluster-migrator migration status and API token access"},
-			{name: "missing destination", migration: `{}`, wantError: "has no destination_cluster_id"},
-			{name: "unresolvable destination", migration: `{"destination_cluster_id":"deleted-cluster"}`, wantError: `resolve organization migration destination "deleted-cluster"`},
+			{name: "parent destination differs from defaults"},
+			{name: "missing migration", status: http.StatusNotFound, response: `{"message":"Organization migration is not configured"}`, wantError: "migration configure --destination-cluster <cluster>"},
+			{name: "access denied", status: http.StatusForbidden, response: `{"message":"Forbidden"}`, wantError: "Buildkite API returned 403: Forbidden"},
+			{name: "unresolvable destination", status: http.StatusNotFound, response: `{"message":"Destination cluster not found"}`, wantError: "Buildkite API returned 404: Destination cluster not found"},
 		} {
 			t.Run(command.name+"/"+test.name, func(t *testing.T) {
 				t.Setenv("BUILDKITE_API_TOKEN", "secret")
@@ -52,20 +51,22 @@ func TestPipelineCommandsInheritOrganizationMigrationDestination(t *testing.T) {
 					case "/v2/organizations":
 						discoveries++
 						_, _ = fmt.Fprint(w, `[{"slug":"acme","default_cluster_id":"default-cluster"}]`)
-					case "/v2/organizations/acme/unclustered-to-clustered-migration":
-						if test.status != 0 {
-							w.WriteHeader(test.status)
-						}
-						_, _ = fmt.Fprint(w, test.migration)
-					case "/v2/organizations/acme/clusters":
-						_, _ = fmt.Fprint(w, `[{"id":"default-cluster","name":"Default"},{"id":"pipeline-cluster","name":"Pipeline"},{"id":"parent-cluster","name":"Parent destination"}]`)
-					case "/v2/organizations/acme/pipelines/demo-pipeline":
-						_, _ = fmt.Fprint(w, `{"slug":"demo-pipeline","cluster_id":"pipeline-cluster"}`)
+					case "/v2/organizations/acme/unclustered-to-clustered-migration", "/v2/organizations/acme/clusters":
+						t.Error("pipeline commands must not preflight migration status or clusters")
+						w.WriteHeader(http.StatusForbidden)
+						_, _ = fmt.Fprint(w, `{"message":"Forbidden"}`)
+					case "/v2/organizations/acme/pipelines":
+						_, _ = fmt.Fprint(w, `[{"name":"demo-pipeline","slug":"demo-pipeline","cluster_id":"pipeline-cluster"}]`)
 					case "/v2/organizations/acme/cluster-queue-migrations/pipelines/demo-pipeline/readiness", "/v2/organizations/acme/cluster-queue-migrations/pipelines/demo-pipeline/move":
 						operations++
 						body, err := io.ReadAll(r.Body)
 						if err != nil || len(body) != 0 || r.URL.RawQuery != "" {
 							t.Errorf("unexpected operation inputs: body = %q, query = %q, error = %v", body, r.URL.RawQuery, err)
+						}
+						if test.status != 0 {
+							w.WriteHeader(test.status)
+							_, _ = fmt.Fprint(w, test.response)
+							return
 						}
 						if strings.HasSuffix(r.URL.Path, "/move") {
 							_, _ = fmt.Fprint(w, `{"slug":"demo-pipeline","cluster_id":"parent-cluster"}`)
@@ -88,8 +89,14 @@ func TestPipelineCommandsInheritOrganizationMigrationDestination(t *testing.T) {
 					if err == nil || !strings.Contains(err.Error(), test.wantError) {
 						t.Fatalf("error = %v, want %q", err, test.wantError)
 					}
-					if operations != 0 || posts != 0 || stdout.Len() != 0 {
-						t.Fatalf("failed preflight: operations = %d, posts = %d, stdout = %q", operations, posts, stdout.String())
+					if stdout.Len() != 0 {
+						t.Fatalf("rejected operation stdout = %q", stdout.String())
+					}
+					if command.name != "move" && posts != 0 {
+						t.Fatalf("read-only operation sent %d POSTs", posts)
+					}
+					if test.name == "missing migration" && operations != 1 {
+						t.Fatalf("missing migration should not retry pipeline discovery: operations = %d", operations)
 					}
 					return
 				}
@@ -103,11 +110,7 @@ func TestPipelineCommandsInheritOrganizationMigrationDestination(t *testing.T) {
 				if operations != 1 || posts != wantPosts {
 					t.Fatalf("operations/posts = %d/%d, want 1/%d", operations, posts, wantPosts)
 				}
-				wantDestination := "Parent destination"
-				if command.name == "readiness" {
-					wantDestination = "parent-cluster"
-				}
-				if !strings.Contains(stdout.String(), "Destination: "+wantDestination+"\n") || stderr.Len() != 0 {
+				if !strings.Contains(stdout.String(), "Destination: parent-cluster\n") || stderr.Len() != 0 {
 					t.Fatalf("stdout = %q, stderr = %q", stdout.String(), stderr.String())
 				}
 			})
@@ -121,6 +124,8 @@ func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 		identifier  string
 		method      string
 		response    string
+		status      int
+		wantError   string
 		run         func(*Context) error
 		wantLookups int
 		wantName    string
@@ -171,6 +176,20 @@ func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 			wantRuns:    2,
 		},
 		{
+			name:       "missing migration after ID resolution",
+			identifier: testPipelineID,
+			method:     http.MethodPost,
+			pathSuffix: "/move",
+			response:   `{"message":"Organization migration is not configured"}`,
+			status:     http.StatusNotFound,
+			wantError:  "migration configure --destination-cluster <cluster>",
+			run: func(app *Context) error {
+				return (&PipelineMoveCmd{Pipeline: testPipelineID}).Run(app)
+			},
+			wantLookups: 1,
+			wantRuns:    2,
+		},
+		{
 			name:       "move slug",
 			identifier: "demo-pipeline",
 			method:     http.MethodPatch,
@@ -205,10 +224,6 @@ func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				switch {
-				case r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered-migration":
-					_, _ = w.Write([]byte(`{"destination_cluster_id":"cluster-id"}`))
-				case r.URL.Path == "/v2/organizations/acme/clusters":
-					_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
 				case r.URL.Path == "/v2/organizations/acme/pipelines":
 					nameLookups++
 					if got := r.URL.Query().Get("name"); got != test.wantName {
@@ -225,6 +240,9 @@ func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 						_, _ = w.Write([]byte(`{"message":"No pipeline found"}`))
 						return
 					}
+					if test.status != 0 {
+						w.WriteHeader(test.status)
+					}
 					_, _ = w.Write([]byte(test.response))
 				default:
 					t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
@@ -237,7 +255,12 @@ func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 				t.Fatal(err)
 			}
 			app := Context{Context: context.Background(), Client: client, Output: &bytes.Buffer{}, ErrorOutput: &bytes.Buffer{}}
-			if err := test.run(&app); err != nil {
+			err = test.run(&app)
+			if test.wantError != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantError) {
+					t.Fatalf("error = %v, want %q", err, test.wantError)
+				}
+			} else if err != nil {
 				t.Fatal(err)
 			}
 			if nameLookups != test.wantLookups {

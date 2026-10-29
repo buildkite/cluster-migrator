@@ -32,7 +32,7 @@ func TestMovePipeline(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pipeline, err := client.MovePipeline(context.Background(), "monorepo", "cluster-id")
+	pipeline, err := client.MovePipeline(context.Background(), "monorepo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,39 +41,18 @@ func TestMovePipeline(t *testing.T) {
 	}
 }
 
-func TestMovePipelineRejectsUnexpectedDestination(t *testing.T) {
-	tests := []struct {
-		name      string
-		response  string
-		wantError string
-	}{
-		{
-			name:      "missing cluster ID",
-			response:  `{"slug":"monorepo"}`,
-			wantError: `move pipeline response cluster_id "" does not match destination "cluster-id"`,
-		},
-		{
-			name:      "mismatched cluster ID",
-			response:  `{"slug":"monorepo","cluster_id":"other-cluster"}`,
-			wantError: `move pipeline response cluster_id "other-cluster" does not match destination "cluster-id"`,
-		},
+func TestMovePipelineRejectsMissingDestination(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"slug":"monorepo"}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "acme", "secret", server.Client())
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(test.response))
-			}))
-			defer server.Close()
-
-			client, err := NewClient(server.URL, "acme", "secret", server.Client())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := client.MovePipeline(context.Background(), "monorepo", "cluster-id"); err == nil || err.Error() != test.wantError {
-				t.Fatalf("error = %v, want %q", err, test.wantError)
-			}
-		})
+	if _, err := client.MovePipeline(context.Background(), "monorepo"); err == nil || err.Error() != "move pipeline response missing cluster_id" {
+		t.Fatalf("error = %v, want missing cluster_id", err)
 	}
 }

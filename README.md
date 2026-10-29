@@ -168,7 +168,7 @@ After all queues used by a pipeline reach 100%, check its known blockers:
 cluster-migrator pipeline readiness monorepo
 ```
 
-Readiness and moves, including dry runs, use the organization's fixed migration destination. They do not accept `--destination-cluster` and never infer a destination from the pipeline or organization default. If no migration is configured, run `cluster-migrator migration configure --destination-cluster <cluster>` first. The CLI checks that the configured destination can be resolved before assessing or moving the pipeline; the server resolves it again when handling the request.
+Readiness and moves, including dry runs, use the organization's fixed migration destination. They do not accept `--destination-cluster` and never infer a destination from the pipeline or organization default. The server resolves the configured destination and rejects missing configuration or an inaccessible destination. If no migration is configured, an organization administrator must run `cluster-migrator migration configure --destination-cluster <cluster>` first. The CLI displays the destination ID returned by readiness or move; it does not read migration status or resolve clusters before either command.
 
 The assessment reports queue blockers, active source jobs, concurrency-group blockers, observation windows, and when the observations can refresh. A `no_known_blockers` result is not proof of readiness: incomplete observation windows may omit dependencies.
 

@@ -20,14 +20,14 @@ func TestPipelineMovePrintsResult(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := "PIPELINE MOVE\nPipeline: Demo Pipeline (demo-pipeline)\nDestination: Production\n\nRESULT\n\nPipeline moved to the Production cluster.\n"
+	want := "PIPELINE MOVE\nPipeline: Demo Pipeline (demo-pipeline)\nDestination: cluster-id\n\nRESULT\n\nPipeline moved to the cluster-id cluster.\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("stdout = %q, want %q", got, want)
 	}
 	if got := stderr.String(); got != "" {
 		t.Fatalf("stderr = %q, want empty", got)
 	}
-	if got := strings.Join(*requests, "\n"); got != "GET /v2/organizations/acme/unclustered-to-clustered/migration\nGET /v2/organizations/acme/clusters?per_page=100\nPATCH /v2/organizations/acme/unclustered-to-clustered/migration/pipelines/demo-pipeline" {
+	if got := strings.Join(*requests, "\n"); got != "PATCH /v2/organizations/acme/unclustered-to-clustered/migration/pipelines/demo-pipeline" {
 		t.Fatalf("requests = %q", got)
 	}
 }
@@ -47,7 +47,7 @@ func TestPipelineMoveJSONPreservesAPIResponse(t *testing.T) {
 	if got := stderr.String(); got != "" {
 		t.Fatalf("stderr = %q, want empty", got)
 	}
-	if got := strings.Join(*requests, "\n"); got != "GET /v2/organizations/acme/unclustered-to-clustered/migration\nGET /v2/organizations/acme/clusters?per_page=100\nPATCH /v2/organizations/acme/unclustered-to-clustered/migration/pipelines/demo-pipeline" {
+	if got := strings.Join(*requests, "\n"); got != "PATCH /v2/organizations/acme/unclustered-to-clustered/migration/pipelines/demo-pipeline" {
 		t.Fatalf("requests = %q", got)
 	}
 }
@@ -59,7 +59,7 @@ func TestPipelineMoveFallsBackToSlugWhenNameMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "PIPELINE MOVE\nPipeline: demo-pipeline\nDestination: Production\n\nRESULT\n\nPipeline moved to the Production cluster.\n"
+	want := "PIPELINE MOVE\nPipeline: demo-pipeline\nDestination: cluster-id\n\nRESULT\n\nPipeline moved to the cluster-id cluster.\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("stdout = %q, want %q", got, want)
 	}
@@ -72,10 +72,6 @@ func pipelineMoveTestContext(t *testing.T, jsonOutput bool, moveResponse string)
 		requests = append(requests, r.Method+" "+r.URL.RequestURI())
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/v2/organizations/acme/unclustered-to-clustered-migration":
-			_, _ = fmt.Fprint(w, `{"destination_cluster_id":"cluster-id"}`)
-		case "/v2/organizations/acme/clusters":
-			_, _ = fmt.Fprint(w, `[{"id":"cluster-id","name":"Production"}]`)
 		case "/v2/organizations/acme/unclustered-to-clustered/migration/pipelines/demo-pipeline":
 			_, _ = fmt.Fprint(w, moveResponse)
 		default:

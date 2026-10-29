@@ -18,9 +18,6 @@ type PipelineReadinessCmd struct {
 }
 
 func (cmd *PipelineReadinessCmd) Run(app *Context) error {
-	if _, err := resolvePipelineDestination(app); err != nil {
-		return err
-	}
 	readiness, err := getPipelineReadinessForPipeline(app, cmd.Pipeline)
 	if err != nil {
 		return err

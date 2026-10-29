@@ -230,10 +230,6 @@ func TestPipelineReadinessRetriesPendingObservationBeforePrinting(t *testing.T) 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/v2/organizations/acme/unclustered-to-clustered-migration":
-			_, _ = w.Write([]byte(`{"destination_cluster_id":"cluster-id"}`))
-		case "/v2/organizations/acme/clusters":
-			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
 		case "/v2/organizations/acme/unclustered-to-clustered/migration/pipelines/monorepo":
 			readinessRequests++
 			if readinessRequests < 3 {
@@ -291,13 +287,8 @@ func TestPipelineReadinessRetriesPendingObservationBeforePrinting(t *testing.T) 
 func TestPipelineReadinessPrintsBlockedAssessmentThenFails(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered-migration" {
-			_, _ = w.Write([]byte(`{"destination_cluster_id":"cluster-id"}`))
-			return
-		}
-		if r.URL.Path == "/v2/organizations/acme/clusters" {
-			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
-			return
+		if r.URL.Path != "/v2/organizations/acme/cluster-queue-migrations/pipelines/monorepo/readiness" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL)
 		}
 		_, _ = w.Write([]byte(`{"pipeline":"monorepo","destination_cluster_id":"cluster-id","status":"blocked","queue_observation":{"next_refresh_at":"2026-09-01T07:01:00Z","blocking_queues":[{"queue":"deploy","reasons":["active_source_jobs"],"routed_percent":100,"active_source_jobs":1}]},"concurrency_group_observation":{"next_refresh_at":"2026-09-01T07:01:00Z","blocking_concurrency_groups":[]}}`))
 	}))
@@ -338,12 +329,8 @@ func TestPipelineMoveDryRunRequiresNoKnownBlockers(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/v2/organizations/acme/unclustered-to-clustered-migration":
-			_, _ = w.Write([]byte(`{"destination_cluster_id":"cluster-id"}`))
-		case "/v2/organizations/acme/clusters":
-			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
 		case "/v2/organizations/acme/unclustered-to-clustered/migration/pipelines/monorepo":
-			_, _ = w.Write([]byte(`{"status":"no_known_blockers","queue_observation":{"next_refresh_at":"2026-09-01T07:01:00Z","blocking_queues":[]},"concurrency_group_observation":{"next_refresh_at":"2026-09-01T07:01:00Z","blocking_concurrency_groups":[]}}`))
+			_, _ = w.Write([]byte(`{"destination_cluster_id":"cluster-id","status":"no_known_blockers","queue_observation":{"next_refresh_at":"2026-09-01T07:01:00Z","blocking_queues":[]},"concurrency_group_observation":{"next_refresh_at":"2026-09-01T07:01:00Z","blocking_concurrency_groups":[]}}`))
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
@@ -360,7 +347,7 @@ func TestPipelineMoveDryRunRequiresNoKnownBlockers(t *testing.T) {
 	if err := (&PipelineMoveCmd{Pipeline: "monorepo"}).Run(&app); err != nil {
 		t.Fatal(err)
 	}
-	want := "PIPELINE MOVE (DRY RUN)\nPipeline: monorepo\nDestination: production\n\nREADINESS\n\nNo known blockers. This is not proof of readiness.\n\nPROPOSED CHANGE\n\nThe pipeline would move to the production cluster.\n"
+	want := "PIPELINE MOVE (DRY RUN)\nPipeline: monorepo\nDestination: cluster-id\n\nREADINESS\n\nNo known blockers. This is not proof of readiness.\n\nPROPOSED CHANGE\n\nThe pipeline would move to the cluster-id cluster.\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("stdout = %q, want %q", got, want)
 	}
@@ -370,10 +357,6 @@ func TestPipelineMoveDryRunReportsConcurrencyGroupBlockers(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/v2/organizations/acme/unclustered-to-clustered-migration":
-			_, _ = w.Write([]byte(`{"destination_cluster_id":"cluster-id"}`))
-		case "/v2/organizations/acme/clusters":
-			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
 		case "/v2/organizations/acme/unclustered-to-clustered/migration/pipelines/monorepo":
 			_, _ = w.Write([]byte(`{"status":"blocked","queue_observation":{"next_refresh_at":"2026-09-01T07:01:00Z","blocking_queues":[]},"concurrency_group_observation":{"next_refresh_at":"2026-09-01T07:01:00Z","blocking_concurrency_groups":[{"scope":"custom","key":"deploy","reasons":["migration_missing"]}]}}`))
 		default:
@@ -413,10 +396,6 @@ func TestPipelineMoveDryRunReportsQueueBlockers(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/v2/organizations/acme/unclustered-to-clustered-migration":
-			_, _ = w.Write([]byte(`{"destination_cluster_id":"cluster-id"}`))
-		case "/v2/organizations/acme/clusters":
-			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
 		case "/v2/organizations/acme/unclustered-to-clustered/migration/pipelines/monorepo":
 			_, _ = w.Write([]byte(`{"status":"blocked","queue_observation":{"next_refresh_at":"2026-09-01T07:01:00Z","blocking_queues":[{"queue":"deploy","reasons":["routing_incomplete","active_source_jobs"],"routed_percent":80,"active_source_jobs":2}]},"concurrency_group_observation":{"next_refresh_at":"2026-09-01T07:01:00Z","blocking_concurrency_groups":[]}}`))
 		default:
@@ -471,13 +450,8 @@ func TestPipelineMoveDryRunPrintsBlockedReadinessUnderMoveHeading(t *testing.T) 
 func TestPipelineReadinessRejectsInvalidRetryInterval(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered-migration" {
-			_, _ = w.Write([]byte(`{"destination_cluster_id":"cluster-id"}`))
-			return
-		}
-		if r.URL.Path == "/v2/organizations/acme/clusters" {
-			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
-			return
+		if r.URL.Path != "/v2/organizations/acme/cluster-queue-migrations/pipelines/monorepo/readiness" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL)
 		}
 		_, _ = fmt.Fprint(w, `{"status":"observation_pending","retry_after_seconds":0}`)
 	}))
