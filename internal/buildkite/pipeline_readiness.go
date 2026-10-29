@@ -18,6 +18,9 @@ func (c *Client) GetPipelineReadiness(ctx context.Context, pipeline string) (*Pi
 	if result.Status != PipelineReadinessBlocked && result.Status != PipelineReadinessNoKnownBlockers {
 		return &result, nil
 	}
+	if result.DestinationClusterID == "" {
+		return nil, errors.New("pipeline readiness response missing required destination_cluster_id")
+	}
 	if result.QueueObservation.NextRefreshAt == nil {
 		return nil, errors.New("pipeline readiness response missing required queue_observation.next_refresh_at")
 	}

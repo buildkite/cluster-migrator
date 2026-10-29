@@ -32,9 +32,9 @@ func runWithPipelineIdentifierFallback[T any](
 	if strings.Contains(apiError.Message, "migration is not configured") {
 		return result, fmt.Errorf("%w; run cluster-migrator migration configure --destination-cluster <cluster>", err)
 	}
-	slug, err := client.ResolvePipelineSlug(ctx, identifier)
-	if err != nil {
-		return result, err
+	slug, resolveErr := client.ResolvePipelineSlug(ctx, identifier)
+	if resolveErr != nil {
+		return result, fmt.Errorf("%w; resolve pipeline identifier: %v", err, resolveErr)
 	}
 	result, err = run(slug)
 	if errors.As(err, &apiError) && apiError.StatusCode == http.StatusNotFound && strings.Contains(apiError.Message, "migration is not configured") {

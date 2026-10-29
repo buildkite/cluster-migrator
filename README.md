@@ -9,9 +9,10 @@ All migration requests use `/v2/organizations/:organization/unclustered-to-clust
 The server must support this namespace; the CLI does not fall back to older routes.
 Organization status and phase actions use `/migration`, queue operations use
 `/queue-migrations`, and concurrency-group operations use `/concurrency-group-migrations`.
-Pipeline readiness uses `GET /migration/pipelines/:pipeline` with a
-`destination_cluster_id` query parameter. Pipeline moves use `PATCH` on the same
-path with a `cluster_id` JSON field, not the former `/readiness` and `/move` actions.
+Pipeline readiness uses `GET /migration/pipelines/:pipeline` without a destination
+query. Pipeline moves use `PATCH` on the same path without a body, not the former
+`/readiness` and `/move` actions. The server resolves the organization's fixed
+migration destination for both requests.
 
 ## How it works
 

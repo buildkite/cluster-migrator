@@ -16,7 +16,7 @@ import (
 
 const testPipelineID = "849411f9-9e6d-4739-a0d8-e247088e9b52"
 
-const testPipelineReadinessResponse = `{"status":"no_known_blockers","queue_observation":{"next_refresh_at":"2026-09-01T07:01:00Z"},"concurrency_group_observation":{"next_refresh_at":"2026-09-01T07:01:00Z"}}`
+const testPipelineReadinessResponse = `{"status":"no_known_blockers","destination_cluster_id":"parent-cluster","queue_observation":{"next_refresh_at":"2026-09-01T07:01:00Z"},"concurrency_group_observation":{"next_refresh_at":"2026-09-01T07:01:00Z"}}`
 
 func TestPipelineCommandsInheritOrganizationMigrationDestination(t *testing.T) {
 	for _, command := range []struct {
@@ -51,14 +51,21 @@ func TestPipelineCommandsInheritOrganizationMigrationDestination(t *testing.T) {
 					case "/v2/organizations":
 						discoveries++
 						_, _ = fmt.Fprint(w, `[{"slug":"acme","default_cluster_id":"default-cluster"}]`)
-					case "/v2/organizations/acme/unclustered-to-clustered-migration", "/v2/organizations/acme/clusters":
+					case "/v2/organizations/acme/unclustered-to-clustered/migration", "/v2/organizations/acme/clusters":
 						t.Error("pipeline commands must not preflight migration status or clusters")
 						w.WriteHeader(http.StatusForbidden)
 						_, _ = fmt.Fprint(w, `{"message":"Forbidden"}`)
 					case "/v2/organizations/acme/pipelines":
-						_, _ = fmt.Fprint(w, `[{"name":"demo-pipeline","slug":"demo-pipeline","cluster_id":"pipeline-cluster"}]`)
-					case "/v2/organizations/acme/cluster-queue-migrations/pipelines/demo-pipeline/readiness", "/v2/organizations/acme/cluster-queue-migrations/pipelines/demo-pipeline/move":
+						_, _ = fmt.Fprint(w, `[{"name":"Demo Pipeline","slug":"demo-pipeline","cluster_id":"pipeline-cluster"}]`)
+					case "/v2/organizations/acme/unclustered-to-clustered/migration/pipelines/demo-pipeline":
 						operations++
+						wantMethod := http.MethodGet
+						if command.name == "move" {
+							wantMethod = http.MethodPatch
+						}
+						if r.Method != wantMethod {
+							t.Errorf("method = %q, want %q", r.Method, wantMethod)
+						}
 						body, err := io.ReadAll(r.Body)
 						if err != nil || len(body) != 0 || r.URL.RawQuery != "" {
 							t.Errorf("unexpected operation inputs: body = %q, query = %q, error = %v", body, r.URL.RawQuery, err)
@@ -68,10 +75,10 @@ func TestPipelineCommandsInheritOrganizationMigrationDestination(t *testing.T) {
 							_, _ = fmt.Fprint(w, test.response)
 							return
 						}
-						if strings.HasSuffix(r.URL.Path, "/move") {
+						if r.Method == http.MethodPatch {
 							_, _ = fmt.Fprint(w, `{"slug":"demo-pipeline","cluster_id":"parent-cluster"}`)
 						} else {
-							_, _ = fmt.Fprint(w, strings.Replace(testPipelineReadinessResponse, `"status":`, `"pipeline":"demo-pipeline","destination_cluster_id":"parent-cluster","status":`, 1))
+							_, _ = fmt.Fprint(w, strings.Replace(testPipelineReadinessResponse, `"status":`, `"pipeline":"demo-pipeline","status":`, 1))
 						}
 					default:
 						t.Errorf("unexpected request: %s %s", r.Method, r.URL)
@@ -178,8 +185,7 @@ func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 		{
 			name:       "missing migration after ID resolution",
 			identifier: testPipelineID,
-			method:     http.MethodPost,
-			pathSuffix: "/move",
+			method:     http.MethodPatch,
 			response:   `{"message":"Organization migration is not configured"}`,
 			status:     http.StatusNotFound,
 			wantError:  "migration configure --destination-cluster <cluster>",
