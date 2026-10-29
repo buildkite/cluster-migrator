@@ -361,10 +361,31 @@ func TestParseErrorsPrintContextualUsage(t *testing.T) {
 		},
 		{
 			name:      "removed pipeline move wait flag",
-			args:      []string{"pipeline", "move", "monorepo", "--destination-cluster=production", "--wait"},
+			args:      []string{"pipeline", "move", "monorepo", "--wait"},
 			errorText: "cluster-migrator: unknown flag --wait",
-			usage:     "Usage: cluster-migrator pipeline move --destination-cluster=STRING <pipeline>",
+			usage:     "Usage: cluster-migrator pipeline move <pipeline>",
 			excludes:  "Wait until the pipeline reports",
+		},
+		{
+			name:      "removed pipeline readiness destination override",
+			args:      []string{"pipeline", "readiness", "monorepo", "--destination-cluster=production"},
+			errorText: "cluster-migrator: unknown flag --destination-cluster",
+			usage:     "Usage: cluster-migrator pipeline readiness <pipeline>",
+			excludes:  "Destination cluster name or ID.",
+		},
+		{
+			name:      "removed pipeline move destination override",
+			args:      []string{"pipeline", "move", "monorepo", "--destination-cluster=production"},
+			errorText: "cluster-migrator: unknown flag --destination-cluster",
+			usage:     "Usage: cluster-migrator pipeline move <pipeline>",
+			excludes:  "Destination cluster name or ID.",
+		},
+		{
+			name:      "removed pipeline dry run destination override",
+			args:      []string{"--dry-run", "pipeline", "move", "monorepo", "--destination-cluster=production"},
+			errorText: "cluster-migrator: unknown flag --destination-cluster",
+			usage:     "Usage: cluster-migrator pipeline move <pipeline>",
+			excludes:  "Destination cluster name or ID.",
 		},
 		{
 			name:      "removed queue destination override",

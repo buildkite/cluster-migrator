@@ -165,9 +165,10 @@ Concurrency-group migrations only move forward. Once a group routes to the clust
 After all queues used by a pipeline reach 100%, check its known blockers:
 
 ```shell
-cluster-migrator pipeline readiness monorepo \
-  --destination-cluster production
+cluster-migrator pipeline readiness monorepo
 ```
+
+Readiness and moves, including dry runs, use the organization's fixed migration destination. They do not accept `--destination-cluster` and never infer a destination from the pipeline or organization default. If no migration is configured, run `cluster-migrator migration configure --destination-cluster <cluster>` first. The CLI checks that the configured destination can be resolved before assessing or moving the pipeline; the server resolves it again when handling the request.
 
 The assessment reports queue blockers, active source jobs, concurrency-group blockers, observation windows, and when the observations can refresh. A `no_known_blockers` result is not proof of readiness: incomplete observation windows may omit dependencies.
 
@@ -180,15 +181,13 @@ After a pipeline moves, step uploads that target a queue missing from the destin
 Previewing a move runs the readiness assessment without changing the pipeline:
 
 ```shell
-cluster-migrator --dry-run pipeline move monorepo \
-  --destination-cluster production
+cluster-migrator --dry-run pipeline move monorepo
 ```
 
 Move the pipeline only after reviewing the assessment and your operational signals:
 
 ```shell
-cluster-migrator pipeline move monorepo \
-  --destination-cluster production
+cluster-migrator pipeline move monorepo
 ```
 
 The CLI has no pipeline rollback command. The server revalidates authoritative migration invariants when applying a move; an earlier `no_known_blockers` result is not authorization by itself.
@@ -346,8 +345,8 @@ stderr, including HTTP 404, 409, 422, and 503 responses.
 | `queue metrics <queue>` | Compare recent source and destination activity. |
 | `concurrency-group cutover <scope>/<key>` | Start holding, draining, and moving a concurrency group into the organization's fixed destination, or report why it can't start. `--dry-run` checks only the group's migration state. |
 | `concurrency-group status [<scope>/<key>]` | Show one concurrency-group migration's state and unclustered jobs, or list every migration. A group whose cutover hasn't started has no migration. |
-| `pipeline readiness <pipeline> --destination-cluster <cluster>` | Assess known queue and concurrency-group blockers. |
-| `pipeline move <pipeline> --destination-cluster <cluster>` | Permanently assign a pipeline to the cluster. |
+| `pipeline readiness <pipeline>` | Assess known queue and concurrency-group blockers for the organization's fixed migration destination. |
+| `pipeline move <pipeline>` | Permanently assign a pipeline to the organization's fixed migration destination. |
 
 Run `cluster-migrator <command> --help` for full usage.
 
@@ -372,8 +371,7 @@ Use `--json` in scripts:
 ```shell
 cluster-migrator --json queue status
 cluster-migrator --json queue metrics test
-cluster-migrator --json pipeline readiness monorepo \
-  --destination-cluster production
+cluster-migrator --json pipeline readiness monorepo
 ```
 
 JSON preserves the API's `null` metric and observation values. Terminal-only guidance is omitted.

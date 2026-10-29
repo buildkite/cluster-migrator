@@ -7,14 +7,13 @@ import (
 )
 
 type PipelineMoveCmd struct {
-	Pipeline           string `arg:"" help:"Pipeline ID, name, or slug."`
-	DestinationCluster string `name:"destination-cluster" required:"" help:"Destination cluster name or ID."`
+	Pipeline string `arg:"" help:"Pipeline ID, name, or slug."`
 }
 
 func (cmd *PipelineMoveCmd) Run(app *Context) error {
-	cluster, err := app.Client.ResolveCluster(app.Context, cmd.DestinationCluster)
+	cluster, err := resolvePipelineDestination(app)
 	if err != nil {
-		return fmt.Errorf("resolve destination cluster: %w", err)
+		return err
 	}
 
 	change := Change{
@@ -24,7 +23,7 @@ func (cmd *PipelineMoveCmd) Run(app *Context) error {
 		DryRun:             app.DryRun,
 	}
 	if app.DryRun {
-		readiness, err := getPipelineReadinessForPipeline(app, cmd.Pipeline, cluster.ID)
+		readiness, err := getPipelineReadinessForPipeline(app, cmd.Pipeline)
 		if err != nil {
 			return fmt.Errorf("check pipeline readiness: %w", err)
 		}

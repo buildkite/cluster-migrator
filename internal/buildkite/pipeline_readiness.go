@@ -5,16 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"time"
 )
 
-func (c *Client) GetPipelineReadiness(ctx context.Context, pipeline, clusterID string) (*PipelineReadiness, error) {
+func (c *Client) GetPipelineReadiness(ctx context.Context, pipeline string) (*PipelineReadiness, error) {
 	path := c.path("unclustered-to-clustered", "migration", "pipelines", pipeline)
-	query := url.Values{"destination_cluster_id": []string{clusterID}}
 
 	var result PipelineReadiness
-	if err := c.do(ctx, http.MethodGet, path+"?"+query.Encode(), nil, &result); err != nil {
+	if err := c.do(ctx, http.MethodGet, path, nil, &result); err != nil {
 		return nil, err
 	}
 	if result.Status != PipelineReadinessBlocked && result.Status != PipelineReadinessNoKnownBlockers {

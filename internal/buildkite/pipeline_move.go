@@ -7,13 +7,9 @@ import (
 )
 
 func (c *Client) MovePipeline(ctx context.Context, pipeline, clusterID string) (*Pipeline, error) {
-	request := struct {
-		ClusterID string `json:"cluster_id"`
-	}{ClusterID: clusterID}
-
 	var result Pipeline
 	path := c.path("unclustered-to-clustered", "migration", "pipelines", pipeline)
-	if err := c.do(ctx, http.MethodPatch, path, request, &result); err != nil {
+	if err := c.do(ctx, http.MethodPatch, path, nil, &result); err != nil {
 		return nil, err
 	}
 	if result.ClusterID != clusterID {

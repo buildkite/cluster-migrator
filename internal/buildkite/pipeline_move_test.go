@@ -2,7 +2,7 @@ package buildkite
 
 import (
 	"context"
-	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -18,12 +18,9 @@ func TestMovePipeline(t *testing.T) {
 		if r.URL.Path != "/v2/organizations/acme/unclustered-to-clustered/migration/pipelines/monorepo" {
 			t.Fatalf("path = %q", r.URL.Path)
 		}
-		var body map[string]string
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatal(err)
-		}
-		if body["cluster_id"] != "cluster-id" || len(body) != 1 {
-			t.Fatalf("body = %#v, want only cluster_id", body)
+		body, err := io.ReadAll(r.Body)
+		if err != nil || len(body) != 0 || r.URL.RawQuery != "" {
+			t.Fatalf("unexpected move inputs: body = %q, query = %q, error = %v", body, r.URL.RawQuery, err)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"id":"849411f9-9e6d-4739-a0d8-e247088e9b52","slug":"monorepo","cluster_id":"cluster-id"}`))

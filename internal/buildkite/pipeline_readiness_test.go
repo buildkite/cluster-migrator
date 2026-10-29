@@ -19,8 +19,8 @@ func TestGetPipelineReadiness(t *testing.T) {
 		if r.URL.Path != "/v2/organizations/acme/unclustered-to-clustered/migration/pipelines/monorepo" {
 			t.Fatalf("path = %q", r.URL.Path)
 		}
-		if got := r.URL.Query().Get("destination_cluster_id"); got != "cluster-id" {
-			t.Fatalf("destination_cluster_id = %q", got)
+		if r.URL.RawQuery != "" {
+			t.Fatalf("unexpected query = %q", r.URL.RawQuery)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
@@ -62,7 +62,7 @@ func TestGetPipelineReadiness(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	readiness, err := client.GetPipelineReadiness(context.Background(), "monorepo", "cluster-id")
+	readiness, err := client.GetPipelineReadiness(context.Background(), "monorepo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestGetPipelineReadinessValidatesAvailableRefreshTimestamps(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			readiness, err := client.GetPipelineReadiness(context.Background(), "monorepo", "cluster-id")
+			readiness, err := client.GetPipelineReadiness(context.Background(), "monorepo")
 			if test.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), test.wantErr) {
 					t.Fatalf("error = %v, want %q", err, test.wantErr)
@@ -148,7 +148,7 @@ func TestGetPipelineReadinessAllowsPendingNullRefreshTimestamps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	readiness, err := client.GetPipelineReadiness(context.Background(), "monorepo", "cluster-id")
+	readiness, err := client.GetPipelineReadiness(context.Background(), "monorepo")
 	if err != nil {
 		t.Fatal(err)
 	}

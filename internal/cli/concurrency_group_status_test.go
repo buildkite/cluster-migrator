@@ -41,7 +41,7 @@ func TestConcurrencyGroupStatusOutput(t *testing.T) {
 		},
 		{
 			name: "clustered", group: "custom/deploy/production", response: clustered, wantJSON: clustered, wantClusters: true,
-			wantText: "CONCURRENCY-GROUP STATUS\nGroup: custom/deploy/production\nDestination: production\n\nSTATUS\n\nState: clustered\nRunning unclustered jobs: 0\nWaiting unclustered jobs: 0\n\nNEXT STEPS\n\n1. Assess each pipeline using this concurrency group:\n\n   cluster-migrator pipeline readiness <pipeline> --destination-cluster cluster-id\n",
+			wantText: "CONCURRENCY-GROUP STATUS\nGroup: custom/deploy/production\nDestination: production\n\nSTATUS\n\nState: clustered\nRunning unclustered jobs: 0\nWaiting unclustered jobs: 0\n\nNEXT STEPS\n\n1. Assess each pipeline using this concurrency group:\n\n   cluster-migrator pipeline readiness <pipeline>\n",
 		},
 		{
 			name: "all", response: `{"items":[` + listedStep + `,` + listed + `],"links":{}}`, wantJSON: `[` + listedStep + `,` + listed + `]`, wantClusters: true,

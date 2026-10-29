@@ -82,7 +82,7 @@ func TestPipelineReadinessPrintsQueueBlockersAndActions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := "PIPELINE READINESS\nPipeline: monorepo\nDestination: cluster-id\n\nSTATUS\n\nBlocked by 3 known conditions.\n\nQUEUE BLOCKERS\n\nQUEUE    ROUTING  ACTIVE SOURCE JOBS  BLOCKER\ndeploy   80%      2                   Routing is below 100%.\ndeploy   80%      2                   Active jobs remain on the source queue.\nrelease  —        0                   No queue migration is configured.\n\nOBSERVATIONS\n\nQueues: incomplete; 10-minute window ending 48 seconds ago; started 2026-09-01 06:50:00 UTC\nQueue refresh eligible: in 12 seconds\nConcurrency groups: incomplete; 10-minute window ending 48 seconds ago; started 2026-09-01 06:50:00 UTC\nConcurrency-group refresh eligible: in 12 seconds\n\nIncomplete observations may omit blockers outside the observed window.\n\nNEXT STEPS\n\n1. Review destination activity for deploy:\n\n   cluster-migrator queue metrics deploy\n\n2. Wait for active source jobs on deploy to finish, then reassess:\n\n   cluster-migrator pipeline readiness monorepo --destination-cluster cluster-id\n\n3. Inspect the organization migration's phase before configuring the missing cluster queue migration for release:\n\n   cluster-migrator migration status\n"
+	want := "PIPELINE READINESS\nPipeline: monorepo\nDestination: cluster-id\n\nSTATUS\n\nBlocked by 3 known conditions.\n\nQUEUE BLOCKERS\n\nQUEUE    ROUTING  ACTIVE SOURCE JOBS  BLOCKER\ndeploy   80%      2                   Routing is below 100%.\ndeploy   80%      2                   Active jobs remain on the source queue.\nrelease  —        0                   No queue migration is configured.\n\nOBSERVATIONS\n\nQueues: incomplete; 10-minute window ending 48 seconds ago; started 2026-09-01 06:50:00 UTC\nQueue refresh eligible: in 12 seconds\nConcurrency groups: incomplete; 10-minute window ending 48 seconds ago; started 2026-09-01 06:50:00 UTC\nConcurrency-group refresh eligible: in 12 seconds\n\nIncomplete observations may omit blockers outside the observed window.\n\nNEXT STEPS\n\n1. Review destination activity for deploy:\n\n   cluster-migrator queue metrics deploy\n\n2. Wait for active source jobs on deploy to finish, then reassess:\n\n   cluster-migrator pipeline readiness monorepo\n\n3. Inspect the organization migration's phase before configuring the missing cluster queue migration for release:\n\n   cluster-migrator migration status\n"
 	if got := output.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
@@ -230,6 +230,8 @@ func TestPipelineReadinessRetriesPendingObservationBeforePrinting(t *testing.T) 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
+		case "/v2/organizations/acme/unclustered-to-clustered-migration":
+			_, _ = w.Write([]byte(`{"destination_cluster_id":"cluster-id"}`))
 		case "/v2/organizations/acme/clusters":
 			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
 		case "/v2/organizations/acme/unclustered-to-clustered/migration/pipelines/monorepo":
@@ -271,7 +273,7 @@ func TestPipelineReadinessRetriesPendingObservationBeforePrinting(t *testing.T) 
 		},
 	}
 
-	err = (&PipelineReadinessCmd{Pipeline: "monorepo", DestinationCluster: "production"}).Run(&app)
+	err = (&PipelineReadinessCmd{Pipeline: "monorepo"}).Run(&app)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,6 +291,10 @@ func TestPipelineReadinessRetriesPendingObservationBeforePrinting(t *testing.T) 
 func TestPipelineReadinessPrintsBlockedAssessmentThenFails(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered-migration" {
+			_, _ = w.Write([]byte(`{"destination_cluster_id":"cluster-id"}`))
+			return
+		}
 		if r.URL.Path == "/v2/organizations/acme/clusters" {
 			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
 			return
@@ -304,7 +310,7 @@ func TestPipelineReadinessPrintsBlockedAssessmentThenFails(t *testing.T) {
 	var stdout bytes.Buffer
 	app := Context{Context: context.Background(), Client: client, Output: &stdout, ErrorOutput: &bytes.Buffer{}}
 
-	err = (&PipelineReadinessCmd{Pipeline: "monorepo", DestinationCluster: "production"}).Run(&app)
+	err = (&PipelineReadinessCmd{Pipeline: "monorepo"}).Run(&app)
 	if err == nil || err.Error() != "pipeline has known blockers" {
 		t.Fatalf("error = %v", err)
 	}
@@ -322,7 +328,7 @@ func TestPipelineReadinessPreservesParentDeadline(t *testing.T) {
 	defer cancel()
 	app := Context{Context: ctx, Client: client, Output: &bytes.Buffer{}, ErrorOutput: &bytes.Buffer{}}
 
-	err = (&PipelineReadinessCmd{Pipeline: "monorepo", DestinationCluster: "production"}).Run(&app)
+	err = (&PipelineReadinessCmd{Pipeline: "monorepo"}).Run(&app)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("error = %v, want parent deadline exceeded", err)
 	}
@@ -332,6 +338,8 @@ func TestPipelineMoveDryRunRequiresNoKnownBlockers(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
+		case "/v2/organizations/acme/unclustered-to-clustered-migration":
+			_, _ = w.Write([]byte(`{"destination_cluster_id":"cluster-id"}`))
 		case "/v2/organizations/acme/clusters":
 			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
 		case "/v2/organizations/acme/unclustered-to-clustered/migration/pipelines/monorepo":
@@ -349,7 +357,7 @@ func TestPipelineMoveDryRunRequiresNoKnownBlockers(t *testing.T) {
 	var stdout bytes.Buffer
 	app := Context{Context: context.Background(), Client: client, Output: &stdout, ErrorOutput: &bytes.Buffer{}, DryRun: true}
 
-	if err := (&PipelineMoveCmd{Pipeline: "monorepo", DestinationCluster: "production"}).Run(&app); err != nil {
+	if err := (&PipelineMoveCmd{Pipeline: "monorepo"}).Run(&app); err != nil {
 		t.Fatal(err)
 	}
 	want := "PIPELINE MOVE (DRY RUN)\nPipeline: monorepo\nDestination: production\n\nREADINESS\n\nNo known blockers. This is not proof of readiness.\n\nPROPOSED CHANGE\n\nThe pipeline would move to the production cluster.\n"
@@ -362,6 +370,8 @@ func TestPipelineMoveDryRunReportsConcurrencyGroupBlockers(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
+		case "/v2/organizations/acme/unclustered-to-clustered-migration":
+			_, _ = w.Write([]byte(`{"destination_cluster_id":"cluster-id"}`))
 		case "/v2/organizations/acme/clusters":
 			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
 		case "/v2/organizations/acme/unclustered-to-clustered/migration/pipelines/monorepo":
@@ -379,7 +389,7 @@ func TestPipelineMoveDryRunReportsConcurrencyGroupBlockers(t *testing.T) {
 	var stdout bytes.Buffer
 	app := Context{Context: context.Background(), Client: client, Output: &stdout, ErrorOutput: &bytes.Buffer{}, DryRun: true, JSON: true}
 
-	err = (&PipelineMoveCmd{Pipeline: "monorepo", DestinationCluster: "production"}).Run(&app)
+	err = (&PipelineMoveCmd{Pipeline: "monorepo"}).Run(&app)
 	if err == nil || err.Error() != "pipeline has known blockers" {
 		t.Fatalf("error = %v", err)
 	}
@@ -403,6 +413,8 @@ func TestPipelineMoveDryRunReportsQueueBlockers(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
+		case "/v2/organizations/acme/unclustered-to-clustered-migration":
+			_, _ = w.Write([]byte(`{"destination_cluster_id":"cluster-id"}`))
 		case "/v2/organizations/acme/clusters":
 			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
 		case "/v2/organizations/acme/unclustered-to-clustered/migration/pipelines/monorepo":
@@ -420,7 +432,7 @@ func TestPipelineMoveDryRunReportsQueueBlockers(t *testing.T) {
 	var stdout bytes.Buffer
 	app := Context{Context: context.Background(), Client: client, Output: &stdout, ErrorOutput: &bytes.Buffer{}, DryRun: true, JSON: true}
 
-	err = (&PipelineMoveCmd{Pipeline: "monorepo", DestinationCluster: "production"}).Run(&app)
+	err = (&PipelineMoveCmd{Pipeline: "monorepo"}).Run(&app)
 	if err == nil || err.Error() != "pipeline has known blockers" {
 		t.Fatalf("error = %v", err)
 	}
@@ -459,6 +471,10 @@ func TestPipelineMoveDryRunPrintsBlockedReadinessUnderMoveHeading(t *testing.T) 
 func TestPipelineReadinessRejectsInvalidRetryInterval(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered-migration" {
+			_, _ = w.Write([]byte(`{"destination_cluster_id":"cluster-id"}`))
+			return
+		}
 		if r.URL.Path == "/v2/organizations/acme/clusters" {
 			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
 			return
@@ -473,7 +489,7 @@ func TestPipelineReadinessRejectsInvalidRetryInterval(t *testing.T) {
 	}
 	app := Context{Context: context.Background(), Client: client, Output: &bytes.Buffer{}, ErrorOutput: &bytes.Buffer{}}
 
-	err = (&PipelineReadinessCmd{Pipeline: "monorepo", DestinationCluster: "production"}).Run(&app)
+	err = (&PipelineReadinessCmd{Pipeline: "monorepo"}).Run(&app)
 	if err == nil || err.Error() != "invalid retry_after_seconds: 0" {
 		t.Fatalf("error = %v", err)
 	}

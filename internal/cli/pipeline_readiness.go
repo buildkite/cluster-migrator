@@ -14,16 +14,14 @@ import (
 const pipelineReadinessTimeout = time.Minute
 
 type PipelineReadinessCmd struct {
-	Pipeline           string `arg:"" help:"Pipeline ID, name, or slug."`
-	DestinationCluster string `name:"destination-cluster" required:"" help:"Destination cluster name or ID."`
+	Pipeline string `arg:"" help:"Pipeline ID, name, or slug."`
 }
 
 func (cmd *PipelineReadinessCmd) Run(app *Context) error {
-	cluster, err := app.Client.ResolveCluster(app.Context, cmd.DestinationCluster)
-	if err != nil {
-		return fmt.Errorf("resolve destination cluster: %w", err)
+	if _, err := resolvePipelineDestination(app); err != nil {
+		return err
 	}
-	readiness, err := getPipelineReadinessForPipeline(app, cmd.Pipeline, cluster.ID)
+	readiness, err := getPipelineReadinessForPipeline(app, cmd.Pipeline)
 	if err != nil {
 		return err
 	}
@@ -39,20 +37,20 @@ func (cmd *PipelineReadinessCmd) Run(app *Context) error {
 	return nil
 }
 
-func getPipelineReadinessForPipeline(app *Context, pipeline, clusterID string) (*buildkite.PipelineReadiness, error) {
+func getPipelineReadinessForPipeline(app *Context, pipeline string) (*buildkite.PipelineReadiness, error) {
 	return runWithPipelineIdentifierFallback(app.Context, app.Client, pipeline, func(pipeline string) (*buildkite.PipelineReadiness, error) {
-		return getPipelineReadiness(app, pipeline, clusterID)
+		return getPipelineReadiness(app, pipeline)
 	})
 }
 
-func getPipelineReadiness(app *Context, pipeline, clusterID string) (*buildkite.PipelineReadiness, error) {
+func getPipelineReadiness(app *Context, pipeline string) (*buildkite.PipelineReadiness, error) {
 	ctx, cancel := context.WithTimeout(app.Context, pipelineReadinessTimeout)
 	defer cancel()
 	retries := 0
 	retryMessagePrinted := false
 
 	for {
-		readiness, err := app.Client.GetPipelineReadiness(ctx, pipeline, clusterID)
+		readiness, err := app.Client.GetPipelineReadiness(ctx, pipeline)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				return nil, pipelineReadinessDeadlineError(app.Context)
@@ -324,8 +322,8 @@ func pipelineReadinessActions(readiness *buildkite.PipelineReadiness) []string {
 					appendAction(fmt.Sprintf("Inspect the organization migration's phase before configuring the missing cluster queue migration for %s:\n\n   cluster-migrator migration status", blocker.Queue))
 				}
 			case "active_source_jobs":
-				if blocker.Queue != "" && readiness.Pipeline != "" && readiness.DestinationClusterID != "" {
-					appendAction(fmt.Sprintf("Wait for active source jobs on %s to finish, then reassess:\n\n   cluster-migrator pipeline readiness %s --destination-cluster %s", blocker.Queue, readiness.Pipeline, readiness.DestinationClusterID))
+				if blocker.Queue != "" && readiness.Pipeline != "" {
+					appendAction(fmt.Sprintf("Wait for active source jobs on %s to finish, then reassess:\n\n   cluster-migrator pipeline readiness %s", blocker.Queue, readiness.Pipeline))
 				}
 			}
 		}
