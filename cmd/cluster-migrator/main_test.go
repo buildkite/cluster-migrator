@@ -12,8 +12,93 @@ import (
 	"testing"
 )
 
+func TestPipelineMigrationProcess(t *testing.T) {
+	const path = "/v2/organizations/acme/unclustered-to-clustered/migration/pipelines/monorepo"
+	const readiness = `{"pipeline":"monorepo","destination_cluster_id":"cluster-id","status":"no_known_blockers","queue_observation":{"next_refresh_at":"2026-09-01T07:01:00Z"},"concurrency_group_observation":{"next_refresh_at":"2026-09-01T07:01:30Z"}}`
+	const moved = `{"slug":"monorepo","cluster_id":"cluster-id"}`
+	for _, test := range []struct {
+		name       string
+		command    string
+		flags      []string
+		method     string
+		rejected   bool
+		wantStdout string
+	}{
+		{name: "readiness", command: "readiness", method: http.MethodGet, wantStdout: `"status": "no_known_blockers"`},
+		{name: "move preview", command: "move", flags: []string{"--dry-run"}, method: http.MethodGet, wantStdout: `"dry_run": true`},
+		{name: "blocked preview", command: "move", flags: []string{"--dry-run"}, method: http.MethodGet, rejected: true, wantStdout: `"status": "blocked"`},
+		{name: "move", command: "move", method: http.MethodPatch, wantStdout: `"cluster_id": "cluster-id"`},
+		{name: "rejected move", command: "move", method: http.MethodPatch, rejected: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("XDG_CACHE_HOME", t.TempDir())
+			operations := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch {
+				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations":
+					_, _ = fmt.Fprint(w, `[{"slug":"acme"}]`)
+				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/clusters":
+					_, _ = fmt.Fprint(w, `[{"id":"cluster-id","name":"production"}]`)
+				case r.Method == test.method && r.URL.Path == path:
+					operations++
+					if r.Method == http.MethodGet {
+						if r.URL.RawQuery != "destination_cluster_id=cluster-id" {
+							t.Errorf("query = %q", r.URL.RawQuery)
+						}
+						response := readiness
+						if test.rejected {
+							response = strings.Replace(readiness, "no_known_blockers", "blocked", 1)
+						}
+						_, _ = fmt.Fprint(w, response)
+						return
+					}
+					var body map[string]string
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+						t.Error(err)
+					}
+					if body["cluster_id"] != "cluster-id" || len(body) != 1 || r.URL.RawQuery != "" {
+						t.Errorf("body = %#v, query = %q", body, r.URL.RawQuery)
+					}
+					if test.rejected {
+						w.WriteHeader(http.StatusConflict)
+						_, _ = fmt.Fprint(w, `{"message":"Pipeline is not ready to move","reasons":["migration_phase"]}`)
+						return
+					}
+					_, _ = fmt.Fprint(w, moved)
+				default:
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+
+			args := append([]string{"--endpoint", server.URL, "--json", "pipeline", test.command, "monorepo", "--destination-cluster", "production"}, test.flags...)
+			stdout, stderr, exitCode := runCLI(t, args...)
+			wantExit, wantStderr := 0, ""
+			if test.rejected {
+				wantExit = 1
+				wantStderr = "cluster-migrator: pipeline has known blockers\n"
+				if test.method == http.MethodPatch {
+					wantStderr = "cluster-migrator: move pipeline: Buildkite API returned 409: Pipeline is not ready to move\n"
+				}
+			}
+			if exitCode != wantExit || stderr != wantStderr || operations != 1 {
+				t.Fatalf("exit=%d stderr=%q operations=%d; want exit=%d stderr=%q operations=1", exitCode, stderr, operations, wantExit, wantStderr)
+			}
+			if test.wantStdout == "" {
+				if stdout != "" {
+					t.Fatalf("stdout = %q, want empty", stdout)
+				}
+			} else if !json.Valid([]byte(stdout)) || !strings.Contains(stdout, test.wantStdout) {
+				t.Fatalf("stdout = %q, want JSON containing %q", stdout, test.wantStdout)
+			}
+		})
+	}
+}
+
 func TestConcurrencyGroupStatusProcess(t *testing.T) {
-	const collection = "/v2/organizations/acme/concurrency-group-migrations"
+	const collection = "/v2/organizations/acme/unclustered-to-clustered/concurrency-group-migrations"
 	const migration = `{"scope":"custom","key":"deploy","state":"forward_draining","destination_cluster_id":"cluster-id","held_at":null,"source_jobs":{"running":1,"waiting":0},"url":""}`
 	for _, test := range []struct {
 		name         string
@@ -80,7 +165,7 @@ func TestConcurrencyGroupStatusProcess(t *testing.T) {
 }
 
 func TestConcurrencyGroupCutoverProcess(t *testing.T) {
-	const groupPath = "/v2/organizations/acme/concurrency-group-migrations/custom/deploy"
+	const groupPath = "/v2/organizations/acme/unclustered-to-clustered/concurrency-group-migrations/custom/deploy"
 	for _, test := range []struct {
 		name      string
 		args      []string
@@ -104,7 +189,7 @@ func TestConcurrencyGroupCutoverProcess(t *testing.T) {
 				switch {
 				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations":
 					_, _ = fmt.Fprint(w, `[{"slug":"acme"}]`)
-				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered-migration":
+				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered/migration":
 					_, _ = fmt.Fprint(w, `{"destination_cluster_id":"cluster-id","phase":"cutover_concurrency_groups"}`)
 				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/clusters":
 					_, _ = fmt.Fprint(w, `[{"id":"cluster-id","name":"production"}]`)
@@ -184,14 +269,14 @@ func TestQueueSetPercentDistinguishesMissingMigrations(t *testing.T) {
 					switch r.URL.Path {
 					case "/v2/organizations":
 						_, _ = fmt.Fprint(w, `[{"slug":"acme"}]`)
-					case "/v2/organizations/acme/unclustered-to-clustered-migration":
+					case "/v2/organizations/acme/unclustered-to-clustered/migration":
 						if !test.missingOrganization {
 							_, _ = fmt.Fprint(w, `{"phase":"prepare_queues","destination_cluster_id":"cluster-id"}`)
 							return
 						}
 						w.WriteHeader(http.StatusNotFound)
 						_, _ = fmt.Fprint(w, `{"message":"No migration found"}`)
-					case "/v2/organizations/acme/cluster-queue-migrations/test":
+					case "/v2/organizations/acme/unclustered-to-clustered/queue-migrations/test":
 						if test.missingOrganization {
 							t.Error("queue migration requested without an organization migration")
 						}

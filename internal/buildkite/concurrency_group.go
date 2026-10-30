@@ -34,13 +34,13 @@ type ConcurrencyGroupSourceJobs struct {
 // A concurrency group is identified by its scope and key; equal keys in different scopes are distinct groups.
 // Each is a single path segment, so a slash in a key is sent as %2F.
 func (c *Client) concurrencyGroupPath(scope, key string, parts ...string) string {
-	segments := append([]string{"concurrency-group-migrations", scope, key}, parts...)
+	segments := append([]string{"unclustered-to-clustered", "concurrency-group-migrations", scope, key}, parts...)
 	return c.path(segments...)
 }
 
 // ListConcurrencyGroups returns every concurrency-group migration in the organization.
 func (c *Client) ListConcurrencyGroups(ctx context.Context) ([]ConcurrencyGroup, error) {
-	path := c.path("concurrency-group-migrations") + "?per_page=100"
+	path := c.path("unclustered-to-clustered", "concurrency-group-migrations") + "?per_page=100"
 	groups := []ConcurrencyGroup{}
 	for path != "" {
 		page, err := cursorPage[ConcurrencyGroup](ctx, c, path)

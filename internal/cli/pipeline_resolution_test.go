@@ -21,7 +21,6 @@ func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 		name        string
 		identifier  string
 		method      string
-		pathSuffix  string
 		response    string
 		run         func(*Context) error
 		wantLookups int
@@ -32,7 +31,6 @@ func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 			name:       "readiness slug",
 			identifier: "demo-pipeline",
 			method:     http.MethodGet,
-			pathSuffix: "/readiness",
 			response:   testPipelineReadinessResponse,
 			run: func(app *Context) error {
 				return (&PipelineReadinessCmd{Pipeline: "demo-pipeline", DestinationCluster: "production"}).Run(app)
@@ -43,7 +41,6 @@ func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 			name:       "readiness name",
 			identifier: "Demo Pipeline",
 			method:     http.MethodGet,
-			pathSuffix: "/readiness",
 			response:   testPipelineReadinessResponse,
 			run: func(app *Context) error {
 				return (&PipelineReadinessCmd{Pipeline: "Demo Pipeline", DestinationCluster: "production"}).Run(app)
@@ -56,7 +53,6 @@ func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 			name:       "readiness ID",
 			identifier: testPipelineID,
 			method:     http.MethodGet,
-			pathSuffix: "/readiness",
 			response:   testPipelineReadinessResponse,
 			run: func(app *Context) error {
 				return (&PipelineReadinessCmd{Pipeline: testPipelineID, DestinationCluster: "production"}).Run(app)
@@ -67,8 +63,7 @@ func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 		{
 			name:       "move ID",
 			identifier: testPipelineID,
-			method:     http.MethodPost,
-			pathSuffix: "/move",
+			method:     http.MethodPatch,
 			response:   `{"id":"849411f9-9e6d-4739-a0d8-e247088e9b52","name":"Demo Pipeline","slug":"demo-pipeline","cluster_id":"cluster-id"}`,
 			run: func(app *Context) error {
 				return (&PipelineMoveCmd{Pipeline: testPipelineID, DestinationCluster: "production"}).Run(app)
@@ -79,8 +74,7 @@ func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 		{
 			name:       "move slug",
 			identifier: "demo-pipeline",
-			method:     http.MethodPost,
-			pathSuffix: "/move",
+			method:     http.MethodPatch,
 			response:   `{"id":"849411f9-9e6d-4739-a0d8-e247088e9b52","name":"Demo Pipeline","slug":"demo-pipeline","cluster_id":"cluster-id"}`,
 			run: func(app *Context) error {
 				return (&PipelineMoveCmd{Pipeline: "demo-pipeline", DestinationCluster: "production"}).Run(app)
@@ -90,8 +84,7 @@ func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 		{
 			name:       "move name with slash",
 			identifier: "Demo/Pipeline",
-			method:     http.MethodPost,
-			pathSuffix: "/move",
+			method:     http.MethodPatch,
 			response:   `{"id":"849411f9-9e6d-4739-a0d8-e247088e9b52","name":"Demo/Pipeline","slug":"demo-pipeline","cluster_id":"cluster-id"}`,
 			run: func(app *Context) error {
 				return (&PipelineMoveCmd{Pipeline: "Demo/Pipeline", DestinationCluster: "production"}).Run(app)
@@ -106,9 +99,9 @@ func TestPipelineCommandsAcceptSlugExactNameOrID(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			operationRuns := 0
 			nameLookups := 0
-			pipelineBasePath := "/v2/organizations/acme/cluster-queue-migrations/pipelines/"
-			directPath := pipelineBasePath + url.PathEscape(test.identifier) + test.pathSuffix
-			resolvedPath := pipelineBasePath + "demo-pipeline" + test.pathSuffix
+			pipelineBasePath := "/v2/organizations/acme/unclustered-to-clustered/migration/pipelines/"
+			directPath := pipelineBasePath + url.PathEscape(test.identifier)
+			resolvedPath := pipelineBasePath + "demo-pipeline"
 
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")

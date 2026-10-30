@@ -12,7 +12,7 @@ import (
 func TestStartConcurrencyGroupCutover(t *testing.T) {
 	t.Parallel()
 
-	const groupPath = "/v2/organizations/acme/concurrency-group-migrations/custom/deploy%2Fproduction/cutover"
+	const groupPath = "/v2/organizations/acme/unclustered-to-clustered/concurrency-group-migrations/custom/deploy%2Fproduction/cutover"
 	for _, test := range []struct {
 		name        string
 		status      int

@@ -15,8 +15,8 @@ func TestSetQueueMigrationPercent(t *testing.T) {
 		if r.Method != http.MethodPatch {
 			t.Fatalf("method = %q, want PATCH", r.Method)
 		}
-		if r.URL.Path != "/v2/organizations/acme/cluster-queue-migrations/linux" {
-			t.Fatalf("path = %q", r.URL.Path)
+		if r.URL.EscapedPath() != "/v2/organizations/acme/unclustered-to-clustered/queue-migrations/Linux.cpu:deploy%2Fproduction" {
+			t.Fatalf("path = %q", r.URL.EscapedPath())
 		}
 		var body struct {
 			RoutedPercent int `json:"routed_percent"`
@@ -28,7 +28,7 @@ func TestSetQueueMigrationPercent(t *testing.T) {
 			t.Fatalf("routed percent = %d", body.RoutedPercent)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"queue_key":"linux","destination":{"cluster_id":"cluster-id","queue_id":"queue-id","queue_key":"linux"},"routed_percent":30}`))
+		_, _ = w.Write([]byte(`{"queue_key":"Linux.cpu:deploy/production","destination":{"cluster_id":"cluster-id","queue_id":"queue-id","queue_key":"Linux.cpu:deploy/production"},"routed_percent":30}`))
 	}))
 	defer server.Close()
 
@@ -37,11 +37,11 @@ func TestSetQueueMigrationPercent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	migration, err := client.SetQueueMigrationPercent(context.Background(), "linux", 30)
+	migration, err := client.SetQueueMigrationPercent(context.Background(), "Linux.cpu:deploy/production", 30)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if migration.RoutedPercent != 30 {
-		t.Fatalf("routed percent = %d", migration.RoutedPercent)
+	if migration.QueueKey != "Linux.cpu:deploy/production" || migration.RoutedPercent != 30 {
+		t.Fatalf("migration = %#v", migration)
 	}
 }

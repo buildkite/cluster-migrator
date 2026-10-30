@@ -93,12 +93,12 @@ func TestConcurrencyGroupCutover(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			const groupPath = "/v2/organizations/acme/concurrency-group-migrations/custom/deploy%2Fproduction"
+			const groupPath = "/v2/organizations/acme/unclustered-to-clustered/concurrency-group-migrations/custom/deploy%2Fproduction"
 			posts := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				switch {
-				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered-migration":
+				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered/migration":
 					if test.missingOrganizationMigration {
 						w.WriteHeader(http.StatusNotFound)
 						_, _ = w.Write([]byte(`{"message":"No migration found"}`))

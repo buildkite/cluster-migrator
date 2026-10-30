@@ -22,7 +22,7 @@ func TestQueueConfigureDryRunDoesNotMutate(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/v2/organizations/acme/unclustered-to-clustered-migration":
+		case "/v2/organizations/acme/unclustered-to-clustered/migration":
 			_, _ = w.Write([]byte(`{"destination_cluster_id":"cluster-id","phase":"prepare_queues"}`))
 		case "/v2/organizations/acme/clusters":
 			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
@@ -58,13 +58,13 @@ func TestQueueConfigurePrintsNextStep(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered-migration":
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered/migration":
 			_, _ = w.Write([]byte(`{"destination_cluster_id":"cluster-id","phase":"prepare_queues"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/clusters":
 			_, _ = w.Write([]byte(`[{"id":"other-cluster","name":"development"},{"id":"cluster-id","name":"production"}]`))
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/clusters/cluster-id/queues":
 			_, _ = w.Write([]byte(`[{"id":"queue-id","key":"test"}]`))
-		case r.Method == http.MethodPost && r.URL.Path == "/v2/organizations/acme/cluster-queue-migrations":
+		case r.Method == http.MethodPost && r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered/queue-migrations":
 			var body map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Error(err)
@@ -101,7 +101,7 @@ func TestQueueEditsRejectFrozenOrMissingConfiguration(t *testing.T) {
 					t.Setenv("XDG_CACHE_HOME", t.TempDir())
 					t.Setenv("BUILDKITE_API_TOKEN", "secret")
 					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-						if r.Method != http.MethodGet || r.URL.Path != "/v2/organizations/acme/unclustered-to-clustered-migration" {
+						if r.Method != http.MethodGet || r.URL.Path != "/v2/organizations/acme/unclustered-to-clustered/migration" {
 							t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 							http.NotFound(w, r)
 							return

@@ -16,7 +16,7 @@ func TestQueueStatusPrintsTable(t *testing.T) {
 		switch r.URL.Path {
 		case "/v2/organizations/acme/clusters":
 			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"Cluster Migrator Demo"}]`))
-		case "/v2/organizations/acme/cluster-queue-migrations/default":
+		case "/v2/organizations/acme/unclustered-to-clustered/queue-migrations/default":
 			_, _ = w.Write([]byte(`{"queue_key":"default","destination":{"cluster_id":"cluster-id"},"routed_percent":25}`))
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -49,7 +49,7 @@ func TestQueueStatusAtZeroPrintsNextStep(t *testing.T) {
 		switch r.URL.Path {
 		case "/v2/organizations/acme/clusters":
 			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"Cluster Migrator Demo"}]`))
-		case "/v2/organizations/acme/cluster-queue-migrations/default":
+		case "/v2/organizations/acme/unclustered-to-clustered/queue-migrations/default":
 			_, _ = w.Write([]byte(`{"queue_key":"default","destination":{"cluster_id":"cluster-id"},"routed_percent":0}`))
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -79,7 +79,7 @@ func TestQueueStatusEmptyListOutput(t *testing.T) {
 		switch r.URL.Path {
 		case "/v2/organizations/acme/clusters":
 			_, _ = w.Write([]byte(`[]`))
-		case "/v2/organizations/acme/cluster-queue-migrations":
+		case "/v2/organizations/acme/unclustered-to-clustered/queue-migrations":
 			_, _ = w.Write([]byte(`{"items":[],"links":{}}`))
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -125,7 +125,7 @@ func TestQueueStatusPrintsList(t *testing.T) {
 		switch r.URL.Path {
 		case "/v2/organizations/acme/clusters":
 			_, _ = w.Write([]byte(`[{"id":"cluster-a","name":"Production"},{"id":"cluster-b","name":"Development"}]`))
-		case "/v2/organizations/acme/cluster-queue-migrations":
+		case "/v2/organizations/acme/unclustered-to-clustered/queue-migrations":
 			_, _ = w.Write([]byte(`{"items":[{"queue_key":"deploy","destination":{"cluster_id":"cluster-a"},"routed_percent":75},{"queue_key":"test","destination":{"cluster_id":"cluster-b"},"routed_percent":10}],"links":{}}`))
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -155,7 +155,7 @@ func TestQueueStatusAtHundredPrintsMigrationGuidance(t *testing.T) {
 		switch r.URL.Path {
 		case "/v2/organizations/acme/clusters":
 			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"Production"}]`))
-		case "/v2/organizations/acme/cluster-queue-migrations/default":
+		case "/v2/organizations/acme/unclustered-to-clustered/queue-migrations/default":
 			_, _ = w.Write([]byte(`{"queue_key":"default","destination":{"cluster_id":"cluster-id"},"routed_percent":100}`))
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)

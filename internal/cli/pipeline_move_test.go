@@ -27,7 +27,7 @@ func TestPipelineMovePrintsResult(t *testing.T) {
 	if got := stderr.String(); got != "" {
 		t.Fatalf("stderr = %q, want empty", got)
 	}
-	if got := strings.Join(*requests, "\n"); got != "GET /v2/organizations/acme/clusters?per_page=100\nPOST /v2/organizations/acme/cluster-queue-migrations/pipelines/demo-pipeline/move" {
+	if got := strings.Join(*requests, "\n"); got != "GET /v2/organizations/acme/clusters?per_page=100\nPATCH /v2/organizations/acme/unclustered-to-clustered/migration/pipelines/demo-pipeline" {
 		t.Fatalf("requests = %q", got)
 	}
 }
@@ -47,7 +47,7 @@ func TestPipelineMoveJSONPreservesAPIResponse(t *testing.T) {
 	if got := stderr.String(); got != "" {
 		t.Fatalf("stderr = %q, want empty", got)
 	}
-	if got := strings.Join(*requests, "\n"); got != "GET /v2/organizations/acme/clusters?per_page=100\nPOST /v2/organizations/acme/cluster-queue-migrations/pipelines/demo-pipeline/move" {
+	if got := strings.Join(*requests, "\n"); got != "GET /v2/organizations/acme/clusters?per_page=100\nPATCH /v2/organizations/acme/unclustered-to-clustered/migration/pipelines/demo-pipeline" {
 		t.Fatalf("requests = %q", got)
 	}
 }
@@ -74,7 +74,7 @@ func pipelineMoveTestContext(t *testing.T, jsonOutput bool, moveResponse string)
 		switch r.URL.Path {
 		case "/v2/organizations/acme/clusters":
 			_, _ = fmt.Fprint(w, `[{"id":"cluster-id","name":"Production"}]`)
-		case "/v2/organizations/acme/cluster-queue-migrations/pipelines/demo-pipeline/move":
+		case "/v2/organizations/acme/unclustered-to-clustered/migration/pipelines/demo-pipeline":
 			_, _ = fmt.Fprint(w, moveResponse)
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)

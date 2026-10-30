@@ -5,6 +5,14 @@
 > [!IMPORTANT]
 > The queue migration APIs require a Buildkite feature flag. The concurrency-group cutover and pipeline migration contracts remain provisional. Do not use this tool for a production migration until Buildkite has enabled the APIs and confirmed the operational safety gates for your organization.
 
+All migration requests use `/v2/organizations/:organization/unclustered-to-clustered`.
+The server must support this namespace; the CLI does not fall back to older routes.
+Organization status and phase actions use `/migration`, queue operations use
+`/queue-migrations`, and concurrency-group operations use `/concurrency-group-migrations`.
+Pipeline readiness uses `GET /migration/pipelines/:pipeline` with a
+`destination_cluster_id` query parameter. Pipeline moves use `PATCH` on the same
+path with a `cluster_id` JSON field, not the former `/readiness` and `/move` actions.
+
 ## How it works
 
 A migration has three stages. Finish each stage for the whole organization before starting the next:
