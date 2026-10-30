@@ -2,7 +2,7 @@ package buildkite
 
 import (
 	"context"
-	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -18,12 +18,9 @@ func TestMovePipeline(t *testing.T) {
 		if r.URL.Path != "/v2/organizations/acme/unclustered-to-clustered/migration/pipelines/monorepo" {
 			t.Fatalf("path = %q", r.URL.Path)
 		}
-		var body map[string]string
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatal(err)
-		}
-		if body["cluster_id"] != "cluster-id" || len(body) != 1 {
-			t.Fatalf("body = %#v, want only cluster_id", body)
+		body, err := io.ReadAll(r.Body)
+		if err != nil || len(body) != 0 || r.URL.RawQuery != "" {
+			t.Fatalf("unexpected move inputs: body = %q, query = %q, error = %v", body, r.URL.RawQuery, err)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"id":"849411f9-9e6d-4739-a0d8-e247088e9b52","slug":"monorepo","cluster_id":"cluster-id"}`))
@@ -35,7 +32,7 @@ func TestMovePipeline(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pipeline, err := client.MovePipeline(context.Background(), "monorepo", "cluster-id")
+	pipeline, err := client.MovePipeline(context.Background(), "monorepo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,39 +41,18 @@ func TestMovePipeline(t *testing.T) {
 	}
 }
 
-func TestMovePipelineRejectsUnexpectedDestination(t *testing.T) {
-	tests := []struct {
-		name      string
-		response  string
-		wantError string
-	}{
-		{
-			name:      "missing cluster ID",
-			response:  `{"slug":"monorepo"}`,
-			wantError: `move pipeline response cluster_id "" does not match destination "cluster-id"`,
-		},
-		{
-			name:      "mismatched cluster ID",
-			response:  `{"slug":"monorepo","cluster_id":"other-cluster"}`,
-			wantError: `move pipeline response cluster_id "other-cluster" does not match destination "cluster-id"`,
-		},
+func TestMovePipelineRejectsMissingDestination(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"slug":"monorepo"}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "acme", "secret", server.Client())
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(test.response))
-			}))
-			defer server.Close()
-
-			client, err := NewClient(server.URL, "acme", "secret", server.Client())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := client.MovePipeline(context.Background(), "monorepo", "cluster-id"); err == nil || err.Error() != test.wantError {
-				t.Fatalf("error = %v, want %q", err, test.wantError)
-			}
-		})
+	if _, err := client.MovePipeline(context.Background(), "monorepo"); err == nil || err.Error() != "move pipeline response missing cluster_id" {
+		t.Fatalf("error = %v, want missing cluster_id", err)
 	}
 }

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -183,12 +184,32 @@ func TestPipelineUsageAcceptsIDNameOrSlug(t *testing.T) {
 				if !strings.Contains(output.String(), "Pipeline ID, name, or slug.") {
 					t.Fatalf("help does not describe accepted pipeline identifiers:\n%s", output.String())
 				}
-				if !strings.Contains(output.String(), "Destination cluster name or ID.") {
-					t.Fatalf("help does not describe accepted cluster identifiers:\n%s", output.String())
+				if strings.Contains(output.String(), "--destination-cluster") {
+					t.Fatalf("help includes removed destination flag:\n%s", output.String())
 				}
 			}
 			if test.name == "move" && strings.Contains(output.String(), "--wait") {
 				t.Fatalf("move help includes removed --wait option:\n%s", output.String())
+			}
+		})
+	}
+}
+
+func TestPipelineDestinationOverrideFailsBeforeRequests(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		t.Errorf("removed flag must fail before API requests: %s %s", request.Method, request.URL)
+		return nil, fmt.Errorf("unexpected API request")
+	})}
+	for _, args := range [][]string{
+		{"pipeline", "readiness", "monorepo", "--destination-cluster", "production"},
+		{"pipeline", "move", "monorepo", "--destination-cluster", "production"},
+		{"--dry-run", "pipeline", "move", "monorepo", "--destination-cluster", "production"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			err := Run(context.Background(), args, &stdout, &stderr, client)
+			if err == nil || !strings.Contains(err.Error(), "unknown flag --destination-cluster") || stdout.Len() != 0 {
+				t.Fatalf("error = %v, stdout = %q", err, stdout.String())
 			}
 		})
 	}

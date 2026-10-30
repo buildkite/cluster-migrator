@@ -19,8 +19,8 @@ func TestGetPipelineReadiness(t *testing.T) {
 		if r.URL.Path != "/v2/organizations/acme/unclustered-to-clustered/migration/pipelines/monorepo" {
 			t.Fatalf("path = %q", r.URL.Path)
 		}
-		if got := r.URL.Query().Get("destination_cluster_id"); got != "cluster-id" {
-			t.Fatalf("destination_cluster_id = %q", got)
+		if r.URL.RawQuery != "" {
+			t.Fatalf("unexpected query = %q", r.URL.RawQuery)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
@@ -62,7 +62,7 @@ func TestGetPipelineReadiness(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	readiness, err := client.GetPipelineReadiness(context.Background(), "monorepo", "cluster-id")
+	readiness, err := client.GetPipelineReadiness(context.Background(), "monorepo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,16 +86,18 @@ func TestGetPipelineReadiness(t *testing.T) {
 	}
 }
 
-func TestGetPipelineReadinessValidatesAvailableRefreshTimestamps(t *testing.T) {
+func TestGetPipelineReadinessValidatesFinalResponse(t *testing.T) {
 	t.Parallel()
 
-	valid := `{"status":"blocked","queue_observation":{"next_refresh_at":"2026-09-01T07:01:00Z"},"concurrency_group_observation":{"next_refresh_at":"2026-09-01T07:01:30Z"}}`
+	valid := `{"status":"blocked","destination_cluster_id":"cluster-id","queue_observation":{"next_refresh_at":"2026-09-01T07:01:00Z"},"concurrency_group_observation":{"next_refresh_at":"2026-09-01T07:01:30Z"}}`
 	tests := []struct {
 		name     string
 		response string
 		wantErr  string
 	}{
 		{name: "divergent timestamps", response: valid},
+		{name: "missing destination", response: strings.Replace(valid, `"destination_cluster_id":"cluster-id",`, "", 1), wantErr: "missing required destination_cluster_id"},
+		{name: "ready status null destination", response: strings.Replace(strings.Replace(valid, `"status":"blocked"`, `"status":"no_known_blockers"`, 1), `"destination_cluster_id":"cluster-id"`, `"destination_cluster_id":null`, 1), wantErr: "missing required destination_cluster_id"},
 		{name: "ready status missing queue timestamp", response: strings.Replace(strings.Replace(valid, `"status":"blocked"`, `"status":"no_known_blockers"`, 1), `"next_refresh_at":"2026-09-01T07:01:00Z"`, `"next_refresh_at":null`, 1), wantErr: "missing required queue_observation.next_refresh_at"},
 		{name: "missing concurrency-group timestamp", response: strings.Replace(valid, `"next_refresh_at":"2026-09-01T07:01:30Z"`, `"next_refresh_at":null`, 1), wantErr: "missing required concurrency_group_observation.next_refresh_at"},
 		{name: "invalid queue timestamp", response: strings.Replace(valid, "2026-09-01T07:01:00Z", "not-a-time", 1), wantErr: "parse queue_observation.next_refresh_at"},
@@ -115,7 +117,7 @@ func TestGetPipelineReadinessValidatesAvailableRefreshTimestamps(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			readiness, err := client.GetPipelineReadiness(context.Background(), "monorepo", "cluster-id")
+			readiness, err := client.GetPipelineReadiness(context.Background(), "monorepo")
 			if test.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), test.wantErr) {
 					t.Fatalf("error = %v, want %q", err, test.wantErr)
@@ -148,7 +150,7 @@ func TestGetPipelineReadinessAllowsPendingNullRefreshTimestamps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	readiness, err := client.GetPipelineReadiness(context.Background(), "monorepo", "cluster-id")
+	readiness, err := client.GetPipelineReadiness(context.Background(), "monorepo")
 	if err != nil {
 		t.Fatal(err)
 	}

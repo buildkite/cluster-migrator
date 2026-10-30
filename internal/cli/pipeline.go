@@ -3,14 +3,16 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/buildkite/cluster-migrator/internal/buildkite"
 )
 
 type PipelineCmd struct {
-	Readiness PipelineReadinessCmd `cmd:"" help:"Assess known pipeline move blockers."`
-	Move      PipelineMoveCmd      `cmd:"" help:"Permanently assign a pipeline to the cluster."`
+	Readiness PipelineReadinessCmd `cmd:"" help:"Assess known pipeline move blockers for the organization's fixed migration destination."`
+	Move      PipelineMoveCmd      `cmd:"" help:"Permanently assign a pipeline to the organization's fixed migration destination."`
 }
 
 func runWithPipelineIdentifierFallback[T any](
@@ -27,9 +29,16 @@ func runWithPipelineIdentifierFallback[T any](
 	if !errors.As(err, &apiError) || apiError.StatusCode != http.StatusNotFound {
 		return result, err
 	}
-	slug, err := client.ResolvePipelineSlug(ctx, identifier)
-	if err != nil {
-		return result, err
+	if strings.Contains(apiError.Message, "migration is not configured") {
+		return result, fmt.Errorf("%w; run cluster-migrator migration configure --destination-cluster <cluster>", err)
 	}
-	return run(slug)
+	slug, resolveErr := client.ResolvePipelineSlug(ctx, identifier)
+	if resolveErr != nil {
+		return result, fmt.Errorf("%w; resolve pipeline identifier: %v", err, resolveErr)
+	}
+	result, err = run(slug)
+	if errors.As(err, &apiError) && apiError.StatusCode == http.StatusNotFound && strings.Contains(apiError.Message, "migration is not configured") {
+		return result, fmt.Errorf("%w; run cluster-migrator migration configure --destination-cluster <cluster>", err)
+	}
+	return result, err
 }

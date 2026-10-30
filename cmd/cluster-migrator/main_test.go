@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -38,27 +39,19 @@ func TestPipelineMigrationProcess(t *testing.T) {
 				switch {
 				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations":
 					_, _ = fmt.Fprint(w, `[{"slug":"acme"}]`)
-				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/clusters":
-					_, _ = fmt.Fprint(w, `[{"id":"cluster-id","name":"production"}]`)
 				case r.Method == test.method && r.URL.Path == path:
 					operations++
+					body, err := io.ReadAll(r.Body)
+					if err != nil || len(body) != 0 || r.URL.RawQuery != "" || r.Header.Get("Content-Type") != "" {
+						t.Errorf("unexpected operation inputs: body=%q query=%q Content-Type=%q error=%v", body, r.URL.RawQuery, r.Header.Get("Content-Type"), err)
+					}
 					if r.Method == http.MethodGet {
-						if r.URL.RawQuery != "destination_cluster_id=cluster-id" {
-							t.Errorf("query = %q", r.URL.RawQuery)
-						}
 						response := readiness
 						if test.rejected {
 							response = strings.Replace(readiness, "no_known_blockers", "blocked", 1)
 						}
 						_, _ = fmt.Fprint(w, response)
 						return
-					}
-					var body map[string]string
-					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-						t.Error(err)
-					}
-					if body["cluster_id"] != "cluster-id" || len(body) != 1 || r.URL.RawQuery != "" {
-						t.Errorf("body = %#v, query = %q", body, r.URL.RawQuery)
 					}
 					if test.rejected {
 						w.WriteHeader(http.StatusConflict)
@@ -73,7 +66,7 @@ func TestPipelineMigrationProcess(t *testing.T) {
 			}))
 			defer server.Close()
 
-			args := append([]string{"--endpoint", server.URL, "--json", "pipeline", test.command, "monorepo", "--destination-cluster", "production"}, test.flags...)
+			args := append([]string{"--endpoint", server.URL, "--json", "pipeline", test.command, "monorepo"}, test.flags...)
 			stdout, stderr, exitCode := runCLI(t, args...)
 			wantExit, wantStderr := 0, ""
 			if test.rejected {
@@ -361,10 +354,31 @@ func TestParseErrorsPrintContextualUsage(t *testing.T) {
 		},
 		{
 			name:      "removed pipeline move wait flag",
-			args:      []string{"pipeline", "move", "monorepo", "--destination-cluster=production", "--wait"},
+			args:      []string{"pipeline", "move", "monorepo", "--wait"},
 			errorText: "cluster-migrator: unknown flag --wait",
-			usage:     "Usage: cluster-migrator pipeline move --destination-cluster=STRING <pipeline>",
+			usage:     "Usage: cluster-migrator pipeline move <pipeline>",
 			excludes:  "Wait until the pipeline reports",
+		},
+		{
+			name:      "removed pipeline readiness destination override",
+			args:      []string{"pipeline", "readiness", "monorepo", "--destination-cluster=production"},
+			errorText: "cluster-migrator: unknown flag --destination-cluster",
+			usage:     "Usage: cluster-migrator pipeline readiness <pipeline>",
+			excludes:  "Destination cluster name or ID.",
+		},
+		{
+			name:      "removed pipeline move destination override",
+			args:      []string{"pipeline", "move", "monorepo", "--destination-cluster=production"},
+			errorText: "cluster-migrator: unknown flag --destination-cluster",
+			usage:     "Usage: cluster-migrator pipeline move <pipeline>",
+			excludes:  "Destination cluster name or ID.",
+		},
+		{
+			name:      "removed pipeline dry run destination override",
+			args:      []string{"--dry-run", "pipeline", "move", "monorepo", "--destination-cluster=production"},
+			errorText: "cluster-migrator: unknown flag --destination-cluster",
+			usage:     "Usage: cluster-migrator pipeline move <pipeline>",
+			excludes:  "Destination cluster name or ID.",
 		},
 		{
 			name:      "removed queue destination override",

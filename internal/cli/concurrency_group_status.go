@@ -152,7 +152,7 @@ func (app *Context) printConcurrencyGroupState(group *buildkite.ConcurrencyGroup
 
 func concurrencyGroupStatusNextSteps(group *buildkite.ConcurrencyGroup) []string {
 	if group.State == buildkite.ConcurrencyGroupClustered {
-		return []string{fmt.Sprintf("Assess each pipeline using this concurrency group:\n\n   cluster-migrator pipeline readiness <pipeline> --destination-cluster %s", group.DestinationClusterID)}
+		return []string{"Assess each pipeline using this concurrency group:\n\n   cluster-migrator pipeline readiness <pipeline>"}
 	}
 	return nil
 }
