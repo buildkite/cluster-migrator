@@ -15,7 +15,7 @@ func TestConfigureQueueMigration(t *testing.T) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("method = %q, want POST", r.Method)
 		}
-		if r.URL.Path != "/v2/organizations/acme/cluster-queue-migrations" {
+		if r.URL.Path != "/v2/organizations/acme/unclustered-to-clustered/queue-migrations" {
 			t.Fatalf("path = %q", r.URL.Path)
 		}
 		if got := r.Header.Get("Authorization"); got != "Bearer secret" {

@@ -12,8 +12,8 @@ func (c *Client) MovePipeline(ctx context.Context, pipeline, clusterID string) (
 	}{ClusterID: clusterID}
 
 	var result Pipeline
-	path := c.path("cluster-queue-migrations", "pipelines", pipeline, "move")
-	if err := c.do(ctx, http.MethodPost, path, request, &result); err != nil {
+	path := c.path("unclustered-to-clustered", "migration", "pipelines", pipeline)
+	if err := c.do(ctx, http.MethodPatch, path, request, &result); err != nil {
 		return nil, err
 	}
 	if result.ClusterID != clusterID {

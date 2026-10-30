@@ -205,7 +205,7 @@ func TestPipelineReadinessJSONPreservesAPIShape(t *testing.T) {
 			NextRefreshAt:             &concurrencyGroupNextRefreshAt,
 			BlockingConcurrencyGroups: []buildkite.BlockingConcurrencyGroup{},
 		},
-		URL: "https://api.buildkite.com/v2/organizations/acme/cluster-queue-migrations/pipelines/monorepo/readiness",
+		URL: "https://api.buildkite.com/v2/organizations/acme/unclustered-to-clustered/migration/pipelines/monorepo?destination_cluster_id=cluster-id",
 	}
 
 	var output bytes.Buffer
@@ -214,7 +214,7 @@ func TestPipelineReadinessJSONPreservesAPIShape(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := "{\n  \"pipeline\": \"monorepo\",\n  \"destination_cluster_id\": \"cluster-id\",\n  \"status\": \"blocked\",\n  \"retry_after_seconds\": null,\n  \"queue_observation\": {\n    \"observed_at\": null,\n    \"next_refresh_at\": \"2026-09-01T07:01:00.123Z\",\n    \"window_started_at\": null,\n    \"window_seconds\": 0,\n    \"complete\": false,\n    \"blocking_queues\": [\n      {\n        \"queue\": \"deploy\",\n        \"reasons\": [\n          \"migration_missing\"\n        ],\n        \"routed_percent\": null,\n        \"active_source_jobs\": 0\n      }\n    ]\n  },\n  \"concurrency_group_observation\": {\n    \"observed_at\": null,\n    \"next_refresh_at\": \"2026-09-01T07:01:30.456Z\",\n    \"window_started_at\": null,\n    \"window_seconds\": 0,\n    \"complete\": false,\n    \"blocking_concurrency_groups\": []\n  },\n  \"url\": \"https://api.buildkite.com/v2/organizations/acme/cluster-queue-migrations/pipelines/monorepo/readiness\"\n}\n"
+	want := "{\n  \"pipeline\": \"monorepo\",\n  \"destination_cluster_id\": \"cluster-id\",\n  \"status\": \"blocked\",\n  \"retry_after_seconds\": null,\n  \"queue_observation\": {\n    \"observed_at\": null,\n    \"next_refresh_at\": \"2026-09-01T07:01:00.123Z\",\n    \"window_started_at\": null,\n    \"window_seconds\": 0,\n    \"complete\": false,\n    \"blocking_queues\": [\n      {\n        \"queue\": \"deploy\",\n        \"reasons\": [\n          \"migration_missing\"\n        ],\n        \"routed_percent\": null,\n        \"active_source_jobs\": 0\n      }\n    ]\n  },\n  \"concurrency_group_observation\": {\n    \"observed_at\": null,\n    \"next_refresh_at\": \"2026-09-01T07:01:30.456Z\",\n    \"window_started_at\": null,\n    \"window_seconds\": 0,\n    \"complete\": false,\n    \"blocking_concurrency_groups\": []\n  },\n  \"url\": \"https://api.buildkite.com/v2/organizations/acme/unclustered-to-clustered/migration/pipelines/monorepo?destination_cluster_id=cluster-id\"\n}\n"
 	if got := output.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
@@ -232,7 +232,7 @@ func TestPipelineReadinessRetriesPendingObservationBeforePrinting(t *testing.T) 
 		switch r.URL.Path {
 		case "/v2/organizations/acme/clusters":
 			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
-		case "/v2/organizations/acme/cluster-queue-migrations/pipelines/monorepo/readiness":
+		case "/v2/organizations/acme/unclustered-to-clustered/migration/pipelines/monorepo":
 			readinessRequests++
 			if readinessRequests < 3 {
 				_, _ = w.Write([]byte(`{"status":"observation_pending","retry_after_seconds":10,"queue_observation":{"next_refresh_at":null},"concurrency_group_observation":{"next_refresh_at":null}}`))
@@ -334,7 +334,7 @@ func TestPipelineMoveDryRunRequiresNoKnownBlockers(t *testing.T) {
 		switch r.URL.Path {
 		case "/v2/organizations/acme/clusters":
 			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
-		case "/v2/organizations/acme/cluster-queue-migrations/pipelines/monorepo/readiness":
+		case "/v2/organizations/acme/unclustered-to-clustered/migration/pipelines/monorepo":
 			_, _ = w.Write([]byte(`{"status":"no_known_blockers","queue_observation":{"next_refresh_at":"2026-09-01T07:01:00Z","blocking_queues":[]},"concurrency_group_observation":{"next_refresh_at":"2026-09-01T07:01:00Z","blocking_concurrency_groups":[]}}`))
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -364,7 +364,7 @@ func TestPipelineMoveDryRunReportsConcurrencyGroupBlockers(t *testing.T) {
 		switch r.URL.Path {
 		case "/v2/organizations/acme/clusters":
 			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
-		case "/v2/organizations/acme/cluster-queue-migrations/pipelines/monorepo/readiness":
+		case "/v2/organizations/acme/unclustered-to-clustered/migration/pipelines/monorepo":
 			_, _ = w.Write([]byte(`{"status":"blocked","queue_observation":{"next_refresh_at":"2026-09-01T07:01:00Z","blocking_queues":[]},"concurrency_group_observation":{"next_refresh_at":"2026-09-01T07:01:00Z","blocking_concurrency_groups":[{"scope":"custom","key":"deploy","reasons":["migration_missing"]}]}}`))
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -405,7 +405,7 @@ func TestPipelineMoveDryRunReportsQueueBlockers(t *testing.T) {
 		switch r.URL.Path {
 		case "/v2/organizations/acme/clusters":
 			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
-		case "/v2/organizations/acme/cluster-queue-migrations/pipelines/monorepo/readiness":
+		case "/v2/organizations/acme/unclustered-to-clustered/migration/pipelines/monorepo":
 			_, _ = w.Write([]byte(`{"status":"blocked","queue_observation":{"next_refresh_at":"2026-09-01T07:01:00Z","blocking_queues":[{"queue":"deploy","reasons":["routing_incomplete","active_source_jobs"],"routed_percent":80,"active_source_jobs":2}]},"concurrency_group_observation":{"next_refresh_at":"2026-09-01T07:01:00Z","blocking_concurrency_groups":[]}}`))
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)

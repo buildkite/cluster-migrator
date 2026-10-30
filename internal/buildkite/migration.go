@@ -22,7 +22,7 @@ func (c *Client) ConfigureMigration(ctx context.Context, destinationClusterID st
 	}{DestinationClusterID: destinationClusterID}
 
 	var migration Migration
-	if err := c.do(ctx, http.MethodPost, c.path("unclustered-to-clustered-migration"), request, &migration); err != nil {
+	if err := c.do(ctx, http.MethodPost, c.path("unclustered-to-clustered", "migration"), request, &migration); err != nil {
 		return nil, err
 	}
 	return &migration, nil
@@ -30,7 +30,7 @@ func (c *Client) ConfigureMigration(ctx context.Context, destinationClusterID st
 
 func (c *Client) GetMigration(ctx context.Context) (*Migration, error) {
 	var migration Migration
-	if err := c.do(ctx, http.MethodGet, c.path("unclustered-to-clustered-migration"), nil, &migration); err != nil {
+	if err := c.do(ctx, http.MethodGet, c.path("unclustered-to-clustered", "migration"), nil, &migration); err != nil {
 		return nil, err
 	}
 	return &migration, nil
@@ -58,7 +58,7 @@ func (c *Client) CompleteMigration(ctx context.Context) (*Migration, error) {
 
 func (c *Client) transitionMigration(ctx context.Context, operation string) (*Migration, error) {
 	var migration Migration
-	if err := c.do(ctx, http.MethodPost, c.path("unclustered-to-clustered-migration", operation), nil, &migration); err != nil {
+	if err := c.do(ctx, http.MethodPost, c.path("unclustered-to-clustered", "migration", operation), nil, &migration); err != nil {
 		return nil, err
 	}
 	return &migration, nil

@@ -113,7 +113,7 @@ func TestRunAcceptsAPITokenFromEnvironmentAndFlag(t *testing.T) {
 					_, _ = w.Write([]byte(`[{"slug":"acme"}]`))
 				case "/v2/organizations/acme/clusters":
 					_, _ = w.Write([]byte(`[]`))
-				case "/v2/organizations/acme/cluster-queue-migrations":
+				case "/v2/organizations/acme/unclustered-to-clustered/queue-migrations":
 					_, _ = w.Write([]byte(`{"items":[],"links":{}}`))
 				default:
 					t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)

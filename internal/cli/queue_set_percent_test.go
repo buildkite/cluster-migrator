@@ -32,13 +32,13 @@ func TestQueueSetPercentPrintsChange(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered-migration":
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered/migration":
 			_, _ = w.Write([]byte(`{"destination_cluster_id":"cluster-id","phase":"prepare_queues"}`))
-		case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/cluster-queue-migrations/test":
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered/queue-migrations/test":
 			_, _ = w.Write([]byte(`{"queue_key":"test","destination":{"cluster_id":"cluster-id"},"routed_percent":10}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/clusters":
 			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
-		case r.Method == http.MethodPatch && r.URL.Path == "/v2/organizations/acme/cluster-queue-migrations/test":
+		case r.Method == http.MethodPatch && r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered/queue-migrations/test":
 			_, _ = w.Write([]byte(`{"queue_key":"test","destination":{"cluster_id":"cluster-id"},"routed_percent":25}`))
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -66,13 +66,13 @@ func TestQueueSetPercentToZeroPrintsBeginRoutingGuidance(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered-migration":
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered/migration":
 			_, _ = w.Write([]byte(`{"destination_cluster_id":"cluster-id","phase":"prepare_queues"}`))
-		case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/cluster-queue-migrations/test":
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered/queue-migrations/test":
 			_, _ = w.Write([]byte(`{"queue_key":"test","destination":{"cluster_id":"cluster-id"},"routed_percent":25}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/clusters":
 			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"production"}]`))
-		case r.Method == http.MethodPatch && r.URL.Path == "/v2/organizations/acme/cluster-queue-migrations/test":
+		case r.Method == http.MethodPatch && r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered/queue-migrations/test":
 			_, _ = w.Write([]byte(`{"queue_key":"test","destination":{"cluster_id":"cluster-id"},"routed_percent":0}`))
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -100,13 +100,13 @@ func TestQueueSetPercentToHundredPrintsValidationGuidance(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered-migration":
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered/migration":
 			_, _ = w.Write([]byte(`{"destination_cluster_id":"cluster-id","phase":"prepare_queues"}`))
-		case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/cluster-queue-migrations/test":
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered/queue-migrations/test":
 			_, _ = w.Write([]byte(`{"queue_key":"test","destination":{"cluster_id":"cluster-id"},"routed_percent":75}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations/acme/clusters":
 			_, _ = w.Write([]byte(`[{"id":"cluster-id","name":"Cluster Migrator Demo"}]`))
-		case r.Method == http.MethodPatch && r.URL.Path == "/v2/organizations/acme/cluster-queue-migrations/test":
+		case r.Method == http.MethodPatch && r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered/queue-migrations/test":
 			_, _ = w.Write([]byte(`{"queue_key":"test","destination":{"cluster_id":"cluster-id"},"routed_percent":100}`))
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -137,13 +137,13 @@ func TestQueueSetPercentCanDecreaseFromHundred(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				switch {
-				case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/unclustered-to-clustered-migration"):
+				case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/unclustered-to-clustered/migration"):
 					_, _ = fmt.Fprint(w, `{"phase":"prepare_queues","destination_cluster_id":"cluster-id"}`)
 				case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/clusters"):
 					_, _ = fmt.Fprint(w, `[{"id":"cluster-id","name":"production"}]`)
-				case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/cluster-queue-migrations/test"):
+				case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/unclustered-to-clustered/queue-migrations/test"):
 					_, _ = fmt.Fprint(w, `{"queue_key":"test","destination":{"cluster_id":"cluster-id"},"routed_percent":100}`)
-				case r.Method == http.MethodPatch && strings.HasSuffix(r.URL.Path, "/cluster-queue-migrations/test"):
+				case r.Method == http.MethodPatch && strings.HasSuffix(r.URL.Path, "/unclustered-to-clustered/queue-migrations/test"):
 					patches++
 					var body struct {
 						Percent int `json:"routed_percent"`

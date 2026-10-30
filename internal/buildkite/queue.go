@@ -23,5 +23,5 @@ type ClusterQueue struct {
 }
 
 func (c *Client) queuePath(queue string) string {
-	return c.path("cluster-queue-migrations", queue)
+	return c.path("unclustered-to-clustered", "queue-migrations", queue)
 }

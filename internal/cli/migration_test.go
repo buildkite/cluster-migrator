@@ -14,7 +14,7 @@ import (
 )
 
 func TestMigrationConfigure(t *testing.T) {
-	const migrationPath = "/v2/organizations/acme/unclustered-to-clustered-migration"
+	const migrationPath = "/v2/organizations/acme/unclustered-to-clustered/migration"
 	const payload = `{"id":"migration-id","organization_id":"org-id","destination_cluster_id":"cluster-id","phase":"prepare_queues","created_by_id":"user-id","url":"https://api.buildkite.com/migration","created_at":"2026-10-26T00:00:00Z","updated_at":"2026-10-26T00:00:00Z"}`
 	const output = `MIGRATION CONFIGURE
 Migration: migration-id
@@ -134,7 +134,7 @@ NEXT STEPS
 }
 
 func TestMigrationCommands(t *testing.T) {
-	const path = "/v2/organizations/acme/unclustered-to-clustered-migration"
+	const path = "/v2/organizations/acme/unclustered-to-clustered/migration"
 	const preparationNextSteps = `
 NEXT STEPS
 
@@ -309,7 +309,7 @@ func TestMigrationLifecycleTransitions(t *testing.T) {
 					payload := fmt.Sprintf(`{"id":"migration-id","organization_id":"org-id","destination_cluster_id":"cluster-id","phase":%q,"created_by_id":"user-id","url":"https://api.buildkite.com/migration","created_at":"2026-10-26T00:00:00Z","updated_at":"2026-10-26T01:00:00Z"}`, operation.phase)
 					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 						requests++
-						if r.Method != http.MethodPost || r.URL.Path != "/v2/organizations/acme/unclustered-to-clustered-migration/"+operation.path {
+						if r.Method != http.MethodPost || r.URL.Path != "/v2/organizations/acme/unclustered-to-clustered/migration/"+operation.path {
 							t.Errorf("unexpected request: %s %s", r.Method, r.URL)
 						}
 						body, _ := io.ReadAll(r.Body)

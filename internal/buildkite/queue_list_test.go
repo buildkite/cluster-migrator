@@ -14,11 +14,14 @@ func TestListQueueMigrationsFollowsNextLinks(t *testing.T) {
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodGet || r.URL.Path != "/v2/organizations/acme/unclustered-to-clustered/queue-migrations" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL)
+		}
 		if r.URL.Query().Get("after") == "first" {
 			_, _ = w.Write([]byte(`{"items":[{"queue_key":"second"}],"links":{}}`))
 			return
 		}
-		_, _ = fmt.Fprintf(w, `{"items":[{"queue_key":"first"}],"links":{"next":%q}}`, server.URL+"/v2/organizations/acme/cluster-queue-migrations?after=first")
+		_, _ = fmt.Fprintf(w, `{"items":[{"queue_key":"first"}],"links":{"next":%q}}`, server.URL+"/v2/organizations/acme/unclustered-to-clustered/queue-migrations?after=first")
 	}))
 	defer server.Close()
 

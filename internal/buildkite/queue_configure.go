@@ -29,7 +29,7 @@ func (c *Client) ConfigureQueueMigration(ctx context.Context, queue string) (*Qu
 	}{QueueKey: queue}
 
 	var migration QueueMigration
-	if err := c.do(ctx, http.MethodPost, c.path("cluster-queue-migrations"), request, &migration); err != nil {
+	if err := c.do(ctx, http.MethodPost, c.path("unclustered-to-clustered", "queue-migrations"), request, &migration); err != nil {
 		return nil, err
 	}
 	return &migration, nil
