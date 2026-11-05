@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,29 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestFinalizeBlockedBuildsTimeout(t *testing.T) {
+	t.Setenv("BUILDKITE_API_TOKEN", "secret")
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	requests := 0
+	client := organizationClient(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		requests++
+		if request.Method != http.MethodPost || request.URL.Path != "/v2/organizations/acme/unclustered-to-clustered/migration/finalizations" {
+			t.Errorf("unexpected request: %s %s", request.Method, request.URL)
+		}
+		return nil, context.DeadlineExceeded
+	})})
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"finalize-blocked-builds", "--json"}, &stdout, &stderr, client)
+	if !errors.Is(err, context.DeadlineExceeded) || stdout.Len() != 0 || stderr.Len() != 0 || requests != 1 {
+		t.Fatalf("error=%v stdout=%q stderr=%q requests=%d, want deadline exceeded, empty output, and one request", err, stdout.String(), stderr.String(), requests)
+	}
+	for _, guidance := range []string{"the request may have been accepted", "a client timeout does not cancel server-side finalization", "inspect affected builds before retrying or requesting completion"} {
+		if !strings.Contains(err.Error(), guidance) {
+			t.Errorf("error=%q, missing guidance %q", err, guidance)
+		}
+	}
+}
 
 func TestMigrationConfigure(t *testing.T) {
 	const migrationPath = "/v2/organizations/acme/unclustered-to-clustered/migration"

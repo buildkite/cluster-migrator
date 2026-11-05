@@ -56,6 +56,10 @@ func (c *Client) CompleteMigration(ctx context.Context) (*Migration, error) {
 	return c.transitionMigration(ctx, "complete")
 }
 
+func (c *Client) FinalizeBlockedBuilds(ctx context.Context) error {
+	return c.do(ctx, http.MethodPost, c.path("unclustered-to-clustered", "migration", "finalizations"), nil, nil)
+}
+
 func (c *Client) transitionMigration(ctx context.Context, operation string) (*Migration, error) {
 	var migration Migration
 	if err := c.do(ctx, http.MethodPost, c.path("unclustered-to-clustered", "migration", operation), nil, &migration); err != nil {

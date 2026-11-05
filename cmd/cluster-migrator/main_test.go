@@ -13,6 +13,83 @@ import (
 	"testing"
 )
 
+func TestFinalizeBlockedBuildsProcess(t *testing.T) {
+	const accepted = `FINALIZE-BLOCKED-BUILDS
+
+RESULT
+
+Blocked-build finalization request accepted. Processing continues on the server; this does not confirm that all builds are finalized.
+No pipeline moves or phase transitions were requested.
+
+NEXT STEPS
+
+1. Inspect affected builds and coordinate with Buildkite to check finalization outcomes, remaining blockers, and failures.
+
+2. Once all unclustered builds are terminal, request migration completion separately:
+
+   cluster-migrator migration set-phase complete
+`
+	for _, test := range []struct {
+		name       string
+		flags      []string
+		status     int
+		message    string
+		wantStdout string
+	}{
+		{name: "accepted", status: http.StatusAccepted, wantStdout: accepted},
+		{name: "JSON accepted", flags: []string{"--json"}, status: http.StatusAccepted, wantStdout: "{\n  \"accepted\": true\n}\n"},
+		{name: "dry run", flags: []string{"--dry-run"}},
+		{name: "JSON dry run", flags: []string{"--dry-run", "--json"}},
+		{name: "forbidden", status: 403, message: "Forbidden"},
+		{name: "not configured", status: 404, message: "No migration found"},
+		{name: "wrong phase", status: 409, message: "Blocked build finalization requires migrate_pipelines"},
+		{name: "invalid request", flags: []string{"--json"}, status: 422, message: "Unexpected body fields for blocked build finalization"},
+		{name: "unavailable", status: 503, message: "Migration locking is disabled"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("XDG_CACHE_HOME", t.TempDir())
+			operations := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodGet && r.URL.Path == "/v2/organizations":
+					_, _ = fmt.Fprint(w, `[{"slug":"acme"}]`)
+				case r.Method == http.MethodPost && r.URL.Path == "/v2/organizations/acme/unclustered-to-clustered/migration/finalizations":
+					operations++
+					body, err := io.ReadAll(r.Body)
+					if err != nil || len(body) != 0 || r.URL.RawQuery != "" || r.Header.Get("Content-Type") != "" {
+						t.Errorf("unexpected operation inputs: body=%q query=%q Content-Type=%q error=%v", body, r.URL.RawQuery, r.Header.Get("Content-Type"), err)
+					}
+					if r.Header.Get("Authorization") != "Bearer test" {
+						t.Error("missing token authentication")
+					}
+					w.WriteHeader(test.status)
+					if test.message != "" {
+						_ = json.NewEncoder(w).Encode(map[string]string{"message": test.message})
+					}
+				default:
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+
+			args := append([]string{"--endpoint", server.URL, "finalize-blocked-builds"}, test.flags...)
+			stdout, stderr, exit := runCLI(t, args...)
+			wantExit, wantStderr, wantOperations := 0, "", 1
+			if test.status == 0 {
+				wantExit, wantOperations = 1, 0
+				wantStderr = "cluster-migrator: finalize-blocked-builds does not support --dry-run: the server has no read-only readiness endpoint; no finalization was requested\n"
+			} else if test.message != "" {
+				wantExit = 1
+				wantStderr = fmt.Sprintf("cluster-migrator: finalize blocked builds: Buildkite API returned %d: %s\n", test.status, test.message)
+			}
+			if exit != wantExit || stdout != test.wantStdout || stderr != wantStderr || operations != wantOperations {
+				t.Fatalf("exit=%d stdout=%q stderr=%q operations=%d; want exit=%d stdout=%q stderr=%q operations=%d", exit, stdout, stderr, operations, wantExit, test.wantStdout, wantStderr, wantOperations)
+			}
+		})
+	}
+}
+
 func TestPipelineMigrationProcess(t *testing.T) {
 	const path = "/v2/organizations/acme/unclustered-to-clustered/migration/pipelines/monorepo"
 	const readiness = `{"pipeline":"monorepo","destination_cluster_id":"cluster-id","status":"no_known_blockers","queue_observation":{"next_refresh_at":"2026-09-01T07:01:00Z"},"concurrency_group_observation":{"next_refresh_at":"2026-09-01T07:01:30Z"}}`
@@ -453,6 +530,7 @@ func TestHelpAndVersionRemainOnStdout(t *testing.T) {
 	}{
 		{name: "root help", args: []string{"--help"}, contains: "Usage: cluster-migrator "},
 		{name: "queue help", args: []string{"queue", "--help"}, contains: "Usage: cluster-migrator queue "},
+		{name: "finalization help", args: []string{"finalize-blocked-builds", "--help"}, contains: "migration set-phase complete"},
 		{name: "version", args: []string{"--version"}, contains: "cluster-migrator dev\n"},
 	}
 
