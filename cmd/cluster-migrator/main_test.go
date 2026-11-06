@@ -23,7 +23,7 @@ No pipeline moves or phase transitions were requested.
 
 NEXT STEPS
 
-1. Inspect affected builds and coordinate with Buildkite to check finalization outcomes, remaining blockers, and failures.
+1. Check readiness for the complete phase to see remaining migration blockers. This CLI does not yet expose that check; coordinate with Buildkite to run it.
 
 2. Once all unclustered builds are terminal, request migration completion separately:
 
@@ -530,7 +530,7 @@ func TestHelpAndVersionRemainOnStdout(t *testing.T) {
 	}{
 		{name: "root help", args: []string{"--help"}, contains: "Usage: cluster-migrator "},
 		{name: "queue help", args: []string{"queue", "--help"}, contains: "Usage: cluster-migrator queue "},
-		{name: "finalization help", args: []string{"finalize-blocked-builds", "--help"}, contains: "migration set-phase complete"},
+		{name: "finalization help", args: []string{"finalize-blocked-builds", "--help"}, contains: "run a readiness check for the complete phase"},
 		{name: "version", args: []string{"--version"}, contains: "cluster-migrator dev\n"},
 	}
 

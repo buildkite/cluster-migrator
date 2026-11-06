@@ -351,10 +351,11 @@ build safety; the CLI does not select or finalize individual builds.
 
 An empty HTTP 202 response means the request was accepted, not that all builds
 were finalized. Processing continues on the server. The command does not move
-pipelines, change phase, or request migration completion. Inspect affected builds
-and coordinate with Buildkite to check outcomes, remaining blockers, and failures;
-there is no finalization report endpoint. `migration status` reports the phase,
-not finalization progress.
+pipelines, change phase, or request migration completion. To check progress, run
+a readiness check for the `complete` phase to see remaining migration blockers.
+This CLI does not yet expose that check; coordinate with Buildkite to run it.
+There is no per-build finalization report endpoint. `migration status` reports
+the current phase, not completion readiness or finalization progress.
 
 Finalization does not itself impose a permanent reopening boundary on passed or
 failed builds. Normal admission rules still apply; retries and unblocks must
@@ -374,7 +375,8 @@ request. On acceptance, `--json` writes only `{"accepted": true}`; this is a CLI
 acknowledgement, not a server report or completion result. Server errors exit
 non-zero with empty stdout and diagnostics on stderr, without fallback mutations.
 A client timeout leaves acceptance uncertain and does not cancel server-side
-finalization. Inspect affected builds before retrying or requesting completion.
+finalization. Check readiness for the `complete` phase before retrying or
+requesting completion.
 
 | Command | Purpose |
 | --- | --- |

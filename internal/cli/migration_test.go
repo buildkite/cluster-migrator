@@ -30,7 +30,7 @@ func TestFinalizeBlockedBuildsTimeout(t *testing.T) {
 	if !errors.Is(err, context.DeadlineExceeded) || stdout.Len() != 0 || stderr.Len() != 0 || requests != 1 {
 		t.Fatalf("error=%v stdout=%q stderr=%q requests=%d, want deadline exceeded, empty output, and one request", err, stdout.String(), stderr.String(), requests)
 	}
-	for _, guidance := range []string{"the request may have been accepted", "a client timeout does not cancel server-side finalization", "inspect affected builds before retrying or requesting completion"} {
+	for _, guidance := range []string{"the request may have been accepted", "a client timeout does not cancel server-side finalization", "check readiness for the complete phase before retrying or requesting completion"} {
 		if !strings.Contains(err.Error(), guidance) {
 			t.Errorf("error=%q, missing guidance %q", err, guidance)
 		}

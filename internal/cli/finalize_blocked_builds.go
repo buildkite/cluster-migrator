@@ -11,7 +11,7 @@ type FinalizeBlockedBuildsCmd struct{}
 func (cmd *FinalizeBlockedBuildsCmd) Help() string {
 	return `Requires migrate_pipelines, write_clusters and write_builds token scopes, and server-side organization, cluster, and build permissions. The server decides build eligibility. No dry run is available.
 
-Acceptance starts a server-side sweep; it does not confirm that all builds are finalized. Inspect affected builds and coordinate with Buildkite for outcomes and failures; there is no finalization report endpoint. JSON output is {"accepted": true}, not a completion result. A client timeout does not cancel server-side finalization; inspect affected builds before retrying.
+Acceptance starts a server-side sweep; it does not confirm that all builds are finalized. To check progress, run a readiness check for the complete phase to see remaining migration blockers. This CLI does not yet expose that check; coordinate with Buildkite to run it. There is no per-build finalization report endpoint. JSON output is {"accepted": true}, not a completion result. A client timeout does not cancel server-side finalization; check completion readiness before retrying.
 
 Finalization does not impose a permanent reopening boundary on passed or failed builds: normal admission rules still apply, and resumed builds block completion again. Builds canceled by finalization cannot restart, including through synchronous trigger descendants.
 
@@ -24,7 +24,7 @@ func (cmd *FinalizeBlockedBuildsCmd) Run(app *Context) error {
 	}
 	if err := app.Client.FinalizeBlockedBuilds(app.Context); err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return fmt.Errorf("finalize blocked builds: %w; the request may have been accepted; a client timeout does not cancel server-side finalization; inspect affected builds before retrying or requesting completion", err)
+			return fmt.Errorf("finalize blocked builds: %w; the request may have been accepted; a client timeout does not cancel server-side finalization; coordinate with Buildkite to check readiness for the complete phase before retrying or requesting completion", err)
 		}
 		return fmt.Errorf("finalize blocked builds: %w", err)
 	}
@@ -37,7 +37,7 @@ func (cmd *FinalizeBlockedBuildsCmd) Run(app *Context) error {
 		return err
 	}
 	return app.printNextSteps([]string{
-		"Inspect affected builds and coordinate with Buildkite to check finalization outcomes, remaining blockers, and failures.",
+		"Check readiness for the complete phase to see remaining migration blockers. This CLI does not yet expose that check; coordinate with Buildkite to run it.",
 		"Once all unclustered builds are terminal, request migration completion separately:\n\n   cluster-migrator migration set-phase complete",
 	})
 }
