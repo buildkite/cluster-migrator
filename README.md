@@ -302,7 +302,8 @@ fails without a transition request and explains these consequences.
 Entering `migrate-pipelines` does not move pipelines or finalize builds. Pipeline
 moves remain separate operations. Completion does not finalize blocked builds:
 all unclustered builds must already be terminal before completion can proceed.
-Standalone blocked-build finalization is not yet exposed by this CLI.
+Request blocked-build finalization separately with `finalize-blocked-builds`,
+as described below.
 
 `--acknowledge-irreversible` is a client-side acknowledgement only. It is not sent
 to or verified by the server: calling an endpoint requests its action. The server
@@ -331,6 +332,52 @@ not imply server-side cancellation; inspect status before deciding what to do
 next. Server rejections exit non-zero with empty stdout and the API error on
 stderr, including HTTP 404, 409, 422, and 503 responses.
 
+### Finalize blocked builds
+
+Once Buildkite confirms the finalization endpoint is deployed and migration
+locking is enabled for the organization, explicitly request a finalization sweep
+during `migrate_pipelines`:
+
+```shell
+cluster-migrator finalize-blocked-builds
+```
+
+The command uses the organization discovered from the token. It sends an empty
+`POST /v2/organizations/:organization/unclustered-to-clustered/migration/finalizations`,
+without a `Content-Type` header. It requires `write_clusters` and `write_builds`
+token scopes, in addition to `read_organizations` for discovery. The server
+enforces organization, cluster, and build permissions, phase eligibility, and
+build safety; the CLI does not select or finalize individual builds.
+
+An empty HTTP 202 response means the request was accepted, not that all builds
+were finalized. Processing continues on the server. The command does not move
+pipelines, change phase, or request migration completion. To check progress, run
+a readiness check for the `complete` phase to see remaining migration blockers.
+This CLI does not yet expose that check; coordinate with Buildkite to run it.
+There is no per-build finalization report endpoint. `migration status` reports
+the current phase, not completion readiness or finalization progress.
+
+Finalization does not itself impose a permanent reopening boundary on passed or
+failed builds. Normal admission rules still apply; retries and unblocks must
+satisfy the migration's current routing checks. A resumed build becomes a
+completion blocker again. Builds canceled by finalization cannot restart,
+including through synchronous trigger descendants. Finalization is not a
+substitute for completion or unclustered-mode disablement protections.
+
+Once all unclustered builds are terminal, request completion separately:
+
+```shell
+cluster-migrator migration set-phase complete
+```
+
+No read-only preview is available, so `--dry-run` fails without a finalization
+request. On acceptance, `--json` writes only `{"accepted": true}`; this is a CLI
+acknowledgement, not a server report or completion result. Server errors exit
+non-zero with empty stdout and diagnostics on stderr, without fallback mutations.
+A client timeout leaves acceptance uncertain and does not cancel server-side
+finalization. Check readiness for the `complete` phase before retrying or
+requesting completion.
+
 | Command | Purpose |
 | --- | --- |
 | `migration configure --destination-cluster <cluster>` | Create the organization's migration with a fixed destination in queue preparation, when server-side enrollment is available. |
@@ -340,6 +387,7 @@ stderr, including HTTP 404, 409, 422, and 503 responses.
 | `migration set-phase cutover-concurrency-groups --acknowledge-irreversible` | Request irreversible commitment, subject to server readiness checks. |
 | `migration set-phase migrate-pipelines` | Enter the pipeline-migration phase without moving pipelines or finalizing builds. |
 | `migration set-phase complete` | Request completion after all unclustered builds are terminal; does not finalize blocked builds. |
+| `finalize-blocked-builds` | Request a server-side blocked-build finalization sweep during `migrate_pipelines`, without moving pipelines or changing phase. |
 | `queue configure <queue>` | During preparation, map a source queue to an existing queue in the organization's fixed destination at 0%. |
 | `queue status [queue]` | Show one queue migration or list all migrations. |
 | `queue set-percent <queue> --to <0-100>` | Set the absolute percentage of new jobs routed to the cluster queue. |

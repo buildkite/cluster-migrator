@@ -33,10 +33,11 @@ type rootCommand struct {
 	DryRun   bool             `help:"Validate and display a mutation without applying it." global:""`
 	Timeout  time.Duration    `help:"Maximum command duration." default:"10m" global:""`
 
-	Queue            QueueCmd            `cmd:"" help:"Configure and inspect queue migrations."`
-	ConcurrencyGroup ConcurrencyGroupCmd `cmd:"" help:"Inspect concurrency-group migrations."`
-	Pipeline         PipelineCmd         `cmd:"" help:"Check and move pipelines."`
-	Migration        MigrationCmd        `cmd:"" help:"Configure, inspect, and request organization migration transitions."`
+	Queue                 QueueCmd                 `cmd:"" help:"Configure and inspect queue migrations."`
+	ConcurrencyGroup      ConcurrencyGroupCmd      `cmd:"" help:"Inspect concurrency-group migrations."`
+	Pipeline              PipelineCmd              `cmd:"" help:"Check and move pipelines."`
+	Migration             MigrationCmd             `cmd:"" help:"Configure, inspect, and request organization migration transitions."`
+	FinalizeBlockedBuilds FinalizeBlockedBuildsCmd `cmd:"" help:"Request blocked-build finalization without moving pipelines or changing phase."`
 }
 
 func Run(
