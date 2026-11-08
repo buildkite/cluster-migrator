@@ -18,8 +18,8 @@ type MigrationCmd struct {
 type MigrationSetPhaseCmd struct {
 	ValidateQueues           MigrationValidateQueuesCmd           `cmd:"" help:"Reject unmapped source queues and freeze queue configuration."`
 	PrepareQueues            MigrationPrepareQueuesCmd            `cmd:"" help:"Return from validation to editable queue preparation."`
-	CutoverConcurrencyGroups MigrationCutoverConcurrencyGroupsCmd `cmd:"" help:"Request irreversible concurrency-group commitment."`
-	MigratePipelines         MigrationMigratePipelinesCmd         `cmd:"" help:"Enter the pipeline-migration phase without moving pipelines."`
+	CutoverConcurrencyGroups MigrationCutoverConcurrencyGroupsCmd `cmd:"" help:"Request irreversible commitment without starting group cutovers."`
+	MigratePipelines         MigrationMigratePipelinesCmd         `cmd:"" help:"Enter the pipeline-migration phase without moving pipelines or finalizing builds."`
 	Complete                 MigrationCompleteCmd                 `cmd:"" help:"Request completion without finalizing blocked builds."`
 }
 
@@ -168,15 +168,21 @@ func migrationNextSteps(phase string) []string {
 			"Run representative workloads to check for unmapped source queues.",
 			"If you need to repair mappings or change routing, return to preparation first:\n\n   cluster-migrator migration set-phase prepare-queues",
 			"After making those changes, start validation again:\n\n   cluster-migrator migration set-phase validate-queues",
+			"Once validation is satisfactory, all queues route 100%, and Buildkite confirms the safety gates, explicitly request irreversible commitment:\n\n   cluster-migrator migration set-phase cutover-concurrency-groups --acknowledge-irreversible",
 		}
 	case "cutover_concurrency_groups":
 		return []string{
-			"Inspect concurrency-group migration progress:\n\n   cluster-migrator concurrency-group status",
+			"Coordinate with Buildkite to identify required groups, then request each cutover separately:\n\n   cluster-migrator concurrency-group cutover <scope>/<key>",
+			"Inspect concurrency-group migration progress. This lists migration records, not every group that needs cutover:\n\n   cluster-migrator concurrency-group status",
 			"If progress stalls or an operation fails, contact Buildkite. Queue configuration is frozen and preparation cannot be reopened.",
+			"Once required group work has drained or moved and cutovers have finished and released their holds, request pipeline-phase entry. This does not move pipelines or finalize builds:\n\n   cluster-migrator migration set-phase migrate-pipelines",
 		}
 	case "migrate_pipelines":
 		return []string{
-			"Coordinate pipeline cutover and completion with Buildkite. The server readiness checks for these transitions are not implemented yet.",
+			"Phase entry does not move pipelines. Assess each pipeline individually:\n\n   cluster-migrator pipeline readiness <pipeline>",
+			"If no known blockers remain and operational checks are satisfactory, move the pipeline. Repeat for every unclustered pipeline, including archived pipelines:\n\n   cluster-migrator pipeline move <pipeline>",
+			"If blocked builds need finalization, request it separately. Acceptance does not confirm completion:\n\n   cluster-migrator finalize-blocked-builds",
+			"Coordinate with Buildkite to check completion readiness; status reports only the phase. Once all prerequisites are met, explicitly request completion:\n\n   cluster-migrator migration set-phase complete",
 		}
 	default:
 		return nil

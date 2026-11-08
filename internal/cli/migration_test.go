@@ -184,20 +184,46 @@ NEXT STEPS
 3. After making those changes, start validation again:
 
    cluster-migrator migration set-phase validate-queues
+
+4. Once validation is satisfactory, all queues route 100%, and Buildkite confirms the safety gates, explicitly request irreversible commitment:
+
+   cluster-migrator migration set-phase cutover-concurrency-groups --acknowledge-irreversible
 `
 	const concurrencyNextSteps = `
 NEXT STEPS
 
-1. Inspect concurrency-group migration progress:
+1. Coordinate with Buildkite to identify required groups, then request each cutover separately:
+
+   cluster-migrator concurrency-group cutover <scope>/<key>
+
+2. Inspect concurrency-group migration progress. This lists migration records, not every group that needs cutover:
 
    cluster-migrator concurrency-group status
 
-2. If progress stalls or an operation fails, contact Buildkite. Queue configuration is frozen and preparation cannot be reopened.
+3. If progress stalls or an operation fails, contact Buildkite. Queue configuration is frozen and preparation cannot be reopened.
+
+4. Once required group work has drained or moved and cutovers have finished and released their holds, request pipeline-phase entry. This does not move pipelines or finalize builds:
+
+   cluster-migrator migration set-phase migrate-pipelines
 `
 	const pipelineNextSteps = `
 NEXT STEPS
 
-1. Coordinate pipeline cutover and completion with Buildkite. The server readiness checks for these transitions are not implemented yet.
+1. Phase entry does not move pipelines. Assess each pipeline individually:
+
+   cluster-migrator pipeline readiness <pipeline>
+
+2. If no known blockers remain and operational checks are satisfactory, move the pipeline. Repeat for every unclustered pipeline, including archived pipelines:
+
+   cluster-migrator pipeline move <pipeline>
+
+3. If blocked builds need finalization, request it separately. Acceptance does not confirm completion:
+
+   cluster-migrator finalize-blocked-builds
+
+4. Coordinate with Buildkite to check completion readiness; status reports only the phase. Once all prerequisites are met, explicitly request completion:
+
+   cluster-migrator migration set-phase complete
 `
 	for _, test := range []struct {
 		name      string

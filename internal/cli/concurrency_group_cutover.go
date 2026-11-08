@@ -262,7 +262,7 @@ func concurrencyGroupCutoverActions(group string, readiness *buildkite.Concurren
 			case "migration_missing":
 				appendAction(fmt.Sprintf("Inspect the organization migration's phase before configuring the missing cluster queue migration for %s:\n\n   cluster-migrator migration status", blocker.Queue))
 			case "routing_incomplete":
-				appendAction(fmt.Sprintf("Review destination activity for %s before increasing routing:\n\n   cluster-migrator queue metrics %s", blocker.Queue, blocker.Queue))
+				appendAction(fmt.Sprintf("Review destination activity for %s. Queue routing is frozen after commitment; contact Buildkite if it needs repair:\n\n   cluster-migrator queue metrics %s", blocker.Queue, blocker.Queue))
 			case "recent_source_jobs":
 				appendAction(fmt.Sprintf("Wait until no ungrouped jobs have been created on the unclustered %s queue for 10 minutes, then retry the cutover:\n\n   cluster-migrator concurrency-group cutover %s", blocker.Queue, group))
 			}
