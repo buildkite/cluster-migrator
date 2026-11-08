@@ -18,9 +18,10 @@ func TestConcurrencyGroupCutover(t *testing.T) {
 
 	const (
 		blocked = `{"message":"Concurrency group is not ready to cut over","scope":"custom","key":"deploy/production","destination_cluster_id":"cluster-id","ready":false,"status":"blocked",` +
-			`"migration":{"state":"unclustered","blocking_reason":null},"queue_observation":{"observed_at":"2026-10-09T07:00:00Z","window_started_at":"2026-10-09T06:50:00Z","window_seconds":600,"queues":["deploy","release"],"blocking_queues":[` +
+			`"migration":{"state":"unclustered","blocking_reason":null},"queue_observation":{"observed_at":"2026-10-09T07:00:00Z","window_started_at":"2026-10-09T06:50:00Z","window_seconds":600,"queues":["deploy","release","test"],"blocking_queues":[` +
 			`{"queue":"deploy","reasons":["recent_source_jobs"],"routed_percent":100,"recent_source_jobs":4},` +
-			`{"queue":"release","reasons":["migration_missing"],"routed_percent":null,"recent_source_jobs":0}]}}`
+			`{"queue":"release","reasons":["migration_missing"],"routed_percent":null,"recent_source_jobs":0},` +
+			`{"queue":"test","reasons":["routing_incomplete"],"routed_percent":40,"recent_source_jobs":0}]}}`
 		inProgress = `{"message":"Concurrency group is not ready to cut over","scope":"custom","key":"deploy/production","destination_cluster_id":"cluster-id","ready":false,"status":"blocked",` +
 			`"migration":{"state":"forward_draining","blocking_reason":"cutover_in_progress"},"queue_observation":{"observed_at":"2026-10-09T07:00:00Z","window_started_at":"2026-10-09T06:50:00Z","window_seconds":600,"queues":["deploy"],"blocking_queues":[]}}`
 		draining    = `{"scope":"custom","key":"deploy/production","state":"forward_draining","destination_cluster_id":"cluster-id","held_at":"2026-10-09T07:00:00.000Z","source_jobs":{"running":1,"waiting":2},"url":"","created_at":"2026-10-09T06:59:00.000Z","updated_at":"2026-10-09T07:00:00.000Z"}`
@@ -69,14 +70,16 @@ func TestConcurrencyGroupCutover(t *testing.T) {
 		{name: "JSON dry run while in progress", dryRun: true, json: true, existing: draining, wantError: "concurrency group cannot cut over: A cutover is already in progress."},
 		{
 			name: "rejected by queues", rejection: blocked, wantPosts: 1, wantError: blockedError,
-			wantText: heading + "\nRESULT\n\nCutover rejected without changes. Blocked by 2 known conditions.\n\nQUEUE BLOCKERS\n\n" +
+			wantText: heading + "\nRESULT\n\nCutover rejected without changes. Blocked by 3 known conditions.\n\nQUEUE BLOCKERS\n\n" +
 				"QUEUE    ROUTING  RECENT UNGROUPED JOBS  BLOCKER\n" +
 				"deploy   100%     4                      Ungrouped jobs were created on the unclustered queue recently.\n" +
 				"release  —        0                      No queue migration is configured.\n" +
-				strings.Replace(observations, "%s", "deploy, release", 1) +
+				"test     40%      0                      Routing is below 100%.\n" +
+				strings.Replace(observations, "%s", "deploy, release, test", 1) +
 				"\nNEXT STEPS\n\n" +
 				"1. Wait until no ungrouped jobs have been created on the unclustered deploy queue for 10 minutes, then retry the cutover:\n\n   cluster-migrator concurrency-group cutover custom/deploy/production\n\n" +
-				"2. Inspect the organization migration's phase before configuring the missing cluster queue migration for release:\n\n   cluster-migrator migration status\n",
+				"2. Inspect the organization migration's phase before configuring the missing cluster queue migration for release:\n\n   cluster-migrator migration status\n\n" +
+				"3. Review destination activity for test. Queue routing is frozen after commitment; contact Buildkite if it needs repair:\n\n   cluster-migrator queue metrics test\n",
 		},
 		{name: "JSON rejected", json: true, rejection: blocked, wantPosts: 1, wantError: blockedError, wantText: blocked},
 		{
