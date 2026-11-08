@@ -16,11 +16,12 @@ migration destination for both requests.
 
 ## How it works
 
-A migration has three stages. Finish each stage for the whole organization before starting the next:
+A migration uses explicit phase transitions and individual resource commands:
 
 1. **Prepare and validate queues.** Map every unclustered source queue to an existing queue with the same key in the organization's fixed destination cluster, then increase the percentage of new jobs sent there from 0% to 100%. Routing remains reversible during preparation, including decreases from 100%. Explicit validation rejects unmapped source queues and freezes configuration until an explicit return to preparation.
-2. **Cut over concurrency groups.** Only after the organization commits to concurrency-group cutover can groups move their authority to the cluster. Fully routing queues does not authorize commitment. This CLI does not yet expose the organization-wide commitment operation; coordinate that later stage with Buildkite.
-3. **Move pipelines.** Assess each pipeline's queue and concurrency-group blockers, then permanently assign it to the cluster. Repeat for every pipeline.
+2. **Commit, then cut over concurrency groups.** After validation and Buildkite's safety checks, explicitly request irreversible commitment with `migration set-phase cutover-concurrency-groups --acknowledge-irreversible`. Routing at 100% is not commitment. Commitment freezes queue configuration permanently; it does not start group cutovers. Request and monitor each required cutover individually.
+3. **Enter pipeline migration, then move pipelines.** Once required group work has drained or moved and cutovers have finished and released their holds, explicitly request `migration set-phase migrate-pipelines`. Phase entry does not move pipelines or finalize builds. Assess and move each unclustered pipeline individually, including archived pipelines.
+4. **Finalize blocked builds separately, then complete.** If blocked builds need finalization, explicitly request `finalize-blocked-builds`. Acceptance is not completion. Once all server prerequisites are met, explicitly request `migration set-phase complete`; this does not finalize builds.
 
 Routing changes affect new jobs only. Jobs already created remain on the queue selected when they were created.
 
@@ -123,9 +124,33 @@ cluster-migrator queue set-percent test --to 0
 
 This does not move existing jobs or remove the queue mapping. Routing is frozen outside preparation.
 
-### 4. Cut over concurrency groups
+### 4. Validate queues and commit
 
-These retained individual commands are provisional diagnostics and operations for later phases, not the organization-wide commitment workflow. Do not use them to bypass validation or commitment. Coordinate commitment with Buildkite first; the server rejects individual cutovers during preparation and validation. Once committed and every queue is routed 100%, cut over every concurrency group that has been used on unclustered queues before moving any pipeline. Ask Buildkite for the list of these groups. Pipeline readiness also reports any group a pipeline still needs.
+Once mappings and routing are ready, enter validation and run representative workloads:
+
+```shell
+cluster-migrator migration set-phase validate-queues
+```
+
+Validation freezes queue configuration, including dry runs. If repairs or routing changes are needed, explicitly return to preparation, make the changes, then validate again:
+
+```shell
+cluster-migrator migration set-phase prepare-queues
+# Configure missing mappings or adjust routing.
+cluster-migrator migration set-phase validate-queues
+```
+
+Once validation is satisfactory, all queues route 100%, and Buildkite confirms the operational safety gates, explicitly request irreversible commitment:
+
+```shell
+cluster-migrator migration set-phase cutover-concurrency-groups --acknowledge-irreversible
+```
+
+Commitment does not start group cutovers. It freezes queue mappings and routing percentages and prevents reopening preparation. If an operation later fails, coordinate forward recovery with Buildkite rather than trying to edit queue configuration.
+
+### 5. Cut over concurrency groups
+
+The server rejects individual cutovers during preparation and validation. After commitment, coordinate with Buildkite to identify required group work. Unfinished jobs must drain or move off unclustered groups, and outstanding cutovers must finish and release their holds before pipeline-phase entry. Dormant historical group records alone do not block entry; do not cut over every historically used group merely because it exists. Pipeline readiness also reports groups a pipeline still needs.
 
 Request a cutover for one group:
 
@@ -161,9 +186,17 @@ cluster-migrator concurrency-group status custom/deploy
 
 Concurrency-group migrations only move forward. Once a group routes to the cluster, it cannot return to unclustered queues. A forward migration cancelled before routing switches remains unclustered and can cut over again to the same destination.
 
-### 5. Assess each pipeline
+`concurrency-group status` without a group lists migration records, not all groups that need cutover. Neither an empty list nor all listed migrations being clustered proves that all required group work has finished.
 
-After all queues used by a pipeline reach 100%, check its known blockers:
+### 6. Enter pipeline migration and assess each pipeline
+
+Once required group work has drained or moved, cutovers have finished and released their holds, and queue readiness still passes, explicitly request pipeline-phase entry:
+
+```shell
+cluster-migrator migration set-phase migrate-pipelines
+```
+
+The server rechecks readiness. Phase entry does not move any pipelines or finalize builds. Assess each unclustered pipeline's known blockers:
 
 ```shell
 cluster-migrator pipeline readiness monorepo
@@ -177,7 +210,7 @@ A blocked assessment prints corrective next steps and exits non-zero.
 
 After a pipeline moves, step uploads that target a queue missing from the destination cluster will fail. Check static and dynamically generated pipeline steps for queue keys that may not appear in the readiness observation window.
 
-### 6. Move the pipeline
+### 7. Move the pipeline
 
 Previewing a move runs the readiness assessment without changing the pipeline:
 
@@ -193,7 +226,25 @@ cluster-migrator pipeline move monorepo
 
 The CLI has no pipeline rollback command. The server revalidates authoritative migration invariants when applying a move; an earlier `no_known_blockers` result is not authorization by itself.
 
-Prepare and validate queue mappings first. Coordinate irreversible commitment with Buildkite before cutting over concurrency groups, then assess and move pipelines only in the pipeline-migration phase.
+Repeat assessment and movement for every unclustered pipeline, including archived pipelines. Individual commands remain available; no bulk operation is required.
+
+### 8. Finalize blocked builds and complete
+
+If blocked builds need finalization, request it separately during pipeline migration:
+
+```shell
+cluster-migrator finalize-blocked-builds
+```
+
+An accepted request starts server-side processing; it does not confirm that all builds are finalized. Coordinate with Buildkite to check completion readiness. `migration status` reports the phase, not remaining completion blockers or finalization progress.
+
+Once all server prerequisites are met, including all unclustered builds being terminal, request completion explicitly:
+
+```shell
+cluster-migrator migration set-phase complete
+```
+
+Completion does not move pipelines or finalize builds. See the finalization reference below for permissions, reopening rules, and timeout guidance.
 
 ## Command reference
 
@@ -268,36 +319,28 @@ The server has no read-only readiness endpoint for these transitions, so
 to inspect the current phase; status is not authorization for a later change.
 `--json` returns the API migration object on success.
 
-Human-readable output includes next steps for the current phase. Preparation
-directs you to review mappings before validation. Validation directs you to test
-representative workloads and explicitly reopen preparation for repairs. After
-commitment, guidance covers concurrency-group progress and coordinating pipeline
-moves with Buildkite, not reopening preparation. Status for completed migrations
-has no next-step section. JSON output does not include this guidance.
+Human-readable output includes next steps for the current phase. Preparation directs you to review mappings before validation. Validation directs you to test representative workloads, explicitly reopen preparation for repairs, or request commitment once the safety gates are met. After commitment, guidance covers individual group cutovers and explicit pipeline-phase entry, not reopening preparation. Pipeline migration directs individual assessment and moves, separate finalization, and explicit completion. Status for completed migrations has no next-step section. JSON output does not include this guidance.
 
 ### Request commitment, pipeline migration, and completion
 
-These commands require companion server endpoints and implemented readiness
-checks before operational use. The companion server contract rejects otherwise
-valid requests with HTTP 503: `Migration transition to <phase> is not available yet`.
-Wrong-phase requests return HTTP 409. These are not successful no-ops, and the CLI
-does not bypass these server checks or enable enrollment.
+Each transition requires its server endpoint and readiness checks to be deployed and enabled. Commitment requires queue readiness: configured mappings must route 100% to active queues in the fixed destination, and unfinished source work must have mappings. Pipeline-phase entry also requires group cutovers to finish and release their holds, with no unfinished work left on unclustered group records. Historical group records alone are not blockers. Completion readiness must be available before requesting completion; confirm availability with Buildkite.
 
-When those server checks are implemented and Buildkite authorizes proceeding,
-request each transition separately:
+Wrong-phase or blocked-readiness requests return HTTP 409. An unavailable transition or disabled migration locking can return HTTP 503, including `Migration transition to <phase> is not available yet`. These are failures, not successful no-ops. The CLI does not bypass server checks or enable enrollment.
+
+When Buildkite confirms availability and authorizes proceeding, request each transition separately, completing the intervening resource work first:
 
 ```shell
 cluster-migrator migration set-phase cutover-concurrency-groups --acknowledge-irreversible
-# Inspect current state before requesting any subsequent transition.
+# Request individual group cutovers and wait for required group work to finish.
 cluster-migrator migration status
 cluster-migrator migration set-phase migrate-pipelines
+# Assess and move individual pipelines; request blocked-build finalization if needed.
 cluster-migrator migration status
+# Check completion readiness with Buildkite before requesting completion.
 cluster-migrator migration set-phase complete
 ```
 
-Concurrency-group commitment freezes queue mappings and routing percentages and
-prevents returning to preparation. Without `--acknowledge-irreversible`, the CLI
-fails without a transition request and explains these consequences.
+Concurrency-group commitment freezes queue mappings and routing percentages and prevents returning to preparation. It does not start group cutovers. Without `--acknowledge-irreversible`, the CLI fails without a transition request and explains these consequences.
 
 Entering `migrate-pipelines` does not move pipelines or finalize builds. Pipeline
 moves remain separate operations. Completion does not finalize blocked builds:
