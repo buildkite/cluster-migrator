@@ -23,9 +23,11 @@ No pipeline moves or phase transitions were requested.
 
 NEXT STEPS
 
-1. Check readiness for the complete phase to see remaining migration blockers. This CLI does not yet expose that check; coordinate with Buildkite to run it.
+1. Check remaining completion blockers:
 
-2. Once all unclustered builds are terminal, request migration completion separately:
+   cluster-migrator migration status
+
+2. Once no known completion blockers remain, request migration completion separately. The server rechecks readiness:
 
    cluster-migrator migration set-phase complete
 `
@@ -78,7 +80,7 @@ NEXT STEPS
 			wantExit, wantStderr, wantOperations := 0, "", 1
 			if test.status == 0 {
 				wantExit, wantOperations = 1, 0
-				wantStderr = "cluster-migrator: finalize-blocked-builds does not support --dry-run: the server has no read-only readiness endpoint; no finalization was requested\n"
+				wantStderr = "cluster-migrator: finalize-blocked-builds does not support --dry-run: the server has no read-only finalization preview; no finalization was requested\n"
 			} else if test.message != "" {
 				wantExit = 1
 				wantStderr = fmt.Sprintf("cluster-migrator: finalize blocked builds: Buildkite API returned %d: %s\n", test.status, test.message)
@@ -530,7 +532,7 @@ func TestHelpAndVersionRemainOnStdout(t *testing.T) {
 	}{
 		{name: "root help", args: []string{"--help"}, contains: "Usage: cluster-migrator "},
 		{name: "queue help", args: []string{"queue", "--help"}, contains: "Usage: cluster-migrator queue "},
-		{name: "finalization help", args: []string{"finalize-blocked-builds", "--help"}, contains: "run a readiness check for the complete phase"},
+		{name: "finalization help", args: []string{"finalize-blocked-builds", "--help"}, contains: "run cluster-migrator migration status"},
 		{name: "version", args: []string{"--version"}, contains: "cluster-migrator dev\n"},
 	}
 
@@ -540,7 +542,7 @@ func TestHelpAndVersionRemainOnStdout(t *testing.T) {
 			if exitCode != 0 {
 				t.Fatalf("exit code = %d, want 0; stderr:\n%s", exitCode, stderr)
 			}
-			if !strings.Contains(stdout, test.contains) {
+			if !strings.Contains(strings.Join(strings.Fields(stdout), " "), strings.Join(strings.Fields(test.contains), " ")) {
 				t.Fatalf("stdout does not contain %q:\n%s", test.contains, stdout)
 			}
 			if stderr != "" {
