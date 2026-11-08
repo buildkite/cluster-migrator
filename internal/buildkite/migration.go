@@ -16,6 +16,23 @@ type Migration struct {
 	UpdatedAt            string `json:"updated_at"`
 }
 
+type MigrationReadiness struct {
+	Phase                         string             `json:"phase"`
+	TargetPhase                   string             `json:"target_phase"`
+	Ready                         bool               `json:"ready"`
+	Status                        string             `json:"status"`
+	BlockerSamples                []MigrationBlocker `json:"blocker_samples"`
+	BlockerSampleLimitPerCategory int                `json:"blocker_sample_limit_per_category"`
+}
+
+type MigrationBlocker struct {
+	Code    string  `json:"code"`
+	Message string  `json:"message"`
+	Queue   *string `json:"queue"`
+	Scope   *string `json:"scope"`
+	Key     *string `json:"key"`
+}
+
 func (c *Client) ConfigureMigration(ctx context.Context, destinationClusterID string) (*Migration, error) {
 	request := struct {
 		DestinationClusterID string `json:"destination_cluster_id"`
@@ -34,6 +51,14 @@ func (c *Client) GetMigration(ctx context.Context) (*Migration, error) {
 		return nil, err
 	}
 	return &migration, nil
+}
+
+func (c *Client) GetMigrationReadiness(ctx context.Context) (*MigrationReadiness, error) {
+	var readiness MigrationReadiness
+	if err := c.do(ctx, http.MethodGet, c.path("unclustered-to-clustered", "migration", "readiness"), nil, &readiness); err != nil {
+		return nil, err
+	}
+	return &readiness, nil
 }
 
 func (c *Client) ValidateQueues(ctx context.Context) (*Migration, error) {

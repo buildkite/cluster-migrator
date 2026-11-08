@@ -236,7 +236,13 @@ If blocked builds need finalization, request it separately during pipeline migra
 cluster-migrator finalize-blocked-builds
 ```
 
-An accepted request starts server-side processing; it does not confirm that all builds are finalized. Coordinate with Buildkite to check completion readiness. `migration status` reports the phase, not remaining completion blockers or finalization progress.
+An accepted request starts server-side processing; it does not confirm that all builds are finalized. Check remaining completion blockers:
+
+```shell
+cluster-migrator migration status
+```
+
+During `migrate_pipelines`, status also requests read-only completion readiness. It shows blocker samples, not totals or progress percentages. A blocked assessment exits non-zero. The readiness endpoint must be deployed; an unavailable assessment is an error, not a phase-only success.
 
 Once all server prerequisites are met, including all unclustered builds being terminal, request completion explicitly:
 
@@ -244,7 +250,7 @@ Once all server prerequisites are met, including all unclustered builds being te
 cluster-migrator migration set-phase complete
 ```
 
-Completion does not move pipelines or finalize builds. See the finalization reference below for permissions, reopening rules, and timeout guidance.
+Completion rechecks readiness. It does not move pipelines or finalize builds. See the finalization reference below for permissions, reopening rules, and timeout guidance.
 
 ## Command reference
 
@@ -319,7 +325,11 @@ The server has no read-only readiness endpoint for these transitions, so
 to inspect the current phase; status is not authorization for a later change.
 `--json` returns the API migration object on success.
 
-Human-readable output includes next steps for the current phase. Preparation directs you to review mappings before validation. Validation directs you to test representative workloads, explicitly reopen preparation for repairs, or request commitment once the safety gates are met. After commitment, guidance covers individual group cutovers and explicit pipeline-phase entry, not reopening preparation. Pipeline migration directs individual assessment and moves, separate finalization, and explicit completion. Status for completed migrations has no next-step section. JSON output does not include this guidance.
+Human-readable output includes next steps for the current phase. Preparation directs you to review mappings before validation. Validation directs you to test representative workloads, explicitly reopen preparation for repairs, or request commitment once the safety gates are met. After commitment, guidance covers individual group cutovers and explicit pipeline-phase entry, not reopening preparation. Pipeline migration shows completion blockers and directs individual pipeline assessment, separate finalization, or group status checks as needed. No known blockers means completion can be requested explicitly, not that migration is complete. Status for completed migrations has no next-step section. JSON output does not include this guidance.
+
+During `migrate_pipelines`, status requests `GET /v2/organizations/:organization/unclustered-to-clustered/migration/readiness` after fetching the migration. Other phases do not request readiness. The assessment includes `phase`, `target_phase`, `ready`, `status`, `blocker_samples`, and `blocker_sample_limit_per_category`. Each sample has `code`, `message`, and nullable `queue`, `scope`, and `key`. Messages are displayed as returned, not parsed for pipeline or build identifiers. Unknown blocker codes remain visible.
+
+`migration status --json` preserves existing migration fields and adds `completion_readiness` during pipeline migration. This contains the readiness API response without human guidance. Earlier phases and completed migrations retain the migration-only JSON shape. Blocked assessments print JSON before exiting non-zero; API failures leave stdout empty. Status starts no work, including when passed `--dry-run`.
 
 ### Request commitment, pipeline migration, and completion
 
@@ -336,7 +346,7 @@ cluster-migrator migration status
 cluster-migrator migration set-phase migrate-pipelines
 # Assess and move individual pipelines; request blocked-build finalization if needed.
 cluster-migrator migration status
-# Check completion readiness with Buildkite before requesting completion.
+# Proceed only when no known completion blockers remain.
 cluster-migrator migration set-phase complete
 ```
 
@@ -366,8 +376,7 @@ All three POST requests have no body and no `Content-Type` header:
 | `migration set-phase migrate-pipelines` | `cutover-pipelines` | `migrate_pipelines` |
 | `migration set-phase complete` | `complete` | `complete` |
 
-There is no read-only preview endpoint, so all three reject `--dry-run` without
-mutation requests, including when the acknowledgement flag is set.
+All three reject `--dry-run` without mutation requests, including when the acknowledgement flag is set. Use `migration status` to inspect the current phase and, during pipeline migration, completion readiness. This does not preview commitment or pipeline-phase entry, or authorise a later transition.
 On HTTP 200, human output reports the returned phase and directs you to
 `migration status`; `--json` returns only the API migration object. A successful
 POST is not proof that all background work has finished. A client timeout does
@@ -394,11 +403,7 @@ build safety; the CLI does not select or finalize individual builds.
 
 An empty HTTP 202 response means the request was accepted, not that all builds
 were finalized. Processing continues on the server. The command does not move
-pipelines, change phase, or request migration completion. To check progress, run
-a readiness check for the `complete` phase to see remaining migration blockers.
-This CLI does not yet expose that check; coordinate with Buildkite to run it.
-There is no per-build finalization report endpoint. `migration status` reports
-the current phase, not completion readiness or finalization progress.
+pipelines, change phase, or request migration completion. Run `cluster-migrator migration status` to check remaining completion blockers. It reports samples, not finalization totals. There is no per-build finalization report endpoint.
 
 Finalization does not itself impose a permanent reopening boundary on passed or
 failed builds. Normal admission rules still apply; retries and unblocks must
@@ -407,7 +412,7 @@ completion blocker again. Builds canceled by finalization cannot restart,
 including through synchronous trigger descendants. Finalization is not a
 substitute for completion or unclustered-mode disablement protections.
 
-Once all unclustered builds are terminal, request completion separately:
+Once no known completion blockers remain, request completion separately. The server rechecks readiness:
 
 ```shell
 cluster-migrator migration set-phase complete
@@ -418,13 +423,12 @@ request. On acceptance, `--json` writes only `{"accepted": true}`; this is a CLI
 acknowledgement, not a server report or completion result. Server errors exit
 non-zero with empty stdout and diagnostics on stderr, without fallback mutations.
 A client timeout leaves acceptance uncertain and does not cancel server-side
-finalization. Check readiness for the `complete` phase before retrying or
-requesting completion.
+finalization. Run `cluster-migrator migration status` before retrying or requesting completion.
 
 | Command | Purpose |
 | --- | --- |
 | `migration configure --destination-cluster <cluster>` | Create the organization's migration with a fixed destination in queue preparation, when server-side enrollment is available. |
-| `migration status` | Show the organization's configured migration and phase. |
+| `migration status` | Show the migration phase and, during pipeline migration, completion readiness and blocker samples. |
 | `migration set-phase validate-queues` | Reject unmapped source queues and freeze queue configuration without changing concurrency authority. |
 | `migration set-phase prepare-queues` | Explicitly return from validation to editable preparation and reopen unmapped-source-queue admission. |
 | `migration set-phase cutover-concurrency-groups --acknowledge-irreversible` | Request irreversible commitment, subject to server readiness checks. |
