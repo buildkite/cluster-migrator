@@ -34,7 +34,7 @@ func runWithPipelineIdentifierFallback[T any](
 	}
 	slug, resolveErr := client.ResolvePipelineSlug(ctx, identifier)
 	if resolveErr != nil {
-		return result, fmt.Errorf("%w; resolve pipeline identifier: %v", err, resolveErr)
+		return result, fmt.Errorf("%w; resolve pipeline identifier: %w", err, resolveErr)
 	}
 	result, err = run(slug)
 	if errors.As(err, &apiError) && apiError.StatusCode == http.StatusNotFound && strings.Contains(apiError.Message, "migration is not configured") {

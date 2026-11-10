@@ -49,7 +49,8 @@ func getPipelineReadiness(app *Context, pipeline string) (*buildkite.PipelineRea
 	for {
 		readiness, err := app.Client.GetPipelineReadiness(ctx, pipeline)
 		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
+			var timeout *buildkite.RequestTimeout
+			if errors.Is(err, context.DeadlineExceeded) && !errors.As(err, &timeout) {
 				return nil, pipelineReadinessDeadlineError(app.Context)
 			}
 			return nil, fmt.Errorf("get pipeline readiness: %w", err)
@@ -57,6 +58,7 @@ func getPipelineReadiness(app *Context, pipeline string) (*buildkite.PipelineRea
 		if readiness.Status != buildkite.PipelineReadinessPending {
 			return readiness, nil
 		}
+		app.LastKnown = []string{"Destination: " + readiness.DestinationClusterID, "Pipeline readiness: " + readiness.Status}
 		if readiness.RetryAfter == nil || *readiness.RetryAfter <= 0 {
 			retryAfter := 0
 			if readiness.RetryAfter != nil {

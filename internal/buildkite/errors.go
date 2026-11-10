@@ -7,6 +7,16 @@ import (
 	"net/http"
 )
 
+type RequestTimeout struct {
+	Method            string
+	Path              string
+	MutationAttempted bool
+	Err               error
+}
+
+func (e *RequestTimeout) Error() string { return e.Err.Error() }
+func (e *RequestTimeout) Unwrap() error { return e.Err }
+
 type APIError struct {
 	StatusCode int
 	Message    string `json:"message"`

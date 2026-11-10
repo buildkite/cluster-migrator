@@ -239,7 +239,7 @@ func TestConcurrencyGroupStatusProcess(t *testing.T) {
 func TestConcurrencyGroupCutoverProcess(t *testing.T) {
 	const groupPath = "/v2/organizations/acme/unclustered-to-clustered/concurrency-group-migrations/custom/deploy"
 	const skippedObservation = `{"message":"Concurrency group is not ready to cut over","ready":false,"status":"blocked","migration":{"state":"forward_draining","blocking_reason":"cutover_in_progress"},"queue_observation":null}`
-	const timeoutError = "start concurrency-group cutover: Buildkite API returned 504: 504 Gateway Timeout\nCutover outcome is unknown; the server may still be processing the request. Do not retry the cutover until you check its migration status:\n\n   cluster-migrator concurrency-group status custom/deploy"
+	const timeoutError = "start concurrency-group cutover: Buildkite API returned 504: 504 Gateway Timeout"
 	for _, test := range []struct {
 		name      string
 		args      []string
@@ -305,7 +305,11 @@ func TestConcurrencyGroupCutoverProcess(t *testing.T) {
 			if test.wantError != "" {
 				wantExit, wantStderr = 1, "cluster-migrator: "+test.wantError+"\n"
 			}
-			if exitCode != wantExit || stderr != wantStderr || posts != test.wantPosts {
+			matchesStderr := stderr == wantStderr
+			if test.status == http.StatusGatewayTimeout {
+				matchesStderr = strings.HasPrefix(stderr, wantStderr) && strings.Contains(stderr, "Mutation outcome is unknown") && strings.Contains(stderr, "cluster-migrator concurrency-group status custom/deploy")
+			}
+			if exitCode != wantExit || !matchesStderr || posts != test.wantPosts {
 				t.Fatalf("exit=%d stderr=%q posts=%d; want exit=%d stderr=%q posts=%d", exitCode, stderr, posts, wantExit, wantStderr, test.wantPosts)
 			}
 			if test.wantJSON && !json.Valid([]byte(stdout)) {

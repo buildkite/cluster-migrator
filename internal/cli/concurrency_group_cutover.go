@@ -3,7 +3,6 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"strings"
 	"text/tabwriter"
@@ -24,6 +23,7 @@ func (cmd *ConcurrencyGroupCutoverCmd) Run(app *Context) error {
 	if err != nil {
 		return fmt.Errorf("get organization migration: %w", err)
 	}
+	app.rememberMigration(migration)
 	cluster, err := app.Client.ResolveCluster(app.Context, migration.DestinationClusterID)
 	if err != nil {
 		return fmt.Errorf("resolve destination cluster: %w", err)
@@ -46,11 +46,6 @@ func (cmd *ConcurrencyGroupCutoverCmd) Run(app *Context) error {
 		return errConcurrencyGroupCutoverBlocked
 	}
 	if err != nil {
-		var apiError *buildkite.APIError
-		var timeout net.Error
-		if (errors.As(err, &apiError) && apiError.StatusCode == http.StatusGatewayTimeout) || (errors.As(err, &timeout) && timeout.Timeout()) {
-			return fmt.Errorf("start concurrency-group cutover: %w\nCutover outcome is unknown; the server may still be processing the request. Do not retry the cutover until you check its migration status:\n\n   cluster-migrator concurrency-group status %s", err, cmd.Group)
-		}
 		return fmt.Errorf("start concurrency-group cutover: %w", err)
 	}
 	if app.JSON {

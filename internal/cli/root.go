@@ -45,7 +45,7 @@ func Run(
 	args []string,
 	stdout, stderr io.Writer,
 	httpClient *http.Client,
-) error {
+) (err error) {
 	var root rootCommand
 	parser, err := kong.New(
 		&root,
@@ -78,10 +78,6 @@ func Run(
 	if err != nil {
 		return err
 	}
-	if err := client.ResolveOrganization(commandContext); err != nil {
-		return err
-	}
-
 	app := &Context{
 		Context:     commandContext,
 		Client:      client,
@@ -90,6 +86,10 @@ func Run(
 		JSON:        root.JSON,
 		DryRun:      root.DryRun,
 		Now:         time.Now,
+	}
+	defer func() { err = app.timeoutError(parsed, err) }()
+	if err := client.ResolveOrganization(commandContext); err != nil {
+		return err
 	}
 	return parsed.Run(app)
 }

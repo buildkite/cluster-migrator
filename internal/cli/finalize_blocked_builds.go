@@ -1,10 +1,6 @@
 package cli
 
-import (
-	"context"
-	"errors"
-	"fmt"
-)
+import "fmt"
 
 type FinalizeBlockedBuildsCmd struct{}
 
@@ -23,9 +19,6 @@ func (cmd *FinalizeBlockedBuildsCmd) Run(app *Context) error {
 		return fmt.Errorf("finalize-blocked-builds does not support --dry-run: the server has no read-only finalization preview; no finalization was requested")
 	}
 	if err := app.Client.FinalizeBlockedBuilds(app.Context); err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			return fmt.Errorf("finalize blocked builds: %w; the request may have been accepted; a client timeout does not cancel server-side finalization; run cluster-migrator migration status before retrying or requesting completion", err)
-		}
 		return fmt.Errorf("finalize blocked builds: %w", err)
 	}
 	if app.JSON {

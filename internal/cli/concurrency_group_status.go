@@ -22,6 +22,7 @@ func (cmd *ConcurrencyGroupStatusCmd) Run(app *Context) error {
 		if app.JSON {
 			return app.Print(groups)
 		}
+		app.LastKnown = []string{fmt.Sprintf("Concurrency-group migrations: %d", len(groups))}
 		clusterNames, err := concurrencyGroupClusterNames(app, len(groups) > 0)
 		if err != nil {
 			return err
@@ -45,6 +46,7 @@ func (cmd *ConcurrencyGroupStatusCmd) Run(app *Context) error {
 	if app.JSON {
 		return app.Print(group)
 	}
+	app.LastKnown = []string{"Group state: " + group.State, "Destination: " + group.DestinationClusterID}
 	clusterNames, err := concurrencyGroupClusterNames(app, true)
 	if err != nil {
 		return err

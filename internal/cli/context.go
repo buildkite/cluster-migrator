@@ -21,6 +21,7 @@ type Context struct {
 	DryRun      bool
 	Now         func() time.Time
 	Wait        func(context.Context, time.Duration) error
+	LastKnown   []string
 }
 
 type Change struct {

@@ -33,6 +33,7 @@ func setQueuePercent(app *Context, queue string, percent int) error {
 		}
 		return fmt.Errorf("get cluster queue migration for queue %q: %w", queue, err)
 	}
+	app.LastKnown = append(app.LastKnown, fmt.Sprintf("Routing: %d%%", current.RoutedPercent))
 	cluster, err := app.Client.ResolveCluster(app.Context, current.Destination.ClusterID)
 	if err != nil {
 		return fmt.Errorf("resolve destination cluster: %w", err)

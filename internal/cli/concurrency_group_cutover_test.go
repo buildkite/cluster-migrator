@@ -42,7 +42,7 @@ func TestConcurrencyGroupCutoverTimeout(t *testing.T) {
 			if !errors.Is(err, context.DeadlineExceeded) || stdout.Len() != 0 || stderr.Len() != 0 || posts != 1 {
 				t.Fatalf("error=%v stdout=%q stderr=%q posts=%d; want deadline exceeded, empty output, and one POST", err, stdout.String(), stderr.String(), posts)
 			}
-			for _, guidance := range []string{"Cutover outcome is unknown", "Do not retry the cutover until you check its migration status", "cluster-migrator concurrency-group status custom/deploy/production"} {
+			for _, guidance := range []string{"Mutation outcome is unknown", "Do not retry the mutation until you inspect its state", "cluster-migrator concurrency-group status custom/deploy/production"} {
 				if !strings.Contains(err.Error(), guidance) {
 					t.Errorf("error=%q, missing guidance %q", err, guidance)
 				}

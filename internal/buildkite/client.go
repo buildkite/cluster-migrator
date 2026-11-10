@@ -5,8 +5,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -21,6 +23,7 @@ type Client struct {
 	organizationCachePath string
 	token                 string
 	httpClient            *http.Client
+	mutationAttempted     bool
 }
 
 type Cluster struct {
@@ -153,7 +156,7 @@ func (c *Client) do(ctx context.Context, method, path string, requestBody, respo
 	return err
 }
 
-func (c *Client) doWithHeaders(ctx context.Context, method, path string, requestBody, responseBody any) (http.Header, error) {
+func (c *Client) doWithHeaders(ctx context.Context, method, path string, requestBody, responseBody any) (headers http.Header, err error) {
 	var body io.Reader
 	if requestBody != nil {
 		encoded, err := json.Marshal(requestBody)
@@ -189,6 +192,20 @@ func (c *Client) doWithHeaders(ctx context.Context, method, path string, request
 		request.Header.Set("Content-Type", "application/json")
 	}
 
+	defer func() {
+		var existing *RequestTimeout
+		var apiError *APIError
+		var timeout net.Error
+		if errors.As(err, &existing) {
+			return
+		}
+		if (errors.As(err, &apiError) && apiError.StatusCode == http.StatusGatewayTimeout) || (errors.As(err, &timeout) && timeout.Timeout()) {
+			err = &RequestTimeout{Method: method, Path: request.URL.EscapedPath(), MutationAttempted: c.mutationAttempted, Err: err}
+		}
+	}()
+	if method != http.MethodGet && method != http.MethodHead {
+		c.mutationAttempted = true
+	}
 	response, err := c.httpClient.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("send request: %w", err)
