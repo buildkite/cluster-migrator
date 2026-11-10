@@ -11,14 +11,14 @@ import (
 // ConcurrencyGroupCutoverBlocked is the server's 409 response when a cutover cannot start.
 // Nothing is changed when a cutover is rejected.
 type ConcurrencyGroupCutoverBlocked struct {
-	Message              string                           `json:"message"`
-	Scope                string                           `json:"scope"`
-	Key                  string                           `json:"key"`
-	DestinationClusterID string                           `json:"destination_cluster_id"`
-	Ready                bool                             `json:"ready"`
-	Status               string                           `json:"status"`
-	Migration            ConcurrencyGroupCutoverMigration `json:"migration"`
-	QueueObservation     ConcurrencyGroupQueueObservation `json:"queue_observation"`
+	Message              string                            `json:"message"`
+	Scope                string                            `json:"scope"`
+	Key                  string                            `json:"key"`
+	DestinationClusterID string                            `json:"destination_cluster_id"`
+	Ready                bool                              `json:"ready"`
+	Status               string                            `json:"status"`
+	Migration            ConcurrencyGroupCutoverMigration  `json:"migration"`
+	QueueObservation     *ConcurrencyGroupQueueObservation `json:"queue_observation"`
 }
 
 func (e *ConcurrencyGroupCutoverBlocked) Error() string {

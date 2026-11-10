@@ -178,6 +178,10 @@ Buildkite checks the cutover before starting it, and rejects it without changes 
 
 A rejected cutover prints its blockers and next steps and exits non-zero. Once they're resolved, run the same command again.
 
+If a migration-state blocker prevents queue readiness checks, text output reports `Queue readiness: not checked.` and JSON preserves `queue_observation: null`. This does not mean the queues are empty.
+
+A 504 response or client timeout leaves the cutover outcome unknown; the server may still be processing the request. The CLI exits non-zero without retrying. Check the group's migration status before another cutover attempt.
+
 An accepted cutover holds the group, waits for its running unclustered jobs to finish, and then moves its waiting jobs to the cluster. The command returns once the cutover starts; the rest runs on the server. Check progress at any time:
 
 ```shell
