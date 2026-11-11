@@ -27,7 +27,8 @@ func (cmd *QueueMetricsCmd) Run(app *Context) error {
 	for {
 		metrics, err := app.Client.GetQueueMetrics(ctx, cmd.Queue)
 		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
+			var timeout *buildkite.RequestTimeout
+			if errors.Is(err, context.DeadlineExceeded) && !errors.As(err, &timeout) {
 				return queueMetricsDeadlineError(app.Context)
 			}
 			return fmt.Errorf("get queue metrics: %w", err)
@@ -35,6 +36,7 @@ func (cmd *QueueMetricsCmd) Run(app *Context) error {
 		if metrics.RetryAfter == nil {
 			return app.Print(metrics)
 		}
+		app.LastKnown = []string{"Destination: " + metrics.Destination.ClusterID, "Routing: " + metricPercent(metrics.RoutedPercent), "Metrics: observation pending"}
 
 		retryAfter := *metrics.RetryAfter
 		if retryAfter <= 0 {

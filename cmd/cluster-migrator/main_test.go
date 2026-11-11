@@ -238,10 +238,14 @@ func TestConcurrencyGroupStatusProcess(t *testing.T) {
 
 func TestConcurrencyGroupCutoverProcess(t *testing.T) {
 	const groupPath = "/v2/organizations/acme/unclustered-to-clustered/concurrency-group-migrations/custom/deploy"
+	const skippedObservation = `{"message":"Concurrency group is not ready to cut over","ready":false,"status":"blocked","migration":{"state":"forward_draining","blocking_reason":"cutover_in_progress"},"queue_observation":null}`
+	const timeoutError = "start concurrency-group cutover: Buildkite API returned 504: 504 Gateway Timeout"
 	for _, test := range []struct {
 		name      string
 		args      []string
 		ready     bool
+		status    int
+		response  string
 		wantPosts int
 		wantJSON  bool
 		wantText  string
@@ -252,6 +256,12 @@ func TestConcurrencyGroupCutoverProcess(t *testing.T) {
 		{name: "started", ready: true, wantPosts: 1, wantText: "Cutover to the production cluster started.\n"},
 		{name: "blocked", wantPosts: 1, wantText: "Cutover rejected without changes. Blocked by 1 known condition.\n", wantError: "concurrency group has known cutover blockers"},
 		{name: "JSON blocked", args: []string{"--json"}, wantPosts: 1, wantJSON: true, wantError: "concurrency group has known cutover blockers"},
+		{name: "gateway timeout", status: http.StatusGatewayTimeout, response: "<html>Gateway Timeout</html>", wantPosts: 1, wantError: timeoutError},
+		{name: "JSON gateway timeout", args: []string{"--json"}, status: http.StatusGatewayTimeout, response: "<html>Gateway Timeout</html>", wantPosts: 1, wantError: timeoutError},
+		{name: "forbidden", status: http.StatusForbidden, response: `{"message":"Forbidden"}`, wantPosts: 1, wantError: "start concurrency-group cutover: Buildkite API returned 403: Forbidden"},
+		{name: "skipped observation", status: http.StatusConflict, response: skippedObservation, wantPosts: 1, wantText: "Queue readiness: not checked.\n", wantError: "concurrency group has known cutover blockers"},
+		{name: "JSON skipped observation", args: []string{"--json"}, status: http.StatusConflict, response: skippedObservation, wantPosts: 1, wantJSON: true, wantText: `"queue_observation": null`, wantError: "concurrency group has known cutover blockers"},
+		{name: "observed empty queues", status: http.StatusConflict, response: strings.Replace(skippedObservation, `"queue_observation":null`, `"queue_observation":{"window_seconds":600,"queues":[],"blocking_queues":[]}`, 1), wantPosts: 1, wantText: "Queues used by this group: none observed\nRecent jobs: 10-minute window\n", wantError: "concurrency group has known cutover blockers"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Setenv("XDG_CACHE_HOME", t.TempDir())
@@ -270,6 +280,11 @@ func TestConcurrencyGroupCutoverProcess(t *testing.T) {
 					_, _ = fmt.Fprint(w, `{"message":"No concurrency group migration found"}`)
 				case r.Method == http.MethodPost && r.URL.Path == groupPath+"/cutover":
 					posts++
+					if test.status != 0 {
+						w.WriteHeader(test.status)
+						_, _ = fmt.Fprint(w, test.response)
+						return
+					}
 					if !test.ready {
 						w.WriteHeader(http.StatusConflict)
 						_, _ = fmt.Fprint(w, `{"message":"Concurrency group is not ready to cut over","ready":false,"status":"blocked","migration":{"state":"unclustered","blocking_reason":null},"queue_observation":{"window_seconds":600,"queues":["deploy"],"blocking_queues":[{"queue":"deploy","reasons":["recent_source_jobs"],"routed_percent":100,"recent_source_jobs":1}]}}`)
@@ -290,7 +305,11 @@ func TestConcurrencyGroupCutoverProcess(t *testing.T) {
 			if test.wantError != "" {
 				wantExit, wantStderr = 1, "cluster-migrator: "+test.wantError+"\n"
 			}
-			if exitCode != wantExit || stderr != wantStderr || posts != test.wantPosts {
+			matchesStderr := stderr == wantStderr
+			if test.status == http.StatusGatewayTimeout {
+				matchesStderr = strings.HasPrefix(stderr, wantStderr) && strings.Contains(stderr, "Mutation outcome is unknown") && strings.Contains(stderr, "cluster-migrator concurrency-group status custom/deploy")
+			}
+			if exitCode != wantExit || !matchesStderr || posts != test.wantPosts {
 				t.Fatalf("exit=%d stderr=%q posts=%d; want exit=%d stderr=%q posts=%d", exitCode, stderr, posts, wantExit, wantStderr, test.wantPosts)
 			}
 			if test.wantJSON && !json.Valid([]byte(stdout)) {
@@ -298,6 +317,19 @@ func TestConcurrencyGroupCutoverProcess(t *testing.T) {
 			}
 			if !strings.Contains(stdout, test.wantText) {
 				t.Fatalf("stdout = %q, want %q", stdout, test.wantText)
+			}
+			if !test.wantJSON && test.wantText == "" && stdout != "" {
+				t.Fatalf("stdout = %q, want empty", stdout)
+			}
+			if test.response == skippedObservation && !test.wantJSON {
+				for _, want := range []string{"Blocked by 1 known condition.", "A cutover is already in progress.", "cluster-migrator concurrency-group status custom/deploy"} {
+					if !strings.Contains(stdout, want) {
+						t.Errorf("stdout = %q, want %q", stdout, want)
+					}
+				}
+				if strings.Contains(stdout, "none observed") || strings.Contains(stdout, "Recent jobs:") {
+					t.Errorf("skipped readiness presented as a measurement: %q", stdout)
+				}
 			}
 		})
 	}

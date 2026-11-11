@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +14,42 @@ import (
 
 	"github.com/buildkite/cluster-migrator/internal/buildkite"
 )
+
+func TestConcurrencyGroupCutoverTimeout(t *testing.T) {
+	for _, flags := range [][]string{nil, {"--json"}} {
+		t.Run(strings.Join(flags, " "), func(t *testing.T) {
+			t.Setenv("BUILDKITE_API_TOKEN", "secret")
+			t.Setenv("XDG_CACHE_HOME", t.TempDir())
+			posts := 0
+			client := organizationClient(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				var body string
+				switch {
+				case request.Method == http.MethodGet && request.URL.Path == "/v2/organizations/acme/unclustered-to-clustered/migration":
+					body = `{"destination_cluster_id":"cluster-id","phase":"cutover_concurrency_groups"}`
+				case request.Method == http.MethodGet && request.URL.Path == "/v2/organizations/acme/clusters":
+					body = `[{"id":"cluster-id","name":"production"}]`
+				case request.Method == http.MethodPost && request.URL.EscapedPath() == "/v2/organizations/acme/unclustered-to-clustered/concurrency-group-migrations/custom/deploy%2Fproduction/cutover":
+					posts++
+					return nil, context.DeadlineExceeded
+				default:
+					t.Errorf("unexpected request: %s %s", request.Method, request.URL)
+				}
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
+			})})
+			var stdout, stderr bytes.Buffer
+			args := append([]string{"concurrency-group", "cutover", "custom/deploy/production"}, flags...)
+			err := Run(context.Background(), args, &stdout, &stderr, client)
+			if !errors.Is(err, context.DeadlineExceeded) || stdout.Len() != 0 || stderr.Len() != 0 || posts != 1 {
+				t.Fatalf("error=%v stdout=%q stderr=%q posts=%d; want deadline exceeded, empty output, and one POST", err, stdout.String(), stderr.String(), posts)
+			}
+			for _, guidance := range []string{"Mutation outcome is unknown", "Do not retry the mutation until you inspect its state", "cluster-migrator concurrency-group status custom/deploy/production"} {
+				if !strings.Contains(err.Error(), guidance) {
+					t.Errorf("error=%q, missing guidance %q", err, guidance)
+				}
+			}
+		})
+	}
+}
 
 func TestConcurrencyGroupCutover(t *testing.T) {
 	t.Parallel()

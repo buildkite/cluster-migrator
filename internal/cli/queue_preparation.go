@@ -17,6 +17,7 @@ func requireQueuePreparation(app *Context) (*buildkite.Migration, error) {
 		}
 		return nil, fmt.Errorf("get organization migration: %w", err)
 	}
+	app.rememberMigration(migration)
 	switch migration.Phase {
 	case "prepare_queues":
 		return migration, nil

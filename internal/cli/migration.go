@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -37,6 +36,7 @@ func (cmd *MigrationConfigureCmd) Run(app *Context) error {
 	if err != nil {
 		return fmt.Errorf("resolve destination cluster: %w", err)
 	}
+	app.LastKnown = []string{"Destination: " + cluster.ID}
 	migration, err := app.Client.ConfigureMigration(app.Context, cluster.ID)
 	if err != nil {
 		var apiError *buildkite.APIError
@@ -69,6 +69,7 @@ func (cmd *MigrationStatusCmd) Run(app *Context) error {
 	if err != nil {
 		return fmt.Errorf("get organization migration: %w", err)
 	}
+	app.rememberMigration(migration)
 	var readiness *buildkite.MigrationReadiness
 	if migration.Phase == "migrate_pipelines" {
 		readiness, err = app.Client.GetMigrationReadiness(app.Context)
@@ -203,9 +204,6 @@ func runMigrationTransition(app *Context, operation string, transition func() (*
 	}
 	migration, err := transition()
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			return fmt.Errorf("migration %s: %w; the request may have been accepted; a client timeout does not cancel server-side work; run cluster-migrator migration status before retrying", operation, err)
-		}
 		return fmt.Errorf("migration %s: %w", operation, err)
 	}
 	if app.JSON {

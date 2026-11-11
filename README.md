@@ -178,6 +178,10 @@ Buildkite checks the cutover before starting it, and rejects it without changes 
 
 A rejected cutover prints its blockers and next steps and exits non-zero. Once they're resolved, run the same command again.
 
+If a migration-state blocker prevents queue readiness checks, text output reports `Queue readiness: not checked.` and JSON preserves `queue_observation: null`. This does not mean the queues are empty.
+
+A 504 response or client timeout leaves the cutover outcome unknown; the server may still be processing the request. The CLI exits non-zero without retrying. Check the group's migration status before another cutover attempt.
+
 An accepted cutover holds the group, waits for its running unclustered jobs to finish, and then moves its waiting jobs to the cluster. The command returns once the cutover starts; the rest runs on the server. Check progress at any time:
 
 ```shell
@@ -471,6 +475,8 @@ cluster-migrator --json pipeline readiness monorepo
 ```
 
 JSON preserves the API's `null` metric and observation values. Terminal-only guidance is omitted.
+
+API 504s and request timeouts exit non-zero with a shared report on stderr, including in JSON mode. The report shows the command without credentials or endpoint overrides, the failed request, last-known information, and read-only inspection commands. Earlier observations are not confirmed current state. Failed reads before any mutation say that no mutation was attempted; timed-out writes have an unknown outcome and may still be processing on the server. The CLI does not automatically retry or make recovery requests. Inspect state before another mutation, and contact Buildkite if inspection is unavailable or inconclusive.
 
 Queue metrics and pipeline readiness may initially be unavailable while Buildkite prepares an observation. The CLI follows the server's retry interval for up to one minute, writes prolonged-wait progress to stderr, and keeps stdout clean for the final human-readable or JSON result.
 

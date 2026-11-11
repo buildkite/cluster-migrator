@@ -23,6 +23,7 @@ func (cmd *ConcurrencyGroupCutoverCmd) Run(app *Context) error {
 	if err != nil {
 		return fmt.Errorf("get organization migration: %w", err)
 	}
+	app.rememberMigration(migration)
 	cluster, err := app.Client.ResolveCluster(app.Context, migration.DestinationClusterID)
 	if err != nil {
 		return fmt.Errorf("resolve destination cluster: %w", err)
@@ -145,8 +146,10 @@ func (cmd *ConcurrencyGroupCutoverCmd) printBlocked(app *Context, cluster *build
 			return err
 		}
 	}
-	if err := app.printConcurrencyGroupQueueBlockers(blocked.QueueObservation.BlockingQueues); err != nil {
-		return err
+	if blocked.QueueObservation != nil {
+		if err := app.printConcurrencyGroupQueueBlockers(blocked.QueueObservation.BlockingQueues); err != nil {
+			return err
+		}
 	}
 	if err := app.printConcurrencyGroupQueueObservation(blocked.QueueObservation); err != nil {
 		return err
@@ -171,6 +174,9 @@ func concurrencyGroupCutoverBlockerCount(readiness *buildkite.ConcurrencyGroupCu
 	count := 0
 	if readiness.Migration.BlockingReason != nil {
 		count++
+	}
+	if readiness.QueueObservation == nil {
+		return count
 	}
 	for _, blocker := range readiness.QueueObservation.BlockingQueues {
 		count += max(1, len(blocker.Reasons))
@@ -204,7 +210,11 @@ func (app *Context) printConcurrencyGroupQueueBlockers(blockers []buildkite.Conc
 	return writer.Flush()
 }
 
-func (app *Context) printConcurrencyGroupQueueObservation(observation buildkite.ConcurrencyGroupQueueObservation) error {
+func (app *Context) printConcurrencyGroupQueueObservation(observation *buildkite.ConcurrencyGroupQueueObservation) error {
+	if observation == nil {
+		_, err := fmt.Fprint(app.Output, "\nOBSERVATIONS\n\nQueue readiness: not checked.\n")
+		return err
+	}
 	queues := "none observed"
 	if len(observation.Queues) > 0 {
 		queues = strings.Join(observation.Queues, ", ")
@@ -252,6 +262,9 @@ func concurrencyGroupCutoverActions(group string, readiness *buildkite.Concurren
 		for _, action := range concurrencyGroupMigrationBlockerActions(group) {
 			appendAction(action)
 		}
+	}
+	if readiness.QueueObservation == nil {
+		return actions
 	}
 	for _, blocker := range readiness.QueueObservation.BlockingQueues {
 		if blocker.Queue == "" {
