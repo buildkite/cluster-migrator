@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -322,128 +321,6 @@ func TestPipelineReadinessPreservesParentDeadline(t *testing.T) {
 	err = (&PipelineReadinessCmd{Pipeline: "monorepo"}).Run(&app)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("error = %v, want parent deadline exceeded", err)
-	}
-}
-
-func TestPipelineMoveDryRunRequiresNoKnownBlockers(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/v2/organizations/acme/unclustered-to-clustered/migration/pipelines/monorepo":
-			_, _ = w.Write([]byte(`{"destination_cluster_id":"cluster-id","status":"no_known_blockers","queue_observation":{"next_refresh_at":"2026-09-01T07:01:00Z","blocking_queues":[]},"concurrency_group_observation":{"next_refresh_at":"2026-09-01T07:01:00Z","blocking_concurrency_groups":[]}}`))
-		default:
-			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
-		}
-	}))
-	defer server.Close()
-
-	client, err := buildkite.NewClient(server.URL, "acme", "secret", server.Client())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var stdout bytes.Buffer
-	app := Context{Context: context.Background(), Client: client, Output: &stdout, ErrorOutput: &bytes.Buffer{}, DryRun: true}
-
-	if err := (&PipelineMoveCmd{Pipeline: "monorepo"}).Run(&app); err != nil {
-		t.Fatal(err)
-	}
-	want := "PIPELINE MOVE (DRY RUN)\nPipeline: monorepo\nDestination: cluster-id\n\nREADINESS\n\nNo known blockers. This is not proof of readiness.\n\nPROPOSED CHANGE\n\nThe pipeline would move to the cluster-id cluster.\n"
-	if got := stdout.String(); got != want {
-		t.Fatalf("stdout = %q, want %q", got, want)
-	}
-}
-
-func TestPipelineMoveDryRunReportsConcurrencyGroupBlockers(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/v2/organizations/acme/unclustered-to-clustered/migration/pipelines/monorepo":
-			_, _ = w.Write([]byte(`{"status":"blocked","destination_cluster_id":"cluster-id","queue_observation":{"next_refresh_at":"2026-09-01T07:01:00Z","blocking_queues":[]},"concurrency_group_observation":{"next_refresh_at":"2026-09-01T07:01:00Z","blocking_concurrency_groups":[{"scope":"custom","key":"deploy","reasons":["migration_missing"]}]}}`))
-		default:
-			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
-		}
-	}))
-	defer server.Close()
-
-	client, err := buildkite.NewClient(server.URL, "acme", "secret", server.Client())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var stdout bytes.Buffer
-	app := Context{Context: context.Background(), Client: client, Output: &stdout, ErrorOutput: &bytes.Buffer{}, DryRun: true, JSON: true}
-
-	err = (&PipelineMoveCmd{Pipeline: "monorepo"}).Run(&app)
-	if err == nil || err.Error() != "pipeline has known blockers" {
-		t.Fatalf("error = %v", err)
-	}
-	var assessment buildkite.PipelineReadiness
-	decoder := json.NewDecoder(&stdout)
-	if err := decoder.Decode(&assessment); err != nil {
-		t.Fatalf("decode stdout: %v; stdout = %q", err, stdout.String())
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		t.Fatalf("stdout contains more than one JSON document: %q", stdout.String())
-	}
-	if assessment.Status != buildkite.PipelineReadinessBlocked {
-		t.Fatalf("status = %q", assessment.Status)
-	}
-	if got := assessment.ConcurrencyGroupObservation.BlockingConcurrencyGroups; len(got) != 1 || got[0].Scope != "custom" || got[0].Key != "deploy" || len(got[0].Reasons) != 1 || got[0].Reasons[0] != "migration_missing" {
-		t.Fatalf("blocking concurrency groups = %#v", got)
-	}
-}
-
-func TestPipelineMoveDryRunReportsQueueBlockers(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/v2/organizations/acme/unclustered-to-clustered/migration/pipelines/monorepo":
-			_, _ = w.Write([]byte(`{"status":"blocked","destination_cluster_id":"cluster-id","queue_observation":{"next_refresh_at":"2026-09-01T07:01:00Z","blocking_queues":[{"queue":"deploy","reasons":["routing_incomplete","active_source_jobs"],"routed_percent":80,"active_source_jobs":2}]},"concurrency_group_observation":{"next_refresh_at":"2026-09-01T07:01:00Z","blocking_concurrency_groups":[]}}`))
-		default:
-			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
-		}
-	}))
-	defer server.Close()
-
-	client, err := buildkite.NewClient(server.URL, "acme", "secret", server.Client())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var stdout bytes.Buffer
-	app := Context{Context: context.Background(), Client: client, Output: &stdout, ErrorOutput: &bytes.Buffer{}, DryRun: true, JSON: true}
-
-	err = (&PipelineMoveCmd{Pipeline: "monorepo"}).Run(&app)
-	if err == nil || err.Error() != "pipeline has known blockers" {
-		t.Fatalf("error = %v", err)
-	}
-	var assessment buildkite.PipelineReadiness
-	if err := json.Unmarshal(stdout.Bytes(), &assessment); err != nil {
-		t.Fatalf("decode stdout: %v; stdout = %q", err, stdout.String())
-	}
-	if got := assessment.QueueObservation.BlockingQueues; len(got) != 1 || got[0].Queue != "deploy" || len(got[0].Reasons) != 2 || got[0].RoutedPercent == nil || *got[0].RoutedPercent != 80 || got[0].ActiveSourceJobs != 2 {
-		t.Fatalf("blocking queues = %#v", got)
-	}
-}
-
-func TestPipelineMoveDryRunPrintsBlockedReadinessUnderMoveHeading(t *testing.T) {
-	readiness := &buildkite.PipelineReadiness{
-		Status: buildkite.PipelineReadinessBlocked,
-		QueueObservation: buildkite.PipelineQueueObservation{
-			BlockingQueues: []buildkite.PipelineBlockingQueue{
-				{Queue: "deploy", Reasons: []string{"routing_incomplete"}},
-			},
-		},
-	}
-
-	var stdout bytes.Buffer
-	app := Context{Output: &stdout}
-	if err := app.printBlockedPipelineMoveDryRun("monorepo", "production", readiness); err != nil {
-		t.Fatal(err)
-	}
-	if got := stdout.String(); !strings.HasPrefix(got, "PIPELINE MOVE (DRY RUN)\nPipeline: monorepo\nDestination: production\n\nREADINESS\n\nBlocked by 1 known condition.\n") {
-		t.Fatalf("stdout = %q", got)
-	}
-	if strings.Contains(stdout.String(), "PROPOSED CHANGE") {
-		t.Fatalf("blocked dry run should not print a proposed change: %q", stdout.String())
 	}
 }
 

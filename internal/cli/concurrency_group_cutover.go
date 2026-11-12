@@ -3,7 +3,6 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 	"text/tabwriter"
 
@@ -28,10 +27,6 @@ func (cmd *ConcurrencyGroupCutoverCmd) Run(app *Context) error {
 	if err != nil {
 		return fmt.Errorf("resolve destination cluster: %w", err)
 	}
-	if app.DryRun {
-		return cmd.dryRun(app, cluster, scope, key)
-	}
-
 	// The server checks readiness and rejects a blocked cutover without changing anything.
 	group, err := app.Client.StartConcurrencyGroupCutover(app.Context, scope, key)
 	var blocked *buildkite.ConcurrencyGroupCutoverBlocked
@@ -56,78 +51,11 @@ func (cmd *ConcurrencyGroupCutoverCmd) Run(app *Context) error {
 
 func (cmd *ConcurrencyGroupCutoverCmd) printHeading(app *Context, destination string) error {
 	heading := "CONCURRENCY-GROUP CUTOVER"
-	if app.DryRun {
-		heading += " (DRY RUN)"
-	}
 	_, err := fmt.Fprintf(app.Output, "%s\nGroup: %s\nDestination: %s\n", heading, cmd.Group, destination)
 	return err
 }
 
 var errConcurrencyGroupCutoverBlocked = errors.New("concurrency group has known cutover blockers")
-
-// dryRun checks only the group's migration state; queue checks run when a cutover is requested.
-func (cmd *ConcurrencyGroupCutoverCmd) dryRun(app *Context, cluster *buildkite.Cluster, scope, key string) error {
-	migration, err := app.Client.GetConcurrencyGroup(app.Context, scope, key)
-	var apiError *buildkite.APIError
-	if errors.As(err, &apiError) && apiError.StatusCode == http.StatusNotFound {
-		migration, err = nil, nil
-	}
-	if err != nil {
-		return fmt.Errorf("get concurrency group: %w", err)
-	}
-	blocker := concurrencyGroupMigrationBlockerFor(migration, cluster.ID)
-
-	if app.JSON {
-		if blocker != "" {
-			return fmt.Errorf("concurrency group cannot cut over: %s", concurrencyGroupMigrationBlocker(blocker))
-		}
-		return app.Print(Change{Action: "cut over", Resource: "concurrency group " + cmd.Group, DestinationCluster: cluster.Name, DryRun: true})
-	}
-
-	if err := cmd.printHeading(app, cluster.Name); err != nil {
-		return err
-	}
-	if blocker != "" {
-		if _, err := fmt.Fprintf(app.Output, "\nREADINESS\n\nCutover is blocked by the concurrency group's migration.\n\nState: %s\nBlocker: %s\n",
-			concurrencyGroupState(migration.State),
-			concurrencyGroupMigrationBlocker(blocker),
-		); err != nil {
-			return err
-		}
-		if err := app.printNextSteps(concurrencyGroupMigrationBlockerActions(cmd.Group)); err != nil {
-			return err
-		}
-		return errConcurrencyGroupCutoverBlocked
-	}
-
-	state := "No migration has started for this concurrency group."
-	if migration != nil {
-		state = "The concurrency group is unclustered and can cut over."
-	}
-	_, err = fmt.Fprintf(app.Output, "\nREADINESS\n\n%s Queue routing and recent ungrouped jobs are checked when the cutover is requested.\n\nPROPOSED CHANGE\n\nA cutover to the %s cluster would be requested.\n", state, cluster.Name)
-	return err
-}
-
-// concurrencyGroupMigrationBlockerFor mirrors the server's rule: only a group with no migration, or a stable
-// unclustered one for the same destination, can start a cutover.
-func concurrencyGroupMigrationBlockerFor(migration *buildkite.ConcurrencyGroup, clusterID string) string {
-	if migration == nil {
-		return ""
-	}
-	switch migration.State {
-	case buildkite.ConcurrencyGroupUnclustered:
-		if migration.DestinationClusterID != clusterID {
-			return "wrong_destination"
-		}
-		return ""
-	case buildkite.ConcurrencyGroupForwardDraining, buildkite.ConcurrencyGroupForwardReconciling:
-		return "cutover_in_progress"
-	case buildkite.ConcurrencyGroupClustered:
-		return "already_clustered"
-	default:
-		return displayValue(migration.State)
-	}
-}
 
 func concurrencyGroupMigrationBlockerActions(group string) []string {
 	return []string{fmt.Sprintf("Check the concurrency group's migration:\n\n   cluster-migrator concurrency-group status %s", group)}

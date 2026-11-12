@@ -44,7 +44,7 @@ func timeoutCommands(parsed *kong.Context) (string, string) {
 			command = append(command, value)
 		case part.Flag != nil:
 			switch part.Flag.Name {
-			case "to", "destination-cluster", "acknowledge-irreversible", "dry-run", "json", "timeout":
+			case "to", "destination-cluster", "acknowledge-irreversible", "json", "timeout":
 				command = append(command, "--"+part.Flag.Name+"="+quoteCommandArgument(fmt.Sprint(part.Flag.Target.Interface())))
 			}
 		}

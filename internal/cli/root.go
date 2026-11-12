@@ -30,7 +30,6 @@ type rootCommand struct {
 	APIToken string           `help:"Buildkite API token." env:"BUILDKITE_API_TOKEN"`
 	Endpoint string           `help:"Buildkite REST API endpoint." env:"BUILDKITE_API_ENDPOINT" default:"https://api.buildkite.com/"`
 	JSON     bool             `help:"Write machine-readable JSON." global:""`
-	DryRun   bool             `help:"Validate and display a mutation without applying it." global:""`
 	Timeout  time.Duration    `help:"Maximum command duration." default:"10m" global:""`
 
 	Queue                 QueueCmd                 `cmd:"" help:"Configure and inspect queue migrations."`
@@ -84,7 +83,6 @@ func Run(
 		Output:      stdout,
 		ErrorOutput: stderr,
 		JSON:        root.JSON,
-		DryRun:      root.DryRun,
 		Now:         time.Now,
 	}
 	defer func() { err = app.timeoutError(parsed, err) }()

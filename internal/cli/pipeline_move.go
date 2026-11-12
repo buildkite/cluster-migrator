@@ -11,29 +11,6 @@ type PipelineMoveCmd struct {
 }
 
 func (cmd *PipelineMoveCmd) Run(app *Context) error {
-	if app.DryRun {
-		readiness, err := getPipelineReadinessForPipeline(app, cmd.Pipeline)
-		if err != nil {
-			return fmt.Errorf("check pipeline readiness: %w", err)
-		}
-		if readiness.Status != buildkite.PipelineReadinessNoKnownBlockers {
-			if app.JSON {
-				if err := app.Print(readiness); err != nil {
-					return err
-				}
-			} else if err := app.printBlockedPipelineMoveDryRun(cmd.Pipeline, readiness.DestinationClusterID, readiness); err != nil {
-				return err
-			}
-			return fmt.Errorf("pipeline has known blockers")
-		}
-		return app.Print(Change{
-			Action:             "move",
-			Resource:           "pipeline " + cmd.Pipeline,
-			DestinationCluster: readiness.DestinationClusterID,
-			DryRun:             true,
-		})
-	}
-
 	pipeline, err := runWithPipelineIdentifierFallback(app.Context, app.Client, cmd.Pipeline, func(identifier string) (*buildkite.Pipeline, error) {
 		return app.Client.MovePipeline(app.Context, identifier)
 	})
@@ -41,11 +18,4 @@ func (cmd *PipelineMoveCmd) Run(app *Context) error {
 		return fmt.Errorf("move pipeline: %w", err)
 	}
 	return app.Print(PipelineMoveResult{Pipeline: pipeline, Destination: pipeline.ClusterID})
-}
-
-func (app *Context) printBlockedPipelineMoveDryRun(pipeline, destination string, readiness *buildkite.PipelineReadiness) error {
-	if _, err := fmt.Fprintf(app.Output, "PIPELINE MOVE (DRY RUN)\nPipeline: %s\nDestination: %s\n\n", pipeline, destination); err != nil {
-		return err
-	}
-	return app.printPipelineReadinessAssessment(readiness, "READINESS")
 }

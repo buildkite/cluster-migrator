@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -18,19 +17,9 @@ type Context struct {
 	Output      io.Writer
 	ErrorOutput io.Writer
 	JSON        bool
-	DryRun      bool
 	Now         func() time.Time
 	Wait        func(context.Context, time.Duration) error
 	LastKnown   []string
-}
-
-type Change struct {
-	Action             string `json:"action"`
-	Resource           string `json:"resource"`
-	DestinationCluster string `json:"destination_cluster,omitempty"`
-	FromPercent        *int   `json:"from_percent,omitempty"`
-	ToPercent          *int   `json:"to_percent,omitempty"`
-	DryRun             bool   `json:"dry_run"`
 }
 
 type QueueDestination struct {
@@ -44,7 +33,6 @@ type QueueChange struct {
 	FromPercent *int             `json:"from_percent,omitempty"`
 	ToPercent   int              `json:"to_percent"`
 	Destination QueueDestination `json:"destination"`
-	DryRun      bool             `json:"dry_run"`
 	Next        string           `json:"-"`
 }
 
@@ -73,34 +61,18 @@ func (c *Context) Print(value any) error {
 	switch value := value.(type) {
 	case QueueChange:
 		commandHeading := "QUEUE " + value.Command
-		if value.DryRun {
-			commandHeading += " (DRY RUN)"
-		}
-		sectionHeading := "RESULT"
-		if value.DryRun {
-			sectionHeading = "PROPOSED CHANGE"
-		}
-		if _, err := fmt.Fprintf(c.Output, "%s\nQueue: %s\nDestination: %s\n\n%s\n\n", commandHeading, value.Queue, value.Destination.ClusterName, sectionHeading); err != nil {
+		if _, err := fmt.Fprintf(c.Output, "%s\nQueue: %s\nDestination: %s\n\nRESULT\n\n", commandHeading, value.Queue, value.Destination.ClusterName); err != nil {
 			return err
 		}
 		if value.Command == "CONFIGURE" {
 			result := "Migration created with 0% routing."
-			if value.DryRun {
-				result = "A migration would be created with 0% routing."
-			}
 			if _, err := fmt.Fprintln(c.Output, result); err != nil {
 				return err
 			}
 		} else if value.FromPercent != nil {
 			verb := "changed"
-			if value.DryRun {
-				verb = "would change"
-			}
 			if *value.FromPercent == value.ToPercent {
 				verb = "remains"
-				if value.DryRun {
-					verb = "would remain"
-				}
 				if _, err := fmt.Fprintf(c.Output, "Routing %s at %d%%.\n", verb, value.ToPercent); err != nil {
 					return err
 				}
@@ -137,10 +109,6 @@ func (c *Context) Print(value any) error {
 		}
 		_, err := fmt.Fprintf(c.Output, "PIPELINE MOVE\nPipeline: %s\nDestination: %s\n\nRESULT\n\nPipeline moved to the %s cluster.\n", pipeline, value.Destination, value.Destination)
 		return err
-	case Change:
-		pipeline := strings.TrimPrefix(value.Resource, "pipeline ")
-		_, err := fmt.Fprintf(c.Output, "PIPELINE MOVE (DRY RUN)\nPipeline: %s\nDestination: %s\n\nREADINESS\n\nNo known blockers. This is not proof of readiness.\n\nPROPOSED CHANGE\n\nThe pipeline would move to the %s cluster.\n", pipeline, value.DestinationCluster, value.DestinationCluster)
-		return err
 	default:
 		encoder := json.NewEncoder(c.Output)
 		encoder.SetIndent("", "  ")
@@ -153,6 +121,14 @@ func (c *Context) now() time.Time {
 		return c.Now()
 	}
 	return time.Now()
+}
+
+func (c *Context) printMigrationConfigurationNotice(configured *bool) error {
+	if configured == nil || *configured {
+		return nil
+	}
+	_, err := fmt.Fprintln(c.ErrorOutput, `No organization migration is configured. Run cluster-migrator migration configure --destination-cluster="<cluster name or ID>".`)
+	return err
 }
 
 func (c *Context) wait(ctx context.Context, duration time.Duration) error {

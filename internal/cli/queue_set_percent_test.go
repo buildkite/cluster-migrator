@@ -131,8 +131,8 @@ func TestQueueSetPercentToHundredPrintsValidationGuidance(t *testing.T) {
 func TestQueueSetPercentCanDecreaseFromHundred(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	t.Setenv("BUILDKITE_API_TOKEN", "secret")
-	for _, dryRun := range []bool{false, true} {
-		t.Run(fmt.Sprintf("dry-run=%t", dryRun), func(t *testing.T) {
+	for _, initialPercent := range []int{100, 25} {
+		t.Run(fmt.Sprintf("initial-percent=%d", initialPercent), func(t *testing.T) {
 			patches := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
@@ -142,7 +142,7 @@ func TestQueueSetPercentCanDecreaseFromHundred(t *testing.T) {
 				case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/clusters"):
 					_, _ = fmt.Fprint(w, `[{"id":"cluster-id","name":"production"}]`)
 				case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/unclustered-to-clustered/queue-migrations/test"):
-					_, _ = fmt.Fprint(w, `{"queue_key":"test","destination":{"cluster_id":"cluster-id"},"routed_percent":100}`)
+					_, _ = fmt.Fprintf(w, `{"queue_key":"test","destination":{"cluster_id":"cluster-id"},"routed_percent":%d}`, initialPercent)
 				case r.Method == http.MethodPatch && strings.HasSuffix(r.URL.Path, "/unclustered-to-clustered/queue-migrations/test"):
 					patches++
 					var body struct {
@@ -158,9 +158,6 @@ func TestQueueSetPercentCanDecreaseFromHundred(t *testing.T) {
 			}))
 			defer server.Close()
 			args := []string{"--endpoint", server.URL, "--json", "queue", "set-percent", "test", "--to", "25"}
-			if dryRun {
-				args = append(args, "--dry-run")
-			}
 			var stdout bytes.Buffer
 			if err := Run(context.Background(), args, &stdout, &bytes.Buffer{}, organizationClient(server.Client())); err != nil {
 				t.Fatal(err)
@@ -170,10 +167,10 @@ func TestQueueSetPercentCanDecreaseFromHundred(t *testing.T) {
 				t.Fatal(err)
 			}
 			wantPatches := 1
-			if dryRun {
+			if initialPercent == 25 {
 				wantPatches = 0
 			}
-			if result.FromPercent == nil || *result.FromPercent != 100 || result.ToPercent != 25 || result.DryRun != dryRun || patches != wantPatches {
+			if result.FromPercent == nil || *result.FromPercent != initialPercent || result.ToPercent != 25 || patches != wantPatches {
 				t.Fatalf("result=%+v patches=%d", result, patches)
 			}
 		})

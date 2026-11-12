@@ -3,10 +3,58 @@ package cli
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
+
+func TestMigrationInventoryConfigurationNotice(t *testing.T) {
+	t.Setenv("BUILDKITE_API_TOKEN", "secret")
+	for _, command := range []string{"queue", "concurrency-group"} {
+		for _, header := range []string{"false", "true", ""} {
+			for _, jsonOutput := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/header=%s/json=%t", command, header, jsonOutput), func(t *testing.T) {
+					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						w.Header().Set("Content-Type", "application/json")
+						switch r.URL.Path {
+						case "/v2/organizations/acme/clusters":
+							_, _ = w.Write([]byte(`[]`))
+						case "/v2/organizations/acme/unclustered-to-clustered/queue-migrations", "/v2/organizations/acme/unclustered-to-clustered/concurrency-group-migrations":
+							if header != "" {
+								w.Header().Set("Buildkite-Migration-Configured", header)
+							}
+							_, _ = w.Write([]byte(`{"items":[],"links":{}}`))
+						default:
+							t.Errorf("unexpected request: %s", r.URL.Path)
+							w.WriteHeader(http.StatusNotFound)
+						}
+					}))
+					defer server.Close()
+					args := []string{"--endpoint", server.URL, command, "status"}
+					if jsonOutput {
+						args = append(args, "--json")
+					}
+					var stdout, stderr bytes.Buffer
+					if err := Run(context.Background(), args, &stdout, &stderr, organizationClient(server.Client())); err != nil {
+						t.Fatal(err)
+					}
+					if jsonOutput && strings.TrimSpace(stdout.String()) != "[]" {
+						t.Fatalf("inventory stdout = %q", stdout.String())
+					}
+					if header == "false" {
+						if !strings.Contains(stderr.String(), `cluster-migrator migration configure --destination-cluster="<cluster name or ID>"`) || strings.Contains(stdout.String(), "migration configure") {
+							t.Fatalf("stdout=%q stderr=%q", stdout.String(), stderr.String())
+						}
+					} else if stderr.Len() != 0 {
+						t.Fatalf("unexpected notice = %q", stderr.String())
+					}
+				})
+			}
+		}
+	}
+}
 
 func TestQueueStatusPrintsTable(t *testing.T) {
 	t.Setenv("BUILDKITE_API_TOKEN", "secret")

@@ -27,10 +27,6 @@ func (cmd *QueueConfigureCmd) Run(app *Context) error {
 			ClusterID:   cluster.ID,
 			ClusterName: cluster.Name,
 		},
-		DryRun: app.DryRun,
-	}
-	if app.DryRun {
-		return app.Print(change)
 	}
 
 	if _, err := app.Client.ConfigureQueueMigration(app.Context, cmd.Queue); err != nil {

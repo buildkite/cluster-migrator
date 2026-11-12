@@ -24,6 +24,7 @@ func TestListConcurrencyGroupsFollowsNextLinks(t *testing.T) {
 				}
 				w.Header().Set("Content-Type", "application/json")
 				if r.URL.Query().Get("after") == "first" {
+					w.Header().Set("Buildkite-Migration-Configured", "true")
 					if failNextPage {
 						w.WriteHeader(http.StatusInternalServerError)
 						return
@@ -34,6 +35,7 @@ func TestListConcurrencyGroupsFollowsNextLinks(t *testing.T) {
 				if got := r.URL.Query().Get("per_page"); got != "100" {
 					t.Errorf("per_page = %q, want 100", got)
 				}
+				w.Header().Set("Buildkite-Migration-Configured", "false")
 				_, _ = fmt.Fprintf(w, `{"items":[{"scope":"custom","key":"deploy"}],"links":{"next":%q}}`, server.URL+path+"?after=first")
 			}))
 			defer server.Close()
@@ -42,7 +44,7 @@ func TestListConcurrencyGroupsFollowsNextLinks(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			groups, err := client.ListConcurrencyGroups(context.Background())
+			groups, configured, err := client.ListConcurrencyGroups(context.Background())
 			if failNextPage {
 				if err == nil || groups != nil {
 					t.Fatalf("groups = %#v, error = %v; want no partial result and an error", groups, err)
@@ -51,6 +53,9 @@ func TestListConcurrencyGroupsFollowsNextLinks(t *testing.T) {
 			}
 			if err != nil {
 				t.Fatal(err)
+			}
+			if configured == nil || *configured {
+				t.Fatalf("first-page metadata = %v, want false", configured)
 			}
 			if len(groups) != 2 || groups[0].Scope != "custom" || groups[1].Scope != "step" {
 				t.Fatalf("groups = %#v", groups)

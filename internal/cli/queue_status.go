@@ -21,9 +21,12 @@ func (cmd *QueueStatusCmd) Run(app *Context) error {
 	}
 
 	if cmd.Queue == "" {
-		migrations, err := app.Client.ListQueueMigrations(app.Context)
+		migrations, configured, err := app.Client.ListQueueMigrations(app.Context)
 		if err != nil {
 			return fmt.Errorf("list queue migrations: %w", err)
+		}
+		if err := app.printMigrationConfigurationNotice(configured); err != nil {
+			return err
 		}
 		statuses := make([]QueueStatus, 0, len(migrations))
 		for i := range migrations {

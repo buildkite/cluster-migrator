@@ -22,7 +22,7 @@ func TestQueueChangeJSONOmitsTerminalGuidance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "{\n  \"queue\": \"default\",\n  \"from_percent\": 10,\n  \"to_percent\": 25,\n  \"destination\": {\n    \"cluster_id\": \"cluster-id\",\n    \"cluster_name\": \"Cluster Migrator Demo\"\n  },\n  \"dry_run\": false\n}\n"
+	want := "{\n  \"queue\": \"default\",\n  \"from_percent\": 10,\n  \"to_percent\": 25,\n  \"destination\": {\n    \"cluster_id\": \"cluster-id\",\n    \"cluster_name\": \"Cluster Migrator Demo\"\n  }\n}\n"
 	if got := output.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}

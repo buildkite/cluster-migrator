@@ -18,9 +18,11 @@ func TestListQueueMigrationsFollowsNextLinks(t *testing.T) {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL)
 		}
 		if r.URL.Query().Get("after") == "first" {
+			w.Header().Set("Buildkite-Migration-Configured", "true")
 			_, _ = w.Write([]byte(`{"items":[{"queue_key":"second"}],"links":{}}`))
 			return
 		}
+		w.Header().Set("Buildkite-Migration-Configured", "false")
 		_, _ = fmt.Fprintf(w, `{"items":[{"queue_key":"first"}],"links":{"next":%q}}`, server.URL+"/v2/organizations/acme/unclustered-to-clustered/queue-migrations?after=first")
 	}))
 	defer server.Close()
@@ -29,9 +31,12 @@ func TestListQueueMigrationsFollowsNextLinks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	migrations, err := client.ListQueueMigrations(context.Background())
+	migrations, configured, err := client.ListQueueMigrations(context.Background())
 	if err != nil {
 		t.Fatal(err)
+	}
+	if configured == nil || *configured {
+		t.Fatalf("first-page metadata = %v, want false", configured)
 	}
 	if len(migrations) != 2 || migrations[0].QueueKey != "first" || migrations[1].QueueKey != "second" {
 		t.Fatalf("migrations = %#v", migrations)

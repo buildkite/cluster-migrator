@@ -6,8 +6,9 @@ import (
 )
 
 type CursorPaginated[T any] struct {
-	Items []T `json:"items"`
-	Links struct {
+	MigrationConfigured *bool `json:"-"`
+	Items               []T   `json:"items"`
+	Links               struct {
 		Next string `json:"next"`
 	} `json:"links"`
 }
@@ -19,7 +20,15 @@ type OffsetPaginated[T any] struct {
 
 func cursorPage[T any](ctx context.Context, client *Client, path string) (CursorPaginated[T], error) {
 	var page CursorPaginated[T]
-	err := client.do(ctx, http.MethodGet, path, nil, &page)
+	header, err := client.doWithHeaders(ctx, http.MethodGet, path, nil, &page)
+	switch header.Get("Buildkite-Migration-Configured") {
+	case "true":
+		configured := true
+		page.MigrationConfigured = &configured
+	case "false":
+		configured := false
+		page.MigrationConfigured = &configured
+	}
 	return page, err
 }
 

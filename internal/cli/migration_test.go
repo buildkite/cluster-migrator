@@ -63,7 +63,7 @@ func TestMigrationCompletionTimeout(t *testing.T) {
 func TestMigrationStatusCompletionBlockers(t *testing.T) {
 	const path = "/v2/organizations/acme/unclustered-to-clustered/migration"
 	const payload = `{"phase":"migrate_pipelines","target_phase":"complete","ready":false,"status":"blocked","blocker_sample_limit_per_category":20,"blocker_samples":[{"code":"unclustered_pipeline","message":"Pipeline 'monorepo' must be clustered","queue":null,"scope":null,"key":null},{"code":"unfinished_unclustered_build","message":"Unclustered build 'build-id' must be terminal (state: blocked); request blocked build finalization separately before completing the migration","queue":null,"scope":null,"key":null},{"code":"concurrency_group_migration_incomplete","message":"Concurrency group 'custom/deploy/production' must finish forward cutover and release its hold (state: forward_draining)","queue":null,"scope":"custom","key":"deploy/production"},{"code":"future_blocker","message":"Resolve the new server condition","queue":"release","scope":null,"key":null}]}`
-	for _, flags := range [][]string{nil, {"--json"}, {"--dry-run"}} {
+	for _, flags := range [][]string{nil, {"--json"}} {
 		t.Run(strings.Join(flags, " "), func(t *testing.T) {
 			t.Setenv("BUILDKITE_API_TOKEN", "secret")
 			t.Setenv("XDG_CACHE_HOME", t.TempDir())
@@ -217,14 +217,12 @@ NEXT STEPS
 	}{
 		{name: "create by name", destination: "production"},
 		{name: "JSON create by ID", destination: "cluster-id", flags: []string{"--json"}},
-		{name: "same destination conflict", destination: "cluster-id", status: 409, message: "This organization already has a migration", wantError: "configure organization migration: Buildkite API returned 409: This organization already has a migration; use cluster-migrator migration status to inspect it"},
+		{name: "configuration conflict", destination: "cluster-id", status: 409, message: "Configuration conflict", wantError: "configure organization migration: Buildkite API returned 409: Configuration conflict"},
 		{name: "enrollment closed", destination: "production", status: 503, message: "Organization migration enrollment is not available yet", wantError: "configure organization migration: Buildkite API returned 503: Organization migration enrollment is not available yet"},
 		{name: "permission denied", destination: "production", status: 403, message: "Forbidden", wantError: "configure organization migration: Buildkite API returned 403: Forbidden"},
 		{name: "invalid target", destination: "production", status: 422, message: "Destination cluster must be active", wantError: "configure organization migration: Buildkite API returned 422: Destination cluster must be active"},
 		{name: "missing cluster", destination: "missing", wantError: `resolve destination cluster: no cluster found matching "missing"`},
 		{name: "ambiguous cluster", destination: "production", clusters: `[{"id":"one","name":"production"},{"id":"two","name":"production"}]`, wantError: `resolve destination cluster: multiple clusters match "production"`},
-		{name: "dry run", destination: "production", flags: []string{"--dry-run"}, wantError: "migration configure does not support --dry-run: the server has no read-only readiness endpoint; no migration was configured"},
-		{name: "JSON dry run", destination: "production", flags: []string{"--dry-run", "--json"}, wantError: "migration configure does not support --dry-run: the server has no read-only readiness endpoint; no migration was configured"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Setenv("XDG_CACHE_HOME", t.TempDir())
@@ -291,9 +289,7 @@ NEXT STEPS
 				}
 			}
 			wantReads, wantPosts := 1, 1
-			if strings.Contains(test.name, "dry run") {
-				wantReads, wantPosts = 0, 0
-			} else if test.name == "missing cluster" || test.name == "ambiguous cluster" {
+			if test.name == "missing cluster" || test.name == "ambiguous cluster" {
 				wantPosts = 0
 			}
 			if reads != wantReads || posts != wantPosts || stderr.Len() != 0 {
@@ -378,8 +374,6 @@ NEXT STEPS
 		{name: "JSON status pipeline migration", operation: "status", phase: "migrate_pipelines", flags: []string{"--json"}},
 		{name: "JSON validate", operation: "validate-queues", phase: "validate_queues", flags: []string{"--json"}},
 		{name: "JSON prepare", operation: "prepare-queues", phase: "prepare_queues", flags: []string{"--json"}},
-		{name: "validate preview", operation: "validate-queues", flags: []string{"--dry-run"}, wantError: "does not support --dry-run"},
-		{name: "prepare JSON preview", operation: "prepare-queues", flags: []string{"--dry-run", "--json"}, wantError: "does not support --dry-run"},
 		{name: "already validating", operation: "validate-queues", status: 409, wantError: "Buildkite API returned 409: Cannot transition"},
 		{name: "committed", operation: "prepare-queues", status: 409, wantError: "Buildkite API returned 409: Cannot transition"},
 		{name: "forbidden", operation: "prepare-queues", status: 403, wantError: "Buildkite API returned 403"},
@@ -462,9 +456,6 @@ NEXT STEPS
 			if test.operation == "status" && test.phase == "migrate_pipelines" {
 				wantRequests++
 			}
-			if strings.Contains(test.name, "preview") {
-				wantRequests = 0
-			}
 			if requests != wantRequests || stderr.Len() != 0 {
 				t.Fatalf("requests=%d stderr=%q", requests, stderr.String())
 			}
@@ -492,8 +483,6 @@ func TestMigrationLifecycleTransitions(t *testing.T) {
 			}{
 				{name: "accepted", status: 200},
 				{name: "JSON accepted", flags: []string{"--json"}, status: 200},
-				{name: "dry run", flags: []string{"--dry-run"}},
-				{name: "JSON dry run", flags: []string{"--dry-run", "--json"}},
 				{name: "not configured", status: 404, message: "Unclustered-to-clustered migration is not configured for this organization"},
 				{name: "wrong phase", status: 409, message: "Cannot transition from prepare_queues"},
 				{name: "invalid request", flags: []string{"--json"}, status: 422, message: "Invalid transition request"},
@@ -532,10 +521,7 @@ func TestMigrationLifecycleTransitions(t *testing.T) {
 					err := Run(context.Background(), args, &stdout, &stderr, organizationClient(server.Client()))
 					wantError := ""
 					wantRequests := 1
-					if outcome.status == 0 {
-						wantRequests = 0
-						wantError = fmt.Sprintf("migration set-phase %s does not support --dry-run; use cluster-migrator migration status to inspect the current phase and available completion readiness; no phase change was requested", operation.name)
-					} else if outcome.message != "" {
+					if outcome.message != "" {
 						wantError = fmt.Sprintf("migration set-phase %s: Buildkite API returned %d: %s", operation.name, outcome.status, outcome.message)
 					}
 					if wantError != "" {
