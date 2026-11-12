@@ -47,12 +47,9 @@ func setQueuePercent(app *Context, queue string, percent int) error {
 			ClusterID:   cluster.ID,
 			ClusterName: cluster.Name,
 		},
-		DryRun: app.DryRun,
 	}
-	if !app.DryRun {
-		change.Next = queueRoutingNextSteps(queue, percent)
-	}
-	if current.RoutedPercent == percent || app.DryRun {
+	change.Next = queueRoutingNextSteps(queue, percent)
+	if current.RoutedPercent == percent {
 		return app.Print(change)
 	}
 

@@ -5,7 +5,7 @@ import "fmt"
 type FinalizeBlockedBuildsCmd struct{}
 
 func (cmd *FinalizeBlockedBuildsCmd) Help() string {
-	return `Requires migrate_pipelines, write_clusters and write_builds token scopes, and server-side organization, cluster, and build permissions. The server decides build eligibility. No dry run is available.
+	return `Requires migrate_pipelines, write_clusters and write_builds token scopes, and server-side organization, cluster, and build permissions. The server decides build eligibility.
 
 Acceptance starts a server-side sweep; it does not confirm that all builds are finalized. To check remaining completion blockers, run cluster-migrator migration status. This reports blocker samples, not finalization totals. There is no per-build finalization report endpoint. JSON output is {"accepted": true}, not a completion result. A client timeout does not cancel server-side finalization; check completion readiness before retrying.
 
@@ -15,9 +15,6 @@ Once no known completion blockers remain, request completion separately with clu
 }
 
 func (cmd *FinalizeBlockedBuildsCmd) Run(app *Context) error {
-	if app.DryRun {
-		return fmt.Errorf("finalize-blocked-builds does not support --dry-run: the server has no read-only finalization preview; no finalization was requested")
-	}
 	if err := app.Client.FinalizeBlockedBuilds(app.Context); err != nil {
 		return fmt.Errorf("finalize blocked builds: %w", err)
 	}

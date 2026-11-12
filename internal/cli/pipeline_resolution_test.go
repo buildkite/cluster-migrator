@@ -25,7 +25,6 @@ func TestPipelineCommandsInheritOrganizationMigrationDestination(t *testing.T) {
 	}{
 		{name: "readiness", args: []string{"pipeline", "readiness", "demo-pipeline"}},
 		{name: "move", args: []string{"pipeline", "move", "demo-pipeline"}},
-		{name: "dry run", args: []string{"--dry-run", "pipeline", "move", "demo-pipeline"}},
 	} {
 		for _, test := range []struct {
 			name      string
@@ -35,6 +34,7 @@ func TestPipelineCommandsInheritOrganizationMigrationDestination(t *testing.T) {
 		}{
 			{name: "parent destination differs from defaults"},
 			{name: "missing migration", status: http.StatusNotFound, response: `{"message":"Organization migration is not configured"}`, wantError: "migration configure --destination-cluster <cluster>"},
+			{name: "coded missing migration", status: http.StatusNotFound, response: `{"code":"migration_not_configured","message":"Run cluster-migrator migration configure --destination-cluster=production"}`, wantError: "Run cluster-migrator migration configure --destination-cluster=production"},
 			{name: "access denied", status: http.StatusForbidden, response: `{"message":"Forbidden"}`, wantError: "Buildkite API returned 403: Forbidden"},
 			{name: "unresolvable destination", status: http.StatusNotFound, response: `{"message":"Destination cluster not found"}`, wantError: "Buildkite API returned 404: Destination cluster not found"},
 		} {
@@ -102,7 +102,7 @@ func TestPipelineCommandsInheritOrganizationMigrationDestination(t *testing.T) {
 					if command.name != "move" && posts != 0 {
 						t.Fatalf("read-only operation sent %d POSTs", posts)
 					}
-					if test.name == "missing migration" && operations != 1 {
+					if strings.Contains(test.name, "missing migration") && (operations != 1 || strings.Count(err.Error(), "migration configure") != 1) {
 						t.Fatalf("missing migration should not retry pipeline discovery: operations = %d", operations)
 					}
 					return

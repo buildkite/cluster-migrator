@@ -1,9 +1,7 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 	"text/tabwriter"
 
@@ -29,9 +27,6 @@ type MigrationConfigureCmd struct {
 }
 
 func (cmd *MigrationConfigureCmd) Run(app *Context) error {
-	if app.DryRun {
-		return fmt.Errorf("migration configure does not support --dry-run: the server has no read-only readiness endpoint; no migration was configured")
-	}
 	cluster, err := app.Client.ResolveCluster(app.Context, cmd.DestinationCluster)
 	if err != nil {
 		return fmt.Errorf("resolve destination cluster: %w", err)
@@ -39,10 +34,6 @@ func (cmd *MigrationConfigureCmd) Run(app *Context) error {
 	app.LastKnown = []string{"Destination: " + cluster.ID}
 	migration, err := app.Client.ConfigureMigration(app.Context, cluster.ID)
 	if err != nil {
-		var apiError *buildkite.APIError
-		if errors.As(err, &apiError) && apiError.StatusCode == http.StatusConflict {
-			return fmt.Errorf("configure organization migration: %w; use cluster-migrator migration status to inspect it", err)
-		}
 		return fmt.Errorf("configure organization migration: %w", err)
 	}
 	if app.JSON {
@@ -199,9 +190,6 @@ func (cmd *MigrationCompleteCmd) Run(app *Context) error {
 }
 
 func runMigrationTransition(app *Context, operation string, transition func() (*buildkite.Migration, error)) error {
-	if app.DryRun {
-		return fmt.Errorf("migration %s does not support --dry-run; use cluster-migrator migration status to inspect the current phase and available completion readiness; no phase change was requested", operation)
-	}
 	migration, err := transition()
 	if err != nil {
 		return fmt.Errorf("migration %s: %w", operation, err)
@@ -216,11 +204,6 @@ func runMigrationTransition(app *Context, operation string, transition func() (*
 }
 
 func changeQueuePhase(app *Context, operation string) error {
-	// There is no read-only readiness endpoint for these operations.
-	if app.DryRun {
-		return fmt.Errorf("migration set-phase %s does not support --dry-run: the server has no read-only readiness endpoint; use cluster-migrator migration status to inspect the current phase", operation)
-	}
-
 	var migration *buildkite.Migration
 	var err error
 	if operation == "prepare-queues" {

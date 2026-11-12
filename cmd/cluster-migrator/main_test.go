@@ -40,8 +40,6 @@ NEXT STEPS
 	}{
 		{name: "accepted", status: http.StatusAccepted, wantStdout: accepted},
 		{name: "JSON accepted", flags: []string{"--json"}, status: http.StatusAccepted, wantStdout: "{\n  \"accepted\": true\n}\n"},
-		{name: "dry run", flags: []string{"--dry-run"}},
-		{name: "JSON dry run", flags: []string{"--dry-run", "--json"}},
 		{name: "forbidden", status: 403, message: "Forbidden"},
 		{name: "not configured", status: 404, message: "No migration found"},
 		{name: "wrong phase", status: 409, message: "Blocked build finalization requires migrate_pipelines"},
@@ -78,10 +76,7 @@ NEXT STEPS
 			args := append([]string{"--endpoint", server.URL, "finalize-blocked-builds"}, test.flags...)
 			stdout, stderr, exit := runCLI(t, args...)
 			wantExit, wantStderr, wantOperations := 0, "", 1
-			if test.status == 0 {
-				wantExit, wantOperations = 1, 0
-				wantStderr = "cluster-migrator: finalize-blocked-builds does not support --dry-run: the server has no read-only finalization preview; no finalization was requested\n"
-			} else if test.message != "" {
+			if test.message != "" {
 				wantExit = 1
 				wantStderr = fmt.Sprintf("cluster-migrator: finalize blocked builds: Buildkite API returned %d: %s\n", test.status, test.message)
 			}
@@ -105,8 +100,7 @@ func TestPipelineMigrationProcess(t *testing.T) {
 		wantStdout string
 	}{
 		{name: "readiness", command: "readiness", method: http.MethodGet, wantStdout: `"status": "no_known_blockers"`},
-		{name: "move preview", command: "move", flags: []string{"--dry-run"}, method: http.MethodGet, wantStdout: `"dry_run": true`},
-		{name: "blocked preview", command: "move", flags: []string{"--dry-run"}, method: http.MethodGet, rejected: true, wantStdout: `"status": "blocked"`},
+		{name: "blocked readiness", command: "readiness", method: http.MethodGet, rejected: true, wantStdout: `"status": "blocked"`},
 		{name: "move", command: "move", method: http.MethodPatch, wantStdout: `"cluster_id": "cluster-id"`},
 		{name: "rejected move", command: "move", method: http.MethodPatch, rejected: true},
 	} {
@@ -206,7 +200,7 @@ func TestConcurrencyGroupStatusProcess(t *testing.T) {
 					_, _ = fmt.Fprint(w, `[{"id":"cluster-id","name":"production"}]`)
 				default:
 					w.WriteHeader(http.StatusNotFound)
-					_, _ = fmt.Fprint(w, `{"message":"No concurrency group migration found"}`)
+					_, _ = fmt.Fprint(w, `{"message":"No concurrency group migration found","code":"concurrency_group_migration_not_found"}`)
 				}
 			}))
 			defer server.Close()
@@ -251,8 +245,6 @@ func TestConcurrencyGroupCutoverProcess(t *testing.T) {
 		wantText  string
 		wantError string
 	}{
-		{name: "dry run", args: []string{"--dry-run"}, ready: true, wantText: "A cutover to the production cluster would be requested.\n"},
-		{name: "JSON dry run", args: []string{"--dry-run", "--json"}, ready: true, wantJSON: true},
 		{name: "started", ready: true, wantPosts: 1, wantText: "Cutover to the production cluster started.\n"},
 		{name: "blocked", wantPosts: 1, wantText: "Cutover rejected without changes. Blocked by 1 known condition.\n", wantError: "concurrency group has known cutover blockers"},
 		{name: "JSON blocked", args: []string{"--json"}, wantPosts: 1, wantJSON: true, wantError: "concurrency group has known cutover blockers"},
@@ -359,10 +351,10 @@ func TestQueueSetPercentDistinguishesMissingMigrations(t *testing.T) {
 		missingOrganization bool
 		wantError           string
 	}{
-		{name: "organization migration", missingOrganization: true, wantError: "organization migration is not configured; ask Buildkite to configure enrollment and its destination before editing queues: Buildkite API returned 404: No migration found"},
+		{name: "organization migration", missingOrganization: true, wantError: "get organization migration: Buildkite API returned 404: No migration found"},
 		{name: "cluster queue migration", wantError: "cluster queue migration for queue \"test\" is not configured; run cluster-migrator queue configure test while preparation is open: Buildkite API returned 404: No migration found"},
 	} {
-		for _, flags := range [][]string{nil, {"--dry-run"}, {"--json"}} {
+		for _, flags := range [][]string{nil, {"--json"}} {
 			t.Run(test.name+strings.Join(flags, " "), func(t *testing.T) {
 				t.Setenv("XDG_CACHE_HOME", t.TempDir())
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -485,10 +477,10 @@ func TestParseErrorsPrintContextualUsage(t *testing.T) {
 			excludes:  "Destination cluster name or ID.",
 		},
 		{
-			name:      "removed pipeline dry run destination override",
+			name:      "removed dry run",
 			args:      []string{"--dry-run", "pipeline", "move", "monorepo", "--destination-cluster=production"},
-			errorText: "cluster-migrator: unknown flag --destination-cluster",
-			usage:     "Usage: cluster-migrator pipeline move <pipeline>",
+			errorText: "cluster-migrator: unknown flag --dry-run",
+			usage:     "Usage: cluster-migrator <command> [flags]",
 			excludes:  "Destination cluster name or ID.",
 		},
 		{

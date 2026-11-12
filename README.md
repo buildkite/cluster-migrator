@@ -33,7 +33,7 @@ Concurrency groups are identified as `<scope>/<key>`: `custom/<key>` for a `conc
 
 Before starting:
 
-- Ask Buildkite to configure the organization's migration and fixed destination and enable the queue migration APIs. Enrollment is not performed implicitly by queue commands.
+- Ask Buildkite to enable the migration APIs, then configure the organization's fixed destination with `cluster-migrator migration configure --destination-cluster <cluster>`. Enrollment is not performed implicitly by queue commands.
 - Enable Advanced Queue Metrics for the organization so `queue metrics` can monitor source and destination activity.
 - Create the destination cluster and its queues. Each destination queue must have the same exact, case-sensitive key as its source queue.
 - Prepare enough agent capacity in the destination cluster for the traffic you will route.
@@ -82,19 +82,17 @@ cluster-migrator queue status test
 
 ### 2. Configure the queue at 0%
 
-Preview the change, then create the mapping:
+Create the mapping:
 
 ```shell
-cluster-migrator --dry-run queue configure test
-
 cluster-migrator queue configure test
 ```
 
 Configuration does not route traffic. Scale the destination agents before raising the percentage.
 
-Queue configuration inherits the organization's fixed destination; `--destination-cluster` is not accepted. Configuration and percentage edits, including previews and same-percentage requests, require preparation. During validation, first run `cluster-migrator migration set-phase prepare-queues`; configure or adjust routing, then run `cluster-migrator migration set-phase validate-queues` again. After commitment, recover forward instead of trying to reopen preparation.
+Queue configuration inherits the organization's fixed destination; `--destination-cluster` is not accepted. Configuration and percentage edits, including same-percentage requests, require preparation. During validation, first run `cluster-migrator migration set-phase prepare-queues`; configure or adjust routing, then run `cluster-migrator migration set-phase validate-queues` again. After commitment, recover forward instead of trying to reopen preparation.
 
-A missing organization migration means enrollment and its destination must be configured by Buildkite. A missing cluster queue migration means that queue has no mapping yet; `queue configure <queue>` creates it during preparation. Creating a queue mapping does not enroll the organization or choose a destination.
+A missing organization migration requires `cluster-migrator migration configure --destination-cluster <cluster>`. A missing cluster queue migration means that queue has no mapping yet; inspect `migration status` before configuring it during preparation. Creating a queue mapping does not enroll the organization or choose a destination.
 
 ### 3. Increase routing gradually
 
@@ -132,7 +130,7 @@ Once mappings and routing are ready, enter validation and run representative wor
 cluster-migrator migration set-phase validate-queues
 ```
 
-Validation freezes queue configuration, including dry runs. If repairs or routing changes are needed, explicitly return to preparation, make the changes, then validate again:
+Validation freezes queue configuration. If repairs or routing changes are needed, explicitly return to preparation, make the changes, then validate again:
 
 ```shell
 cluster-migrator migration set-phase prepare-queues
@@ -206,7 +204,7 @@ The server rechecks readiness. Phase entry does not move any pipelines or finali
 cluster-migrator pipeline readiness monorepo
 ```
 
-Readiness and moves, including dry runs, use the organization's fixed migration destination. They do not accept `--destination-cluster` and never infer a destination from the pipeline or organization default. The server resolves the configured destination and rejects missing configuration or an inaccessible destination. If no migration is configured, an organization administrator must run `cluster-migrator migration configure --destination-cluster <cluster>` first. The CLI displays the destination ID returned by readiness or move; it does not read migration status or resolve clusters before either command.
+Readiness and moves use the organization's fixed migration destination. They do not accept `--destination-cluster` and never infer a destination from the pipeline or organization default. The server resolves the configured destination and rejects missing configuration or an inaccessible destination. If no migration is configured, an organization administrator must run `cluster-migrator migration configure --destination-cluster <cluster>` first. The CLI displays the destination ID returned by readiness or move; it does not read migration status or resolve clusters before either command.
 
 The assessment reports queue blockers, active source jobs, concurrency-group blockers, observation windows, and when the observations can refresh. A `no_known_blockers` result is not proof of readiness: incomplete observation windows may omit dependencies.
 
@@ -215,12 +213,6 @@ A blocked assessment prints corrective next steps and exits non-zero.
 After a pipeline moves, step uploads that target a queue missing from the destination cluster will fail. Check static and dynamically generated pipeline steps for queue keys that may not appear in the readiness observation window.
 
 ### 7. Move the pipeline
-
-Previewing a move runs the readiness assessment without changing the pipeline:
-
-```shell
-cluster-migrator --dry-run pipeline move monorepo
-```
 
 Move the pipeline only after reviewing the assessment and your operational signals:
 
@@ -260,8 +252,7 @@ Completion rechecks readiness. It does not move pipelines or finalize builds. Se
 
 ### Configure an organization migration
 
-When Buildkite makes organization enrollment available, configure the fixed
-destination before preparing and validating queue mappings:
+With the migration feature enabled, configure the fixed destination before preparing and validating queue mappings:
 
 ```shell
 cluster-migrator migration configure --destination-cluster production
@@ -277,12 +268,9 @@ migration returns a conflict even for the same destination; inspect it with
 
 Configuration requires `write_clusters`, permission to change the organization
 and manage the destination cluster, and server-side enrollment availability.
-Cluster resolution also requires `read_clusters`. Enrollment is currently closed
-on the server; this command does not enable it or bypass its rejection.
+Cluster resolution also requires `read_clusters`. This command does not enable the server feature or bypass enrollment protections.
 
-There is no read-only configuration readiness endpoint, so `migration configure
---dry-run` exits non-zero without a configuration request. `--json` returns the
-API migration object on success; rejected requests leave stdout empty and report
+`--json` returns the API migration object on success; rejected requests leave stdout empty and report
 the server error on stderr.
 
 ### Queue validation for configured organizations
@@ -324,16 +312,14 @@ organization and manage its destination cluster. Status requires `read_clusters`
 and permission to change the organization. These commands use the organization's
 fixed destination; they do not accept a destination override.
 
-The server has no read-only readiness endpoint for these transitions, so
-`--dry-run` is rejected without a phase-change request. Use `migration status`
-to inspect the current phase; status is not authorization for a later change.
+Use `migration status` to inspect the current phase; status is not authorization for a later change.
 `--json` returns the API migration object on success.
 
 Human-readable output includes next steps for the current phase. Preparation directs you to review mappings before validation. Validation directs you to test representative workloads, explicitly reopen preparation for repairs, or request commitment once the safety gates are met. After commitment, guidance covers individual group cutovers and explicit pipeline-phase entry, not reopening preparation. Pipeline migration shows completion blockers and directs individual pipeline assessment, separate finalization, or group status checks as needed. No known blockers means completion can be requested explicitly, not that migration is complete. Status for completed migrations has no next-step section. JSON output does not include this guidance.
 
 During `migrate_pipelines`, status requests `GET /v2/organizations/:organization/unclustered-to-clustered/migration/readiness` after fetching the migration. Other phases do not request readiness. The assessment includes `phase`, `target_phase`, `ready`, `status`, `blocker_samples`, and `blocker_sample_limit_per_category`. Each sample has `code`, `message`, and nullable `queue`, `scope`, and `key`. Messages are displayed as returned, not parsed for pipeline or build identifiers. Unknown blocker codes remain visible.
 
-`migration status --json` preserves existing migration fields and adds `completion_readiness` during pipeline migration. This contains the readiness API response without human guidance. Earlier phases and completed migrations retain the migration-only JSON shape. Blocked assessments print JSON before exiting non-zero; API failures leave stdout empty. Status starts no work, including when passed `--dry-run`.
+`migration status --json` preserves existing migration fields and adds `completion_readiness` during pipeline migration. This contains the readiness API response without human guidance. Earlier phases and completed migrations retain the migration-only JSON shape. Blocked assessments print JSON before exiting non-zero; API failures leave stdout empty. Status starts no work.
 
 ### Request commitment, pipeline migration, and completion
 
@@ -380,7 +366,7 @@ All three POST requests have no body and no `Content-Type` header:
 | `migration set-phase migrate-pipelines` | `cutover-pipelines` | `migrate_pipelines` |
 | `migration set-phase complete` | `complete` | `complete` |
 
-All three reject `--dry-run` without mutation requests, including when the acknowledgement flag is set. Use `migration status` to inspect the current phase and, during pipeline migration, completion readiness. This does not preview commitment or pipeline-phase entry, or authorise a later transition.
+Use `migration status` to inspect the current phase and, during pipeline migration, completion readiness. This does not authorize a later transition.
 On HTTP 200, human output reports the returned phase and directs you to
 `migration status`; `--json` returns only the API migration object. A successful
 POST is not proof that all background work has finished. A client timeout does
@@ -422,9 +408,7 @@ Once no known completion blockers remain, request completion separately. The ser
 cluster-migrator migration set-phase complete
 ```
 
-No read-only preview is available, so `--dry-run` fails without a finalization
-request. On acceptance, `--json` writes only `{"accepted": true}`; this is a CLI
-acknowledgement, not a server report or completion result. Server errors exit
+On acceptance, `--json` writes only `{"accepted": true}`; this is a CLI acknowledgement, not a server report or completion result. Server errors exit
 non-zero with empty stdout and diagnostics on stderr, without fallback mutations.
 A client timeout leaves acceptance uncertain and does not cancel server-side
 finalization. Run `cluster-migrator migration status` before retrying or requesting completion.
@@ -443,7 +427,7 @@ finalization. Run `cluster-migrator migration status` before retrying or request
 | `queue status [queue]` | Show one queue migration or list all migrations. |
 | `queue set-percent <queue> --to <0-100>` | Set the absolute percentage of new jobs routed to the cluster queue. |
 | `queue metrics <queue>` | Compare recent source and destination activity. |
-| `concurrency-group cutover <scope>/<key>` | Start holding, draining, and moving a concurrency group into the organization's fixed destination, or report why it can't start. `--dry-run` checks only the group's migration state. |
+| `concurrency-group cutover <scope>/<key>` | Start holding, draining, and moving a concurrency group into the organization's fixed destination, or report why it can't start. |
 | `concurrency-group status [<scope>/<key>]` | Show one concurrency-group migration's state and unclustered jobs, or list every migration. A group whose cutover hasn't started has no migration. |
 | `pipeline readiness <pipeline>` | Assess known queue and concurrency-group blockers for the organization's fixed migration destination. |
 | `pipeline move <pipeline>` | Permanently assign a pipeline to the organization's fixed migration destination. |
@@ -454,13 +438,16 @@ Run `cluster-migrator <command> --help` for full usage.
 
 | Flag | Purpose |
 | --- | --- |
-| `--dry-run` | Validate and display a mutation without applying it. |
 | `--json` | Write machine-readable JSON instead of terminal output. |
 | `--timeout <duration>` | Set the maximum command duration; defaults to `10m`. |
 | `--endpoint <url>` | Override the Buildkite REST API endpoint. Also available as `BUILDKITE_API_ENDPOINT`. |
 | `--api-token <token>` | Supply the API token. Prefer `BUILDKITE_API_TOKEN` to keep it out of shell history and process listings. |
 
-All mutations are non-interactive. The CLI reads the organization's phase before queue edits and previews. The server rechecks authoritative state when applying mutations; a successful preview does not reserve the phase or authorize a later edit.
+All mutations are non-interactive. The CLI reads the organization's phase before queue edits. The server rechecks authoritative state when applying mutations. Status, metrics and pipeline readiness are read-only observations, not authorization for a later mutation.
+
+Dry runs are not supported. `--dry-run` is an unknown flag and rejects before any API request, including organization discovery. Queue mutation JSON no longer includes the retired `dry_run` field.
+
+Queue and concurrency-group lists retain their normal output and exit successfully when no migration is configured. When the server reports `Buildkite-Migration-Configured: false`, the CLI writes a configure notice to stderr, including in JSON mode; stdout remains the inventory array. An absent header means unknown and produces no notice.
 
 ## Output and automation
 

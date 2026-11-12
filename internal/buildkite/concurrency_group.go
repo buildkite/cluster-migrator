@@ -39,18 +39,24 @@ func (c *Client) concurrencyGroupPath(scope, key string, parts ...string) string
 }
 
 // ListConcurrencyGroups returns every concurrency-group migration in the organization.
-func (c *Client) ListConcurrencyGroups(ctx context.Context) ([]ConcurrencyGroup, error) {
+func (c *Client) ListConcurrencyGroups(ctx context.Context) ([]ConcurrencyGroup, *bool, error) {
 	path := c.path("unclustered-to-clustered", "concurrency-group-migrations") + "?per_page=100"
 	groups := []ConcurrencyGroup{}
+	var configured *bool
+	firstPage := true
 	for path != "" {
 		page, err := cursorPage[ConcurrencyGroup](ctx, c, path)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
+		}
+		if firstPage {
+			configured = page.MigrationConfigured
+			firstPage = false
 		}
 		groups = append(groups, page.Items...)
 		path = page.Links.Next
 	}
-	return groups, nil
+	return groups, configured, nil
 }
 
 func (c *Client) GetConcurrencyGroup(ctx context.Context, scope, key string) (*ConcurrencyGroup, error) {

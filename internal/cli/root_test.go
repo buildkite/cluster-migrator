@@ -63,7 +63,6 @@ func TestCommandTimeoutReports(t *testing.T) {
 		{name: "pipeline readiness", args: []string{"pipeline", "readiness", "monorepo"}, method: "GET", path: base + "unclustered-to-clustered/migration/pipelines/monorepo", recovery: "pipeline readiness monorepo"},
 		{name: "preflight", args: []string{"queue", "set-percent", "deploy", "--to=60"}, method: "GET", path: base + "unclustered-to-clustered/migration", recovery: "queue status deploy"},
 		{name: "discovery", args: []string{"pipeline", "move", "monorepo"}, method: "GET", path: "/v2/organizations", recovery: "pipeline readiness monorepo"},
-		{name: "move preview", args: []string{"pipeline", "move", "monorepo", "--dry-run"}, method: "GET", path: base + "unclustered-to-clustered/migration/pipelines/monorepo", recovery: "pipeline readiness monorepo"},
 		{name: "pipeline fallback", args: []string{"pipeline", "move", "monorepo"}, method: "GET", path: base + "pipelines", recovery: "pipeline readiness monorepo"},
 	} {
 		for _, jsonOutput := range []bool{false, true} {
@@ -346,7 +345,6 @@ func TestPipelineDestinationOverrideFailsBeforeRequests(t *testing.T) {
 	for _, args := range [][]string{
 		{"pipeline", "readiness", "monorepo", "--destination-cluster", "production"},
 		{"pipeline", "move", "monorepo", "--destination-cluster", "production"},
-		{"--dry-run", "pipeline", "move", "monorepo", "--destination-cluster", "production"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
@@ -372,6 +370,49 @@ func TestEndpointDefaultsToRESTAPI(t *testing.T) {
 	}
 	if got, want := root.Endpoint, "https://api.buildkite.com/"; got != want {
 		t.Fatalf("endpoint = %q, want %q", got, want)
+	}
+}
+
+func TestRemovedDryRunRejectsBeforeRequests(t *testing.T) {
+	commands := [][]string{
+		{"queue", "configure", "deploy"},
+		{"queue", "set-percent", "deploy", "--to=50"},
+		{"queue", "status"}, {"queue", "status", "deploy"}, {"queue", "metrics", "deploy"},
+		{"concurrency-group", "cutover", "custom/deploy"},
+		{"concurrency-group", "status"}, {"concurrency-group", "status", "custom/deploy"},
+		{"pipeline", "move", "demo"}, {"pipeline", "readiness", "demo"},
+		{"migration", "configure", "--destination-cluster=production"}, {"migration", "status"},
+		{"migration", "set-phase", "prepare-queues"}, {"migration", "set-phase", "validate-queues"},
+		{"migration", "set-phase", "cutover-concurrency-groups", "--acknowledge-irreversible"},
+		{"migration", "set-phase", "migrate-pipelines"}, {"migration", "set-phase", "complete"},
+		{"finalize-blocked-builds"},
+	}
+	for _, command := range commands {
+		for position := 0; position <= len(command); position++ {
+			for _, jsonOutput := range []bool{false, true} {
+				for _, token := range []string{"", "local-test-token"} {
+					t.Run(fmt.Sprintf("%v/position=%d/json=%t/token=%t", command, position, jsonOutput, token != ""), func(t *testing.T) {
+						t.Setenv("BUILDKITE_API_TOKEN", token)
+						requests := 0
+						client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+							requests++
+							return nil, errors.New("unexpected HTTP request")
+						})}
+						args := append([]string{}, command[:position]...)
+						args = append(args, "--dry-run")
+						args = append(args, command[position:]...)
+						if jsonOutput {
+							args = append([]string{"--json"}, args...)
+						}
+						var stdout, stderr bytes.Buffer
+						err := Run(context.Background(), args, &stdout, &stderr, client)
+						if err == nil || !strings.Contains(err.Error(), "unknown flag --dry-run") || requests != 0 || stdout.Len() != 0 {
+							t.Fatalf("error=%v requests=%d stdout=%q", err, requests, &stdout)
+						}
+					})
+				}
+			}
+		}
 	}
 }
 
