@@ -54,7 +54,7 @@ func TestCommandTimeoutReports(t *testing.T) {
 		{name: "pipeline move", args: []string{"pipeline", "move", "monorepo"}, method: "PATCH", path: base + "unclustered-to-clustered/migration/pipelines/monorepo", recovery: "pipeline readiness monorepo"},
 		{name: "quoted pipeline", args: []string{"pipeline", "move", "release job's $HOME"}, method: "PATCH", path: base + "unclustered-to-clustered/migration/pipelines/release job's $HOME", recovery: `pipeline readiness 'release job'\''s $HOME'`},
 		{name: "migration status", args: []string{"migration", "status"}, method: "GET", path: base + "unclustered-to-clustered/migration", recovery: "migration status"},
-		{name: "completion readiness", args: []string{"migration", "status"}, method: "GET", path: base + "unclustered-to-clustered/migration/readiness", recovery: "migration status", known: []string{"Migration phase: migrate_pipelines"}},
+		{name: "migration readiness", args: []string{"migration", "readiness"}, method: "GET", path: base + "unclustered-to-clustered/migration/readiness", recovery: "migration status"},
 		{name: "queue status", args: []string{"queue", "status", "deploy"}, method: "GET", path: base + "unclustered-to-clustered/queue-migrations/deploy", recovery: "queue status deploy"},
 		{name: "queue list", args: []string{"queue", "status"}, method: "GET", path: base + "unclustered-to-clustered/queue-migrations", recovery: "queue status"},
 		{name: "metrics", args: []string{"queue", "metrics", "deploy"}, method: "GET", path: base + "unclustered-to-clustered/queue-migrations/deploy/metrics", recovery: "queue metrics deploy"},
@@ -92,8 +92,6 @@ func TestCommandTimeoutReports(t *testing.T) {
 					case base + "unclustered-to-clustered/migration":
 						phase := "prepare_queues"
 						switch test.name {
-						case "completion readiness":
-							phase = "migrate_pipelines"
 						case "group cutover":
 							phase = "cutover_concurrency_groups"
 						}

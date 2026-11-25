@@ -3,14 +3,15 @@ package cli
 import (
 	"fmt"
 	"strings"
-	"text/tabwriter"
+	"time"
 
 	"github.com/buildkite/cluster-migrator/internal/buildkite"
 )
 
 type MigrationCmd struct {
 	Configure MigrationConfigureCmd `cmd:"" help:"Configure the organization's fixed migration destination."`
-	Status    MigrationStatusCmd    `cmd:"" help:"Show migration phase and completion readiness during pipeline migration."`
+	Status    MigrationStatusCmd    `cmd:"" help:"Show the destination, creation time, and current and next phases."`
+	Readiness MigrationReadinessCmd `cmd:"" help:"Check one phase transition without changing phase."`
 	SetPhase  MigrationSetPhaseCmd  `cmd:"" help:"Request a migration phase transition, subject to server readiness checks."`
 }
 
@@ -48,14 +49,33 @@ func (cmd *MigrationConfigureCmd) Run(app *Context) error {
 type MigrationStatusCmd struct{}
 
 func (cmd *MigrationStatusCmd) Help() string {
-	return `During migrate_pipelines, fetches read-only completion readiness and up to the server's blocker sample limit per category. Samples are not totals or progress percentages. Other phases show the persisted migration without requesting completion readiness.
+	return `Text status does not assess readiness. Use migration readiness to check a transition.
 
-Blocked completion readiness exits non-zero after printing the assessment. Ready means completion can be requested, not that migration is complete; completion rechecks readiness. No work is started by status.
-
-JSON preserves migration fields and adds completion_readiness during migrate_pipelines, containing the readiness API response without human guidance. Requires the read-only /migration/readiness endpoint to be deployed. Individual pipeline readiness remains available.`
+For compatibility, --json preserves migration fields and adds completion_readiness during migrate_pipelines. In that mode, completion blockers exit nonzero after printing the assessment.`
 }
 
 func (cmd *MigrationStatusCmd) Run(app *Context) error {
+	if !app.JSON {
+		migration, err := app.Client.GetMigrationSummary(app.Context)
+		if err != nil {
+			return fmt.Errorf("get organization migration: %w", err)
+		}
+		destination := migration.DestinationClusterName
+		if destination == "" {
+			destination = migration.DestinationClusterID
+		}
+		created := displayValue(migration.CreatedAt)
+		if timestamp, err := time.Parse(time.RFC3339Nano, migration.CreatedAt); err == nil {
+			created = timestamp.UTC().Format("2 Jan 2006 03:04 PM MST")
+			days := int(app.now().Sub(timestamp).Hours() / 24)
+			if days > 0 {
+				created += fmt.Sprintf(" (%d %s ago)", days, pluralize(days, "day"))
+			}
+		}
+		_, err = fmt.Fprintf(app.Output, "Destination cluster: %s\nCreated: %s\nCurrent phase: %s\nNext phase: %s\n", displayValue(destination), created, migration.Phase, displayNextPhase(migration.Phase, migration.NextPhase))
+		return err
+	}
+
 	migration, err := app.Client.GetMigration(app.Context)
 	if err != nil {
 		return fmt.Errorf("get organization migration: %w", err)
@@ -68,24 +88,11 @@ func (cmd *MigrationStatusCmd) Run(app *Context) error {
 			return fmt.Errorf("get migration completion readiness: %w", err)
 		}
 	}
-	if app.JSON {
-		if err := app.Print(struct {
-			*buildkite.Migration
-			CompletionReadiness *buildkite.MigrationReadiness `json:"completion_readiness,omitempty"`
-		}{migration, readiness}); err != nil {
-			return err
-		}
-	} else {
-		if _, err := fmt.Fprintf(app.Output, "MIGRATION STATUS\nMigration: %s\nDestination: %s\n\nSTATUS\n\nPhase: %s\n", migration.ID, migration.DestinationClusterID, migration.Phase); err != nil {
-			return err
-		}
-		if readiness != nil {
-			if err := app.printMigrationReadiness(readiness); err != nil {
-				return err
-			}
-		} else if err := app.printNextSteps(migrationNextSteps(migration.Phase)); err != nil {
-			return err
-		}
+	if err := app.Print(struct {
+		*buildkite.Migration
+		CompletionReadiness *buildkite.MigrationReadiness `json:"completion_readiness,omitempty"`
+	}{migration, readiness}); err != nil {
+		return err
 	}
 	if readiness != nil && !readiness.Ready {
 		return fmt.Errorf("migration has known completion blockers")
@@ -93,36 +100,132 @@ func (cmd *MigrationStatusCmd) Run(app *Context) error {
 	return nil
 }
 
-func (app *Context) printMigrationReadiness(readiness *buildkite.MigrationReadiness) error {
-	if _, err := fmt.Fprintf(app.Output, "\nCOMPLETION READINESS\n\nTarget phase: %s\n", readiness.TargetPhase); err != nil {
-		return err
+func displayNextPhase(current, next string) string {
+	if current == "complete" {
+		return "None"
 	}
-	if readiness.Ready {
-		if _, err := fmt.Fprintln(app.Output, "No known completion blockers. This does not complete the migration."); err != nil {
-			return err
-		}
-		return app.printNextSteps([]string{"Request completion explicitly. The server rechecks readiness when applying it:\n\n   cluster-migrator migration set-phase complete"})
-	}
-	if _, err := fmt.Fprintln(app.Output, "Completion is blocked."); err != nil {
-		return err
-	}
-	if len(readiness.BlockerSamples) > 0 {
-		if _, err := fmt.Fprintf(app.Output, "\nBLOCKER SAMPLES\n\nUp to %d per category; these are samples, not totals.\n\n", readiness.BlockerSampleLimitPerCategory); err != nil {
-			return err
-		}
-		writer := tabwriter.NewWriter(app.Output, 0, 4, 2, ' ', 0)
-		_, _ = fmt.Fprintln(writer, "CODE\tBLOCKER")
-		for _, blocker := range readiness.BlockerSamples {
-			_, _ = fmt.Fprintf(writer, "%s\t%s\n", displayValue(blocker.Code), displayValue(blocker.Message))
-		}
-		if err := writer.Flush(); err != nil {
-			return err
-		}
-	}
-	return app.printNextSteps(migrationReadinessNextSteps(readiness))
+	return displayValue(next)
 }
 
-func migrationReadinessNextSteps(readiness *buildkite.MigrationReadiness) []string {
+type MigrationReadinessCmd struct {
+	Phase string `arg:"" optional:"" default:"next" help:"Target phase ID (for example, validate_queues). Omit to check the next forward phase."`
+}
+
+func (cmd *MigrationReadinessCmd) Run(app *Context) error {
+	readiness, err := app.Client.GetMigrationTransitionReadiness(app.Context, cmd.Phase)
+	if err != nil {
+		return fmt.Errorf("get migration transition readiness: %w", err)
+	}
+	target := readinessTarget(readiness)
+	noNextPhase := cmd.Phase == "next" && readiness.Status == "no_next_phase" && readiness.Phase == "complete" && target == ""
+	if !noNextPhase && (target == "" || (cmd.Phase != "next" && target != cmd.Phase) ||
+		(cmd.Phase == "next" && target == "complete" && readiness.Phase != "migrate_pipelines")) {
+		return fmt.Errorf("API did not assess the requested phase; check that the API supports transition readiness")
+	}
+
+	if app.JSON {
+		if err := app.Print(readiness); err != nil {
+			return err
+		}
+	} else if noNextPhase {
+		_, err := fmt.Fprintln(app.Output, "The migration is complete. There is no next phase to check.")
+		return err
+	} else {
+		if err := app.printMigrationReadiness(readiness, target); err != nil {
+			return err
+		}
+	}
+	if !noNextPhase && !readiness.Ready {
+		return fmt.Errorf("migration is not ready for %s", target)
+	}
+	return nil
+}
+
+func readinessTarget(readiness *buildkite.MigrationReadiness) string {
+	if readiness.TargetPhase == nil {
+		return ""
+	}
+	return *readiness.TargetPhase
+}
+
+func (app *Context) printMigrationReadiness(readiness *buildkite.MigrationReadiness, target string) error {
+	status := "NOT READY"
+	if readiness.Ready {
+		status = "READY"
+	}
+	if _, err := fmt.Fprintf(app.Output, "READINESS FOR %s\n\nStatus: %s\n", strings.ToUpper(strings.ReplaceAll(target, "_", " ")), status); err != nil {
+		return err
+	}
+	if checked, err := time.Parse(time.RFC3339Nano, readiness.CheckedAt); err == nil {
+		if _, err := fmt.Fprintf(app.Output, "Last checked: %s\n", checked.UTC().Format("Mon, 2 Jan 2006 15:04:05 MST")); err != nil {
+			return err
+		}
+	}
+	if readiness.Ready {
+		command := "cluster-migrator migration set-phase " + strings.ReplaceAll(target, "_", "-")
+		action := "Request the transition when you're ready. The server rechecks readiness before changing phase"
+		switch target {
+		case "prepare_queues":
+			action = "Return to preparation to edit queue mappings and routing. This also admits unmapped source queues again. The server rechecks readiness before changing phase"
+		case "cutover_concurrency_groups":
+			action = "Request irreversible commitment only after validating workloads. The server rechecks readiness before changing phase"
+			command += " --acknowledge-irreversible"
+		}
+		return app.printNextSteps([]string{action + ":\n\n   " + command})
+	}
+
+	var codes []string
+	messages := make(map[string][]string)
+	for _, blocker := range readiness.BlockerSamples {
+		switch blocker.Code {
+		case "already_in_phase":
+			_, err := fmt.Fprintf(app.Output, "\nThe migration is already in %s.\n", target)
+			return err
+		case "invalid_phase":
+			if _, err := fmt.Fprintf(app.Output, "\nCurrent phase: %s\nNext phase: %s\n\n", readiness.Phase, displayNextPhase(readiness.Phase, readiness.NextPhase)); err != nil {
+				return err
+			}
+			if target == "complete" {
+				_, err := fmt.Fprintln(app.Output, "Completion requires the migration to be in migrate_pipelines.\nCompletion blockers were not checked.")
+				return err
+			}
+			_, err := fmt.Fprintln(app.Output, blocker.Message+"\nTransition blockers were not checked.")
+			return err
+		}
+		if _, seen := messages[blocker.Code]; !seen {
+			codes = append(codes, blocker.Code)
+		}
+		messages[blocker.Code] = append(messages[blocker.Code], blocker.Message)
+	}
+	for _, code := range codes {
+		heading := strings.ReplaceAll(code, "_", " ")
+		if heading == "" {
+			heading = "blocker"
+		}
+		if _, err := fmt.Fprintf(app.Output, "\n%s:\n* %s\n", strings.ToUpper(heading[:1])+heading[1:], strings.Join(messages[code], "\n* ")); err != nil {
+			return err
+		}
+		if limit := readiness.BlockerSampleLimitPerCategory; limit > 0 && len(messages[code]) == limit {
+			if _, err := fmt.Fprintf(app.Output, "Showing up to %d blockers in this category.\n", limit); err != nil {
+				return err
+			}
+		}
+	}
+	if target == "complete" {
+		return app.printNextSteps(completionBlockerNextSteps(readiness))
+	}
+	if len(messages["routing_incomplete"]) > 0 || len(messages["unmapped_queue"]) > 0 {
+		switch readiness.Phase {
+		case "prepare_queues":
+			return app.printNextSteps([]string{"Add any missing mappings and route the listed queues 100% to their destination queues. Review queue configuration with:\n\n   cluster-migrator queue status"})
+		case "validate_queues":
+			return app.printNextSteps([]string{"Queue configuration is frozen during validation. Check whether you can return to preparation before editing mappings or routing:\n\n   cluster-migrator migration readiness prepare_queues"})
+		}
+	}
+	return nil
+}
+
+func completionBlockerNextSteps(readiness *buildkite.MigrationReadiness) []string {
 	if readiness.Phase != "migrate_pipelines" {
 		return []string{"The migration phase changed. Inspect its current state before further operations:\n\n   cluster-migrator migration status"}
 	}
@@ -145,7 +248,7 @@ func migrationReadinessNextSteps(readiness *buildkite.MigrationReadiness) []stri
 			seen[step] = true
 		}
 	}
-	return append(steps, "Check completion readiness again after resolving blockers:\n\n   cluster-migrator migration status")
+	return steps
 }
 
 type MigrationValidateQueuesCmd struct{}
@@ -254,7 +357,7 @@ func migrationNextSteps(phase string) []string {
 			"Phase entry does not move pipelines. Assess each pipeline individually:\n\n   cluster-migrator pipeline readiness <pipeline>",
 			"If no known blockers remain and operational checks are satisfactory, move the pipeline. Repeat for every unclustered pipeline, including archived pipelines:\n\n   cluster-migrator pipeline move <pipeline>",
 			"If blocked builds need finalization, request it separately. Acceptance does not confirm completion:\n\n   cluster-migrator finalize-blocked-builds",
-			"Check remaining completion blockers before requesting completion:\n\n   cluster-migrator migration status",
+			"Check remaining completion blockers before requesting completion:\n\n   cluster-migrator migration readiness complete",
 		}
 	default:
 		return nil
