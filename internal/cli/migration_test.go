@@ -14,6 +14,83 @@ import (
 	"testing"
 )
 
+func TestMigrationReadiness(t *testing.T) {
+	for _, tc := range []struct {
+		name, query, payload, output string
+		args                         []string
+		wantError                    bool
+	}{
+		{
+			name: "explicit blocked target", query: "cutover_concurrency_groups",
+			args:    []string{"cutover_concurrency_groups"},
+			payload: `{"phase":"validate_queues","target_phase":"cutover_concurrency_groups","ready":false,"status":"blocked","blocker_sample_limit_per_category":20,"blocker_samples":[{"code":"unmapped_queue","message":"Source queue 'deploy' has no active mapping","queue":"deploy","scope":null,"key":null}]}`,
+			output:  "Unmapped queue:\n* Source queue 'deploy' has no active mapping\n\nNEXT STEPS\n\n1. Queue configuration is frozen during validation. Check whether you can return to preparation before editing mappings or routing:\n\n   cluster-migrator migration readiness prepare_queues\n", wantError: true,
+		},
+		{
+			name: "next forward phase", query: "next",
+			payload: `{"phase":"prepare_queues","target_phase":"validate_queues","ready":true,"status":"no_known_blockers","checked_at":"2026-11-25T02:31:00Z","blocker_samples":[]}`,
+			output:  "READINESS FOR VALIDATE QUEUES\n\nStatus: READY\nLast checked: Wed, 25 Nov 2026 02:31:00 UTC\n\nNEXT STEPS\n\n1. Request the transition when you're ready. The server rechecks readiness before changing phase:\n\n   cluster-migrator migration set-phase validate-queues\n",
+		},
+		{
+			name: "return to preparation", query: "prepare_queues", args: []string{"prepare_queues"},
+			payload: `{"phase":"validate_queues","target_phase":"prepare_queues","ready":true,"blocker_samples":[]}`,
+			output:  "This also admits unmapped source queues again. The server rechecks readiness before changing phase:\n\n   cluster-migrator migration set-phase prepare-queues\n",
+		},
+		{
+			name: "irreversible commitment", query: "next",
+			payload: `{"phase":"validate_queues","target_phase":"cutover_concurrency_groups","ready":true,"blocker_samples":[]}`,
+			output:  "Request irreversible commitment only after validating workloads and receiving confirmation from Buildkite that the safety gates have passed. The server rechecks readiness before changing phase:\n\n   cluster-migrator migration set-phase cutover-concurrency-groups --acknowledge-irreversible\n",
+		},
+		{
+			name: "premature completion", query: "complete", args: []string{"complete"},
+			payload: `{"phase":"prepare_queues","target_phase":"complete","next_phase":"validate_queues","ready":false,"blocker_samples":[{"code":"invalid_phase","message":"Cannot transition"}]}`,
+			output:  "READINESS FOR COMPLETE\n\nStatus: NOT READY\n\nCurrent phase: prepare_queues\nNext phase: validate_queues\n\nCompletion requires the migration to be in migrate_pipelines.\nCompletion blockers were not checked.\n", wantError: true,
+		},
+		{
+			name: "already completed text", query: "next",
+			payload: `{"phase":"complete","target_phase":null,"ready":false,"status":"no_next_phase","blocker_samples":[]}`,
+			output:  "The migration is complete. There is no next phase to check.\n",
+		},
+		{
+			name: "no next phase", query: "next", args: []string{"--json"},
+			payload: `{"phase":"complete","target_phase":null,"ready":false,"status":"no_next_phase","blocker_samples":[]}`,
+			output:  `"target_phase": null`,
+		},
+		{
+			name: "server ignored target", query: "next",
+			payload:   `{"phase":"prepare_queues","target_phase":"complete","ready":false,"status":"blocked"}`,
+			wantError: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("BUILDKITE_API_TOKEN", "secret")
+			t.Setenv("XDG_CACHE_HOME", t.TempDir())
+			requests := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests++
+				if r.Method != http.MethodGet || r.URL.Path != "/v2/organizations/acme/unclustered-to-clustered/migration/readiness" || r.URL.Query().Get("target_phase") != tc.query {
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL)
+				}
+				_, _ = fmt.Fprint(w, tc.payload)
+			}))
+			defer server.Close()
+
+			var stdout, stderr bytes.Buffer
+			args := append([]string{"--endpoint", server.URL, "migration", "readiness"}, tc.args...)
+			err := Run(context.Background(), args, &stdout, &stderr, organizationClient(server.Client()))
+			if (err != nil) != tc.wantError || requests != 1 || stderr.Len() != 0 {
+				t.Fatalf("error=%v requests=%d stderr=%q", err, requests, stderr.String())
+			}
+			if tc.output == "" && stdout.Len() != 0 || !strings.Contains(stdout.String(), tc.output) {
+				t.Fatalf("stdout=%q, want %q", stdout.String(), tc.output)
+			}
+			if tc.name == "premature completion" && stdout.String() != tc.output {
+				t.Fatalf("wrong phase must not suggest next steps: %q", stdout.String())
+			}
+		})
+	}
+}
+
 func TestFinalizeBlockedBuildsTimeout(t *testing.T) {
 	t.Setenv("BUILDKITE_API_TOKEN", "secret")
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
@@ -30,7 +107,7 @@ func TestFinalizeBlockedBuildsTimeout(t *testing.T) {
 	if !errors.Is(err, context.DeadlineExceeded) || stdout.Len() != 0 || stderr.Len() != 0 || requests != 1 {
 		t.Fatalf("error=%v stdout=%q stderr=%q requests=%d, want deadline exceeded, empty output, and one request", err, stdout.String(), stderr.String(), requests)
 	}
-	for _, guidance := range []string{"the request may have been accepted", "A timeout does not cancel server-side work", "Do not retry the mutation until you inspect its state", "cluster-migrator migration status"} {
+	for _, guidance := range []string{"the request may have been accepted", "A timeout does not cancel server-side work", "This check cannot tell you whether the sweep was accepted or finished", "cluster-migrator migration readiness complete"} {
 		if !strings.Contains(err.Error(), guidance) {
 			t.Errorf("error=%q, missing guidance %q", err, guidance)
 		}
@@ -63,93 +140,41 @@ func TestMigrationCompletionTimeout(t *testing.T) {
 func TestMigrationStatusCompletionBlockers(t *testing.T) {
 	const path = "/v2/organizations/acme/unclustered-to-clustered/migration"
 	const payload = `{"phase":"migrate_pipelines","target_phase":"complete","ready":false,"status":"blocked","blocker_sample_limit_per_category":20,"blocker_samples":[{"code":"unclustered_pipeline","message":"Pipeline 'monorepo' must be clustered","queue":null,"scope":null,"key":null},{"code":"unfinished_unclustered_build","message":"Unclustered build 'build-id' must be terminal (state: blocked); request blocked build finalization separately before completing the migration","queue":null,"scope":null,"key":null},{"code":"concurrency_group_migration_incomplete","message":"Concurrency group 'custom/deploy/production' must finish forward cutover and release its hold (state: forward_draining)","queue":null,"scope":"custom","key":"deploy/production"},{"code":"future_blocker","message":"Resolve the new server condition","queue":"release","scope":null,"key":null}]}`
-	for _, flags := range [][]string{nil, {"--json"}} {
-		t.Run(strings.Join(flags, " "), func(t *testing.T) {
-			t.Setenv("BUILDKITE_API_TOKEN", "secret")
-			t.Setenv("XDG_CACHE_HOME", t.TempDir())
-			requests := 0
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				requests++
-				if r.Method != http.MethodGet || r.ContentLength > 0 || r.Header.Get("Authorization") != "Bearer secret" {
-					t.Errorf("unexpected request: %s %s", r.Method, r.URL)
-				}
-				w.Header().Set("Content-Type", "application/json")
-				switch r.URL.Path {
-				case path:
-					_, _ = fmt.Fprint(w, `{"id":"migration-id","destination_cluster_id":"cluster-id","phase":"migrate_pipelines"}`)
-				case path + "/readiness":
-					_, _ = fmt.Fprint(w, payload)
-				default:
-					t.Errorf("unexpected path: %s", r.URL)
-					w.WriteHeader(http.StatusNotFound)
-				}
-			}))
-			defer server.Close()
-			var stdout, stderr bytes.Buffer
-			args := append([]string{"--endpoint", server.URL, "migration", "status"}, flags...)
-			err := Run(context.Background(), args, &stdout, &stderr, organizationClient(server.Client()))
-			if err == nil || err.Error() != "migration has known completion blockers" || requests != 2 || stderr.Len() != 0 {
-				t.Fatalf("error=%v requests=%d stderr=%q", err, requests, stderr.String())
-			}
-			if len(flags) > 0 && flags[0] == "--json" {
-				var got map[string]any
-				if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
-					t.Fatal(err)
-				}
-				var want any
-				_ = json.Unmarshal([]byte(payload), &want)
-				if got["id"] != "migration-id" || !reflect.DeepEqual(got["completion_readiness"], want) {
-					t.Fatalf("JSON lost server data: %s", stdout.String())
-				}
-				return
-			}
-			want := `MIGRATION STATUS
-Migration: migration-id
-Destination: cluster-id
-
-STATUS
-
-Phase: migrate_pipelines
-
-COMPLETION READINESS
-
-Target phase: complete
-Completion is blocked.
-
-BLOCKER SAMPLES
-
-Up to 20 per category; these are samples, not totals.
-
-CODE                                    BLOCKER
-unclustered_pipeline                    Pipeline 'monorepo' must be clustered
-unfinished_unclustered_build            Unclustered build 'build-id' must be terminal (state: blocked); request blocked build finalization separately before completing the migration
-concurrency_group_migration_incomplete  Concurrency group 'custom/deploy/production' must finish forward cutover and release its hold (state: forward_draining)
-future_blocker                          Resolve the new server condition
-
-NEXT STEPS
-
-1. Assess and move remaining unclustered pipelines individually, including archived pipelines. Start with:
-
-   cluster-migrator pipeline readiness <pipeline>
-
-2. Let running work finish normally. If blocked builds need finalization, request it separately:
-
-   cluster-migrator finalize-blocked-builds
-
-3. Inspect the concurrency group's progress:
-
-   cluster-migrator concurrency-group status custom/deploy/production
-
-4. Contact Buildkite to resolve the reported blocker. Queue configuration is frozen; preparation cannot be reopened.
-
-5. Check completion readiness again after resolving blockers:
-
-   cluster-migrator migration status
-`
-			if stdout.String() != want {
-				t.Fatalf("stdout=%q, want %q", stdout.String(), want)
-			}
-		})
+	flags := []string{"--json"}
+	t.Setenv("BUILDKITE_API_TOKEN", "secret")
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.Method != http.MethodGet || r.ContentLength > 0 || r.Header.Get("Authorization") != "Bearer secret" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case path:
+			_, _ = fmt.Fprint(w, `{"id":"migration-id","destination_cluster_id":"cluster-id","phase":"migrate_pipelines"}`)
+		case path + "/readiness":
+			_, _ = fmt.Fprint(w, payload)
+		default:
+			t.Errorf("unexpected path: %s", r.URL)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append([]string{"--endpoint", server.URL, "migration", "status"}, flags...)
+	err := Run(context.Background(), args, &stdout, &stderr, organizationClient(server.Client()))
+	if err == nil || err.Error() != "migration has known completion blockers" || requests != 2 || stderr.Len() != 0 {
+		t.Fatalf("error=%v requests=%d stderr=%q", err, requests, stderr.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	var want any
+	_ = json.Unmarshal([]byte(payload), &want)
+	if got["id"] != "migration-id" || !reflect.DeepEqual(got["completion_readiness"], want) {
+		t.Fatalf("JSON lost server data: %s", stdout.String())
 	}
 }
 
@@ -331,26 +356,7 @@ NEXT STEPS
 
    cluster-migrator migration set-phase cutover-concurrency-groups --acknowledge-irreversible
 `
-	const concurrencyNextSteps = `
-NEXT STEPS
-
-1. Coordinate with Buildkite to identify required groups, then request each cutover separately:
-
-   cluster-migrator concurrency-group cutover <scope>/<key>
-
-2. Inspect concurrency-group migration progress. This lists migration records, not every group that needs cutover:
-
-   cluster-migrator concurrency-group status
-
-3. If progress stalls or an operation fails, contact Buildkite. Queue configuration is frozen and preparation cannot be reopened.
-
-4. Once required group work has drained or moved and cutovers have finished and released their holds, request pipeline-phase entry. This does not move pipelines or finalize builds:
-
-   cluster-migrator migration set-phase migrate-pipelines
-`
 	const completionReadiness = `{"phase":"migrate_pipelines","target_phase":"complete","ready":true,"status":"no_known_blockers","blocker_samples":[],"blocker_sample_limit_per_category":20}`
-	const readyOutput = "MIGRATION STATUS\nMigration: migration-id\nDestination: cluster-id\n\nSTATUS\n\nPhase: migrate_pipelines\n\nCOMPLETION READINESS\n\nTarget phase: complete\nNo known completion blockers. This does not complete the migration.\n"
-	const readyNextSteps = "\nNEXT STEPS\n\n1. Request completion explicitly. The server rechecks readiness when applying it:\n\n   cluster-migrator migration set-phase complete\n"
 	for _, test := range []struct {
 		name      string
 		operation string
@@ -361,12 +367,6 @@ NEXT STEPS
 		wantText  string
 		wantNext  string
 	}{
-		{name: "status preparation", operation: "status", phase: "prepare_queues", wantText: "MIGRATION STATUS\nMigration: migration-id\nDestination: cluster-id\n\nSTATUS\n\nPhase: prepare_queues\n", wantNext: preparationNextSteps},
-		{name: "status validation", operation: "status", phase: "validate_queues", wantText: "MIGRATION STATUS\nMigration: migration-id\nDestination: cluster-id\n\nSTATUS\n\nPhase: validate_queues\n", wantNext: validationNextSteps},
-		{name: "status concurrency cutover", operation: "status", phase: "cutover_concurrency_groups", wantText: "MIGRATION STATUS\nMigration: migration-id\nDestination: cluster-id\n\nSTATUS\n\nPhase: cutover_concurrency_groups\n", wantNext: concurrencyNextSteps},
-		{name: "status pipeline migration", operation: "status", phase: "migrate_pipelines", wantText: readyOutput, wantNext: readyNextSteps},
-		{name: "status complete", operation: "status", phase: "complete", wantText: "MIGRATION STATUS\nMigration: migration-id\nDestination: cluster-id\n\nSTATUS\n\nPhase: complete\n"},
-		{name: "status unknown phase", operation: "status", phase: "future_phase", wantText: "MIGRATION STATUS\nMigration: migration-id\nDestination: cluster-id\n\nSTATUS\n\nPhase: future_phase\n"},
 		{name: "validate", operation: "validate-queues", phase: "validate_queues", wantText: "MIGRATION SET-PHASE VALIDATE-QUEUES\nMigration: migration-id\nDestination: cluster-id\n\nRESULT\n\nQueue validation started. Unmapped source queues are rejected; queue mappings and routing percentages are frozen.\nConcurrency authority is unchanged.\n", wantNext: validationNextSteps},
 		{name: "prepare", operation: "prepare-queues", phase: "prepare_queues", wantText: "MIGRATION SET-PHASE PREPARE-QUEUES\nMigration: migration-id\nDestination: cluster-id\n\nRESULT\n\nQueue preparation reopened. Queue mappings and routing percentages can be changed; unmapped source queues are admitted again.\nConcurrency authority is unchanged.\n", wantNext: preparationNextSteps},
 		{name: "JSON status", operation: "status", phase: "complete", flags: []string{"--json"}},
@@ -458,6 +458,32 @@ NEXT STEPS
 			}
 			if requests != wantRequests || stderr.Len() != 0 {
 				t.Fatalf("requests=%d stderr=%q", requests, stderr.String())
+			}
+		})
+	}
+}
+
+func TestMigrationStatusText(t *testing.T) {
+	for _, tc := range []struct{ phase, next, shown string }{
+		{"validate_queues", "cutover_concurrency_groups", "cutover_concurrency_groups"},
+		{"migrate_pipelines", "complete", "complete"},
+		{"complete", "", "None"},
+	} {
+		t.Run(tc.phase, func(t *testing.T) {
+			t.Setenv("BUILDKITE_API_TOKEN", "secret")
+			t.Setenv("XDG_CACHE_HOME", t.TempDir())
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet || r.URL.Path != "/v2/organizations/acme/unclustered-to-clustered/migration" || r.URL.RawQuery != "include=summary" {
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL)
+				}
+				_, _ = fmt.Fprintf(w, `{"phase":%q,"next_phase":%q,"destination_cluster_id":"id","destination_cluster_name":"production"}`, tc.phase, tc.next)
+			}))
+			defer server.Close()
+			var stdout, stderr bytes.Buffer
+			err := Run(context.Background(), []string{"--endpoint", server.URL, "migration", "status"}, &stdout, &stderr, organizationClient(server.Client()))
+			want := fmt.Sprintf("Destination cluster: production\nCreated: —\nCurrent phase: %s\nNext phase: %s\n", tc.phase, tc.shown)
+			if err != nil || stdout.String() != want || stderr.Len() != 0 {
+				t.Fatalf("error=%v stdout=%q stderr=%q, want %q", err, stdout.String(), stderr.String(), want)
 			}
 		})
 	}

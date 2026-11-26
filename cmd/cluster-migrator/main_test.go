@@ -25,7 +25,7 @@ NEXT STEPS
 
 1. Check remaining completion blockers:
 
-   cluster-migrator migration status
+   cluster-migrator migration readiness complete
 
 2. Once no known completion blockers remain, request migration completion separately. The server rechecks readiness:
 
@@ -556,7 +556,7 @@ func TestHelpAndVersionRemainOnStdout(t *testing.T) {
 	}{
 		{name: "root help", args: []string{"--help"}, contains: "Usage: cluster-migrator "},
 		{name: "queue help", args: []string{"queue", "--help"}, contains: "Usage: cluster-migrator queue "},
-		{name: "finalization help", args: []string{"finalize-blocked-builds", "--help"}, contains: "run cluster-migrator migration status"},
+		{name: "finalization help", args: []string{"finalize-blocked-builds", "--help"}, contains: "run cluster-migrator migration readiness complete"},
 		{name: "version", args: []string{"--version"}, contains: "cluster-migrator dev\n"},
 	}
 
