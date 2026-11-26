@@ -235,10 +235,10 @@ cluster-migrator finalize-blocked-builds
 An accepted request starts server-side processing; it does not confirm that all builds are finalized. Check remaining completion blockers:
 
 ```shell
-cluster-migrator migration status
+cluster-migrator migration readiness complete
 ```
 
-During `migrate_pipelines`, status also requests read-only completion readiness. It shows blocker samples, not totals or progress percentages. A blocked assessment exits non-zero. The readiness endpoint must be deployed; an unavailable assessment is an error, not a phase-only success.
+Readiness shows blocker samples, not totals or progress percentages. A blocked or unavailable assessment exits non-zero. Readiness does not tell you whether a finalization request was accepted or finished.
 
 Once all server prerequisites are met, including all unclustered builds being terminal, request completion explicitly:
 

@@ -37,6 +37,11 @@ func TestMigrationReadiness(t *testing.T) {
 			output:  "This also admits unmapped source queues again. The server rechecks readiness before changing phase:\n\n   cluster-migrator migration set-phase prepare-queues\n",
 		},
 		{
+			name: "irreversible commitment", query: "next",
+			payload: `{"phase":"validate_queues","target_phase":"cutover_concurrency_groups","ready":true,"blocker_samples":[]}`,
+			output:  "Request irreversible commitment only after validating workloads and receiving confirmation from Buildkite that the safety gates have passed. The server rechecks readiness before changing phase:\n\n   cluster-migrator migration set-phase cutover-concurrency-groups --acknowledge-irreversible\n",
+		},
+		{
 			name: "premature completion", query: "complete", args: []string{"complete"},
 			payload: `{"phase":"prepare_queues","target_phase":"complete","next_phase":"validate_queues","ready":false,"blocker_samples":[{"code":"invalid_phase","message":"Cannot transition"}]}`,
 			output:  "READINESS FOR COMPLETE\n\nStatus: NOT READY\n\nCurrent phase: prepare_queues\nNext phase: validate_queues\n\nCompletion requires the migration to be in migrate_pipelines.\nCompletion blockers were not checked.\n", wantError: true,
@@ -102,7 +107,7 @@ func TestFinalizeBlockedBuildsTimeout(t *testing.T) {
 	if !errors.Is(err, context.DeadlineExceeded) || stdout.Len() != 0 || stderr.Len() != 0 || requests != 1 {
 		t.Fatalf("error=%v stdout=%q stderr=%q requests=%d, want deadline exceeded, empty output, and one request", err, stdout.String(), stderr.String(), requests)
 	}
-	for _, guidance := range []string{"the request may have been accepted", "A timeout does not cancel server-side work", "Do not retry the mutation until you inspect its state", "cluster-migrator migration status"} {
+	for _, guidance := range []string{"the request may have been accepted", "A timeout does not cancel server-side work", "This check cannot tell you whether the sweep was accepted or finished", "cluster-migrator migration readiness complete"} {
 		if !strings.Contains(err.Error(), guidance) {
 			t.Errorf("error=%q, missing guidance %q", err, guidance)
 		}

@@ -168,7 +168,7 @@ func (app *Context) printMigrationReadiness(readiness *buildkite.MigrationReadin
 		case "prepare_queues":
 			action = "Return to preparation to edit queue mappings and routing. This also admits unmapped source queues again. The server rechecks readiness before changing phase"
 		case "cutover_concurrency_groups":
-			action = "Request irreversible commitment only after validating workloads. The server rechecks readiness before changing phase"
+			action = "Request irreversible commitment only after validating workloads and receiving confirmation from Buildkite that the safety gates have passed. The server rechecks readiness before changing phase"
 			command += " --acknowledge-irreversible"
 		}
 		return app.printNextSteps([]string{action + ":\n\n   " + command})

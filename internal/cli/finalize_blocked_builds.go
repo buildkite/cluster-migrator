@@ -7,7 +7,7 @@ type FinalizeBlockedBuildsCmd struct{}
 func (cmd *FinalizeBlockedBuildsCmd) Help() string {
 	return `Requires migrate_pipelines, write_clusters and write_builds token scopes, and server-side organization, cluster, and build permissions. The server decides build eligibility.
 
-Acceptance starts a server-side sweep; it does not confirm that all builds are finalized. To check remaining completion blockers, run cluster-migrator migration status. This reports blocker samples, not finalization totals. There is no per-build finalization report endpoint. JSON output is {"accepted": true}, not a completion result. A client timeout does not cancel server-side finalization; check completion readiness before retrying.
+Acceptance starts a server-side sweep; it does not confirm that all builds are finalized. To check remaining completion blockers, run cluster-migrator migration readiness complete. This reports blocker samples, not finalization totals. There is no per-build finalization report endpoint. JSON output is {"accepted": true}, not a completion result. A client timeout does not cancel server-side finalization; readiness cannot tell you whether the sweep was accepted or finished.
 
 Finalization does not impose a permanent reopening boundary on passed or failed builds: normal admission rules still apply, and resumed builds block completion again. Builds canceled by finalization cannot restart, including through synchronous trigger descendants.
 
@@ -27,7 +27,7 @@ func (cmd *FinalizeBlockedBuildsCmd) Run(app *Context) error {
 		return err
 	}
 	return app.printNextSteps([]string{
-		"Check remaining completion blockers:\n\n   cluster-migrator migration status",
+		"Check remaining completion blockers:\n\n   cluster-migrator migration readiness complete",
 		"Once no known completion blockers remain, request migration completion separately. The server rechecks readiness:\n\n   cluster-migrator migration set-phase complete",
 	})
 }

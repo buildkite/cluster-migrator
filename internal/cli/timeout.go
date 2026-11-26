@@ -24,6 +24,9 @@ func (app *Context) timeoutError(parsed *kong.Context, err error) error {
 	} else if !timeout.MutationAttempted {
 		result += " No mutation was attempted."
 	}
+	if parsed.Command() == "finalize-blocked-builds" {
+		next = "Check remaining completion blockers. This check cannot tell you whether the sweep was accepted or finished:"
+	}
 	information := "Unavailable; no successful state observations were retained."
 	if len(app.LastKnown) > 0 {
 		information = strings.Join(app.LastKnown, "\n") + "\nThese values were read before the failed request; they are not confirmed current state."
@@ -51,6 +54,10 @@ func timeoutCommands(parsed *kong.Context) (string, string) {
 	}
 	recovery := "cluster-migrator migration status"
 	switch path := parsed.Command(); {
+	case strings.HasPrefix(path, "migration readiness"):
+		recovery = "cluster-migrator migration readiness"
+	case path == "finalize-blocked-builds":
+		recovery = "cluster-migrator migration readiness complete"
 	case strings.HasPrefix(path, "queue metrics"):
 		recovery = "cluster-migrator queue metrics"
 	case strings.HasPrefix(path, "queue"):
